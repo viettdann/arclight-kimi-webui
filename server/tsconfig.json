@@ -1,0 +1,15 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "types": ["bun"],
+    "lib": ["ES2022"],
+    "paths": {
+      "@/*": ["src/*"],
+      "@shared/*": ["../shared/*"],
+      "shared": ["../shared/index.ts"],
+      "shared/*": ["../shared/*"]
+    }
+  },
+  "include": ["src/**/*", "test/**/*", "drizzle.config.ts"]
+}

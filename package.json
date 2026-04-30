@@ -1,0 +1,33 @@
+{
+  "name": "kimi-webui",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.3.13",
+  "workspaces": [
+    "server",
+    "client",
+    "shared"
+  ],
+  "scripts": {
+    "dev": "turbo run dev",
+    "dev:server": "bun --filter server dev",
+    "dev:client": "bun --filter client dev",
+    "build": "turbo run build",
+    "check": "biome check . && turbo run check",
+    "check:fix": "biome check --write . && turbo run check",
+    "lint": "biome lint .",
+    "lint:fix": "biome lint --write .",
+    "format": "biome format .",
+    "format:fix": "biome format --write .",
+    "typecheck": "turbo run check",
+    "test": "turbo run test",
+    "db:generate": "bun --filter server db:generate",
+    "db:migrate": "bun --filter server db:migrate",
+    "db:studio": "bun --filter server db:studio"
+  },
+  "devDependencies": {
+    "turbo": "2.9.6",
+    "typescript": "^5.9.3",
+    "@biomejs/biome": "2.4.13"
+  }
+}

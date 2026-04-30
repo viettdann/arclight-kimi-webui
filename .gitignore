@@ -1,0 +1,27 @@
+node_modules/
+dist/
+.turbo/
+.vite/
+.cache/
+
+# Env
+.env
+.env.*.local
+
+# OS
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# Editor
+.vscode/
+.idea/
+
+# Bun — commit `bun.lock` (text) for reproducible installs; ignore legacy binary lockfile.
+bun.lockb
+
+# Certs — whitelist only the CA bundle, ignore everything else (private keys, etc.)
+certs/*
+!certs/ca.crt

@@ -1,0 +1,218 @@
+// Kimi WebUI shared contract — copied from design doc.
+// Server and client must agree on this surface verbatim.
+
+// ─────────────────────────── WebSocket envelope ───────────────────────────
+
+export interface WSMessage<T = unknown> {
+  type: WSMessageType;
+  payload: T;
+  sessionId: string;
+  /** Server-assigned monotonic counter per session. */
+  seq: number;
+  /** Unix epoch ms. */
+  timestamp: number;
+}
+
+export type WSMessageType =
+  // server → client
+  | 'snapshot'
+  | 'replay_done'
+  | 'turn_begin'
+  | 'step_begin'
+  | 'text_delta'
+  | 'thinking_delta'
+  | 'tool_call'
+  | 'tool_call_delta'
+  | 'tool_result'
+  | 'subagent_event'
+  | 'status_update'
+  | 'approval_request'
+  | 'turn_end'
+  | 'session_state'
+  | 'title_update'
+  | 'error'
+  // client → server
+  | 'subscribe'
+  | 'create_session'
+  | 'resume_session'
+  | 'send_message'
+  | 'approve_tool'
+  | 'interrupt_turn'
+  | 'close_session';
+
+// ─────────────────────────── Domain types ───────────────────────────
+
+export type SessionStatus = 'active' | 'idle' | 'closed';
+
+export type MessageRole = 'user' | 'assistant' | 'tool-call' | 'tool-result' | 'approval';
+
+export interface MessageDTO {
+  id: string;
+  role: MessageRole;
+  content: string | null;
+  toolName: string | null;
+  toolInput: unknown;
+  /** Tool-result rows only; `null` for other roles. */
+  isError: boolean | null;
+  thinking: string | null;
+  createdAt: string;
+}
+
+export interface SessionListItem {
+  id: string;
+  workDir: string;
+  title: string | null;
+  model: string | null;
+  thinking: boolean;
+  status: SessionStatus;
+  totalTokens: number;
+  createdAt: string;
+  lastActiveAt: string;
+}
+
+export interface FileEntry {
+  name: string;
+  type: 'file' | 'dir';
+  size: number;
+  /** Unix epoch ms. */
+  mtime: number;
+}
+
+// ─────────────────────────── Server → Client payloads ───────────────────────────
+
+export interface SnapshotPayload {
+  messages: MessageDTO[];
+  status: SessionStatus;
+  totalTokens: number;
+  title: string | null;
+}
+
+export interface ReplayDonePayload {
+  lastSeq: number;
+}
+
+export interface TurnBeginPayload {
+  userInput: string;
+}
+
+export interface StepBeginPayload {
+  stepNumber: number;
+}
+
+export interface TextDeltaPayload {
+  text: string;
+}
+
+export interface ThinkingDeltaPayload {
+  thinking: string;
+  encrypted?: boolean;
+}
+
+export interface ToolCallPayload {
+  id: string;
+  name: string;
+  arguments: unknown;
+}
+
+export interface ToolCallDeltaPayload {
+  id: string;
+  argumentsPart: string;
+}
+
+export interface ToolResultPayload {
+  toolCallId: string;
+  output: unknown;
+  isError: boolean;
+  message?: string;
+  displayBlocks?: unknown[];
+}
+
+export interface SubagentEventPayload {
+  parentToolCallId: string;
+  event: unknown;
+}
+
+export interface StatusUpdatePayload {
+  tokenUsage: number;
+  contextUsage: number;
+}
+
+export interface ApprovalRequestPayload {
+  id: string;
+  action: string;
+  description: string;
+  requestId: string;
+}
+
+export type TurnEndStatus = 'success' | 'error' | 'interrupted';
+
+export interface TurnEndPayload {
+  status: TurnEndStatus;
+  steps: number;
+}
+
+export interface SessionStatePayload {
+  state: SessionStatus;
+}
+
+export interface TitleUpdatePayload {
+  title: string;
+}
+
+export interface ErrorPayload {
+  code: string;
+  message: string;
+  retryable: boolean;
+}
+
+// ─────────────────────────── Client → Server payloads ───────────────────────────
+
+export interface SubscribePayload {
+  sessionId: string;
+  /** Last seq client has applied. Omitted on first connect. */
+  lastSeq?: number;
+}
+
+export interface CreateSessionPayload {
+  workDir: string;
+  model?: string;
+  thinking?: boolean;
+}
+
+export interface ResumeSessionPayload {
+  sessionId: string;
+}
+
+export interface SendMessagePayload {
+  content: string;
+}
+
+export type ApprovalResponse = 'approve' | 'deny' | 'always_allow';
+
+export interface ApproveToolPayload {
+  requestId: string;
+  response: ApprovalResponse;
+}
+
+export type InterruptTurnPayload = Record<string, never>;
+export type CloseSessionPayload = Record<string, never>;
+
+// ─────────────────────────── REST DTOs ───────────────────────────
+
+export interface HealthResponse {
+  ok: true;
+  version: string;
+}
+
+export interface FileListResponse {
+  entries: FileEntry[];
+}
+
+export interface FileUploadResponse {
+  written: string;
+  size: number;
+}
+
+export interface SessionListResponse {
+  sessions: SessionListItem[];
+}
