@@ -72,7 +72,7 @@ export interface SessionListItem {
 
 export interface FileEntry {
   name: string;
-  type: 'file' | 'dir';
+  type: 'file' | 'dir' | 'other';
   size: number;
   /** Unix epoch ms. */
   mtime: number;
@@ -211,6 +211,9 @@ export interface FileListResponse {
   entries: FileEntry[];
 }
 
+// Multipart upload field-order convention: clients MUST send the `path` field
+// before the `file` part. The server streams the file straight to disk and
+// rejects with 400 if the file part arrives without a known `path`.
 export interface FileUploadResponse {
   written: string;
   size: number;

@@ -26,12 +26,6 @@ const envSchema = z.object({
 
 type ParsedEnv = z.infer<typeof envSchema>;
 
-const parsed = envSchema.safeParse(process.env);
-if (!parsed.success) {
-  process.stderr.write(`Invalid environment: ${JSON.stringify(parsed.error.issues, null, 2)}\n`);
-  process.exit(1);
-}
-
 function resolveWorkspaceRoot(value: string | undefined, nodeEnv: ParsedEnv['NODE_ENV']): string {
   if (value && value.length > 0) return path.resolve(value);
   if (nodeEnv === 'production') {
@@ -43,7 +37,21 @@ function resolveWorkspaceRoot(value: string | undefined, nodeEnv: ParsedEnv['NOD
 
 export type Env = ParsedEnv & { WORKSPACE_ROOT: string };
 
-export const env: Env = {
-  ...parsed.data,
-  WORKSPACE_ROOT: resolveWorkspaceRoot(parsed.data.WORKSPACE_ROOT, parsed.data.NODE_ENV),
-};
+// Build an Env from a (partial) source. Production code calls this once at
+// boot via the `env` singleton below; tests call it per-test with overrides
+// (e.g. `loadEnv({ MAX_UPLOAD_BYTES: '1024', WORKSPACE_ROOT: tmpDir })`) and
+// inject the result into route factories.
+export function loadEnv(overrides: NodeJS.ProcessEnv = {}): Env {
+  const source: NodeJS.ProcessEnv = { ...process.env, ...overrides };
+  const parsed = envSchema.safeParse(source);
+  if (!parsed.success) {
+    process.stderr.write(`Invalid environment: ${JSON.stringify(parsed.error.issues, null, 2)}\n`);
+    process.exit(1);
+  }
+  return {
+    ...parsed.data,
+    WORKSPACE_ROOT: resolveWorkspaceRoot(parsed.data.WORKSPACE_ROOT, parsed.data.NODE_ENV),
+  };
+}
+
+export const env: Env = loadEnv();
