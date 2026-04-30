@@ -1,6 +1,6 @@
 import type { Session, Turn } from '@moonshot-ai/kimi-agent-sdk';
 import type { ServerWebSocket } from 'bun';
-import type { ApprovalRequestPayload } from 'shared/types';
+import type { ApprovalRequestPayload, StatusUpdatePayload } from 'shared/types';
 import { createEventBuffer, type EventBuffer } from '../lib/event-buffer';
 import type { TranslatorState } from '../ws/events';
 import { createTranslatorState } from '../ws/events';
@@ -32,6 +32,17 @@ export interface ActiveSession {
   lastSeq: number;
   /** Unix epoch ms of last outbound activity. */
   lastActivity: number;
+  /** Latest StatusUpdate seen this turn; flushed to sessions.totalTokens at turn end. */
+  lastStatusUpdate: StatusUpdatePayload | null;
+  /** Maps tool_call.id → tool name; consumed when the matching tool_result fires. */
+  toolNameByCallId: Map<string, string>;
+  /**
+   * Per-session mutex chain serializing `backupAfterTurn`. The pump appends
+   * `await backupMutex` to a chained promise so concurrent post-turn flushes
+   * (should never happen in 5a but defensive against future steering paths)
+   * cannot interleave `wireByteOffset` updates.
+   */
+  backupMutex: Promise<void>;
 }
 
 export interface RegisterArgs {
@@ -43,9 +54,13 @@ export interface RegisterArgs {
   bufferCapacity?: number;
 }
 
+export type RestoreFn = (sessionId: string) => Promise<ActiveSession>;
+
 export class KimiSessionManager {
   private readonly sessions = new Map<string, ActiveSession>();
   private readonly byUser = new Map<string, Set<string>>();
+  /** In-flight restore promises keyed by sessionId — invariant #3. */
+  private readonly restoring = new Map<string, Promise<ActiveSession>>();
 
   /** Insert a freshly created/restored session. Throws on duplicate id. */
   register(args: RegisterArgs): ActiveSession {
@@ -65,6 +80,9 @@ export class KimiSessionManager {
       pendingApprovals: new Map(),
       lastSeq: 0,
       lastActivity: Date.now(),
+      lastStatusUpdate: null,
+      toolNameByCallId: new Map(),
+      backupMutex: Promise.resolve(),
     };
     this.sessions.set(args.sessionId, active);
     let userSet = this.byUser.get(args.userId);
@@ -124,6 +142,53 @@ export class KimiSessionManager {
 
   detachWS(active: ActiveSession, ws: ServerWebSocket<WSData>): void {
     active.wsSet.delete(ws);
+  }
+
+  /**
+   * Remove `ws` from every session it was attached to. Used by the WS close
+   * handler — pump keeps running, just no more sockets to fan out to. Returns
+   * the count of sessions touched (for diagnostics).
+   */
+  detachAllWS(ws: ServerWebSocket<WSData>): number {
+    let touched = 0;
+    for (const active of this.sessions.values()) {
+      if (active.wsSet.delete(ws)) touched += 1;
+    }
+    return touched;
+  }
+
+  /**
+   * Lazy lookup with shared in-flight cache (invariant #3). If the session is
+   * already in memory and owned by `userId`, return it immediately. Otherwise
+   * call `restore(sessionId)` exactly once for concurrent waiters; on success,
+   * compare ownership and return null on mismatch (uniform `not_found`).
+   *
+   * `restore` is responsible for calling `register` itself.
+   */
+  async getOrRestore(
+    userId: string,
+    sessionId: string,
+    restore: RestoreFn,
+  ): Promise<ActiveSession | null> {
+    const inMemory = this.sessions.get(sessionId);
+    if (inMemory) {
+      return inMemory.userId === userId ? inMemory : null;
+    }
+    let pending = this.restoring.get(sessionId);
+    if (!pending) {
+      pending = restore(sessionId).finally(() => {
+        this.restoring.delete(sessionId);
+      });
+      this.restoring.set(sessionId, pending);
+    }
+    let active: ActiveSession;
+    try {
+      active = await pending;
+    } catch {
+      // restoreFn throws on missing/closed sessions; surface as not_found.
+      return null;
+    }
+    return active.userId === userId ? active : null;
   }
 
   /** Total in-memory session count. Diagnostic / metrics. */

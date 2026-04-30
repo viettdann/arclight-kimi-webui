@@ -1,8 +1,10 @@
 import type { Server } from 'bun';
-import { auth } from '../auth';
+import { auth, slug } from '../auth';
 
 export type WSData = {
   userId: string;
+  /** `slug(email)` — matches user-root dir created by auth + routes/files. */
+  userSlug: string;
   authSessionId: string;
 };
 
@@ -20,6 +22,7 @@ export async function handleWsUpgrade(
 
   const data: WSData = {
     userId: session.user.id,
+    userSlug: slug(session.user.email),
     authSessionId: session.session.id,
   };
   if (server.upgrade(req, { data })) return undefined;

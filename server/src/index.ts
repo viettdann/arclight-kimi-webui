@@ -6,6 +6,8 @@ import { env } from './env';
 import { logger } from './lib/logger';
 import filesRoutes from './routes/files';
 import sessionsRoutes from './routes/sessions';
+import { sessionManager } from './services/session-manager';
+import { handleMessage } from './ws/handlers';
 import { handleWsUpgrade, type WSData } from './ws/upgrade';
 
 const SERVICE_VERSION = '0.0.0';
@@ -34,8 +36,14 @@ const server = Bun.serve<WSData>({
     return app.fetch(req);
   },
   websocket: {
-    message() {
-      // Handlers land at MVP-5.
+    async message(ws, raw) {
+      await handleMessage(ws, raw);
+    },
+    close(ws) {
+      // WS close ≠ session close (invariant #5). Pump keeps running; events
+      // accumulate in the per-session ring buffer. Just drop this socket from
+      // every wsSet it was attached to.
+      sessionManager.detachAllWS(ws);
     },
   },
 });
