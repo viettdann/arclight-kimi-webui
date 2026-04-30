@@ -144,7 +144,9 @@ export interface ApprovalRequestPayload {
   requestId: string;
 }
 
-export type TurnEndStatus = 'success' | 'error' | 'interrupted';
+// Mirrors `RunResult.status` from `@moonshot-ai/kimi-agent-sdk`. Pump errors
+// (thrown during iteration) surface via the `error` event, not `turn_end`.
+export type TurnEndStatus = 'finished' | 'cancelled' | 'max_steps_reached';
 
 export interface TurnEndPayload {
   status: TurnEndStatus;
@@ -187,7 +189,8 @@ export interface SendMessagePayload {
   content: string;
 }
 
-export type ApprovalResponse = 'approve' | 'deny' | 'always_allow';
+// Mirrors `ApprovalResponse` from `@moonshot-ai/kimi-agent-sdk`.
+export type ApprovalResponse = 'approve' | 'approve_for_session' | 'reject';
 
 export interface ApproveToolPayload {
   requestId: string;
