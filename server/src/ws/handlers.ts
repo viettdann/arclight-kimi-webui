@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import type { ServerWebSocket } from 'bun';
-import { eq } from 'drizzle-orm';
 import type {
   ApprovalResponse,
   ApproveToolPayload,
@@ -17,10 +16,11 @@ import type {
 } from 'shared/types';
 import { type DB, db, schema } from '../db';
 import { env } from '../env';
-import { logger } from '../lib/logger';
+import { auditLog as defaultAuditLog, logger } from '../lib/logger';
 import { broadcastEvent, sendDirect } from '../lib/ws-broadcast';
 import { createKimi, pumpTurn, restoreFromBackup } from '../services/kimi-session';
 import { insertUserMessage } from '../services/messages';
+import { closeActiveSession } from '../services/session-lifecycle';
 import {
   type ActiveSession,
   sessionManager as defaultManager,
@@ -57,23 +57,35 @@ interface HandlerDeps {
   db: DB;
   manager: KimiSessionManager;
   restore: RestoreInjection;
+  auditLog: typeof defaultAuditLog;
 }
 
 const defaultRestore: RestoreInjection = (sessionId, mgr, dbh) =>
   restoreFromBackup({ sessionId, manager: mgr, db: dbh });
 
-let deps: HandlerDeps = { db, manager: defaultManager, restore: defaultRestore };
+let deps: HandlerDeps = {
+  db,
+  manager: defaultManager,
+  restore: defaultRestore,
+  auditLog: defaultAuditLog,
+};
 
 /** Test seam: swap module-level deps. Pass `null` to reset to defaults. */
 export function setHandlerDeps(next: Partial<HandlerDeps> | null): void {
   if (next === null) {
-    deps = { db, manager: defaultManager, restore: defaultRestore };
+    deps = {
+      db,
+      manager: defaultManager,
+      restore: defaultRestore,
+      auditLog: defaultAuditLog,
+    };
     return;
   }
   deps = {
     db: next.db ?? db,
     manager: next.manager ?? defaultManager,
     restore: next.restore ?? defaultRestore,
+    auditLog: next.auditLog ?? defaultAuditLog,
   };
 }
 
@@ -328,22 +340,14 @@ async function handleCloseSession(ws: WS, sessionId: string): Promise<void> {
     sendError(ws, 'not_found', sessionId);
     return;
   }
-  await active.kimiSession.close();
-  await deps.db
-    .update(schema.sessions)
-    .set({ status: 'closed' })
-    .where(eq(schema.sessions.id, active.sessionId));
-  broadcastEvent<SessionStatePayload>(active, 'session_state', { state: 'closed' }, deps.manager);
-  // Snapshot wsSet first — closing the socket may invalidate the iterator.
-  const sockets = [...active.wsSet];
-  for (const sock of sockets) {
-    try {
-      sock.close(1000, 'session closed');
-    } catch {
-      // socket already gone
-    }
-  }
-  deps.manager.unregister(active.sessionId);
+  // Defer to the shared lifecycle helper — same teardown order as REST.
+  // Helper does NOT close attached sockets; clients receive
+  // `session_state{closed, reason:'ws'}` and decide whether to drop the socket.
+  await closeActiveSession(
+    active,
+    { manager: deps.manager, db: deps.db, auditLog: deps.auditLog },
+    { reason: 'ws' },
+  );
 }
 
 // ─────────────────────────── 5b handlers ───────────────────────────

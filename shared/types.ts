@@ -153,8 +153,13 @@ export interface TurnEndPayload {
   steps: number;
 }
 
+/** Origin of a `session_state` transition. Set when `state === 'closed'`. */
+export type SessionStateReason = 'ws' | 'rest' | 'system';
+
 export interface SessionStatePayload {
   state: SessionStatus;
+  /** Origin of close. Present iff state === 'closed'. */
+  reason?: SessionStateReason;
 }
 
 export interface TitleUpdatePayload {

@@ -43,6 +43,11 @@ export interface ActiveSession {
    * cannot interleave `wireByteOffset` updates.
    */
   backupMutex: Promise<void>;
+  /**
+   * @internal Synchronous "close in progress" flag. Read/written ONLY through
+   * `KimiSessionManager.tryBeginClose`. Pure event-loop semantics — no atomics.
+   */
+  closing: boolean;
 }
 
 export interface RegisterArgs {
@@ -83,6 +88,7 @@ export class KimiSessionManager {
       lastStatusUpdate: null,
       toolNameByCallId: new Map(),
       backupMutex: Promise.resolve(),
+      closing: false,
     };
     this.sessions.set(args.sessionId, active);
     let userSet = this.byUser.get(args.userId);
@@ -121,6 +127,22 @@ export class KimiSessionManager {
   /** True iff sessionId exists in memory regardless of owner. Internal use. */
   hasSession(sessionId: string): boolean {
     return this.sessions.has(sessionId);
+  }
+
+  /**
+   * Atomically claim teardown ownership for `sessionId`. Returns `true` for
+   * the winning caller, `false` for any concurrent loser or for sessions that
+   * are already gone. Sets `active.closing = true` synchronously — pure event-
+   * loop semantics, no atomics.
+   *
+   * Caller is responsible for the rest of teardown (drain, SDK close, DB
+   * update, broadcast, audit, unregister).
+   */
+  tryBeginClose(sessionId: string): boolean {
+    const active = this.sessions.get(sessionId);
+    if (!active || active.closing) return false;
+    active.closing = true;
+    return true;
   }
 
   /** Snapshot of sessionIds owned by user (in insertion order). */

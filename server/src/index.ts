@@ -2,10 +2,11 @@ import { Hono } from 'hono';
 import type { HealthResponse } from 'shared/types';
 import { auth } from './auth';
 import { type AuthVariables, sessionMiddleware } from './auth/middleware';
+import { db } from './db';
 import { env } from './env';
-import { logger } from './lib/logger';
+import { auditLog, logger } from './lib/logger';
 import filesRoutes from './routes/files';
-import sessionsRoutes from './routes/sessions';
+import { createSessionsRouter } from './routes/sessions';
 import { sessionManager } from './services/session-manager';
 import { handleMessage } from './ws/handlers';
 import { handleWsUpgrade, type WSData } from './ws/upgrade';
@@ -23,7 +24,7 @@ app.get('/api/health', (c) => {
 });
 
 app.route('/api/files', filesRoutes);
-app.route('/api/sessions', sessionsRoutes);
+app.route('/api/sessions', createSessionsRouter({ db, manager: sessionManager, auditLog }));
 
 const server = Bun.serve<WSData>({
   port: env.PORT,

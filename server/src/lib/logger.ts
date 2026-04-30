@@ -1,4 +1,5 @@
 import { pino } from 'pino';
+import type { SessionStateReason } from 'shared/types';
 import { env } from '../env';
 
 // Only attach the pino-pretty worker transport in dev. In test mode we want
@@ -26,13 +27,15 @@ export type Logger = typeof logger;
 
 // ─────────────────────────── Audit log ───────────────────────────
 
-export type AuditAction = 'upload' | 'download';
+export type AuditAction = 'upload' | 'download' | 'session_close';
 
 export interface AuditEvent {
   userId: string;
   action: AuditAction;
   path: string;
   bytes: number;
+  /** For `session_close`: which path triggered the close. */
+  source?: SessionStateReason;
 }
 
 const auditLogger = logger.child({ audit: true });
