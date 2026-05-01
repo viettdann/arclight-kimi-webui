@@ -7,7 +7,7 @@ import type {
   Turn,
 } from '@moonshot-ai/kimi-agent-sdk';
 import type { ServerWebSocket } from 'bun';
-import type { WSMessage } from 'shared/types';
+import type { ErrorPayload, WSMessage } from 'shared/types';
 import type { DB } from '../src/db';
 import type { WSData } from '../src/ws/upgrade';
 
@@ -41,6 +41,11 @@ export class FakeWS {
 
 export function asWS(f: FakeWS): ServerWebSocket<WSData> {
   return f as unknown as ServerWebSocket<WSData>;
+}
+
+/** Convenience: pull every `error`-typed envelope out of a FakeWS, typed. */
+export function wsErrors(ws: FakeWS): WSMessage<ErrorPayload>[] {
+  return ws.parsed().filter((m) => m.type === 'error') as WSMessage<ErrorPayload>[];
 }
 
 // ─────────────────────────── Stub Kimi Session ───────────────────────────
@@ -80,6 +85,16 @@ export interface ControlledTurn {
   push(ev: StreamEvent): void;
   end(result: RunResult): void;
   approveCalls: Array<{ requestId: string; response: ApprovalResponse }>;
+  respondQuestionCalls: Array<{
+    rpcRequestId: string;
+    questionRequestId: string;
+    answers: Record<string, string>;
+  }>;
+  steerCalls: string[];
+  /** Make the next `turn.respondQuestion` call reject with the given error (one-shot). */
+  failNextRespondQuestion(err: Error): void;
+  /** Make the next `turn.steer` call reject with the given error (one-shot). */
+  failNextSteer(err: Error): void;
   interruptCalls: number;
 }
 
@@ -123,6 +138,10 @@ export function makeControlledTurn(): ControlledTurn {
   };
 
   const approveCalls: ControlledTurn['approveCalls'] = [];
+  const respondQuestionCalls: ControlledTurn['respondQuestionCalls'] = [];
+  const steerCalls: string[] = [];
+  let nextRespondError: Error | null = null;
+  let nextSteerError: Error | null = null;
   let interruptCalls = 0;
 
   const turn = {
@@ -134,8 +153,28 @@ export function makeControlledTurn(): ControlledTurn {
     approve: async (requestId: string, response: ApprovalResponse) => {
       approveCalls.push({ requestId, response });
     },
-    respondQuestion: async () => {},
-    steer: async (_content: string | ContentPart[]) => {},
+    respondQuestion: async (
+      rpcRequestId: string,
+      questionRequestId: string,
+      answers: Record<string, string>,
+    ) => {
+      if (nextRespondError !== null) {
+        const e = nextRespondError;
+        nextRespondError = null;
+        throw e;
+      }
+      respondQuestionCalls.push({ rpcRequestId, questionRequestId, answers });
+    },
+    steer: async (content: string | ContentPart[]) => {
+      if (nextSteerError !== null) {
+        const e = nextSteerError;
+        nextSteerError = null;
+        throw e;
+      }
+      // SDK's `ContentPart` resolves to `unknown` here (zod major mismatch);
+      // tests only pass strings, so stringify non-string args defensively.
+      steerCalls.push(typeof content === 'string' ? content : JSON.stringify(content));
+    },
   } as unknown as Turn;
 
   return {
@@ -151,6 +190,14 @@ export function makeControlledTurn(): ControlledTurn {
       drain();
     },
     approveCalls,
+    respondQuestionCalls,
+    steerCalls,
+    failNextRespondQuestion(err: Error) {
+      nextRespondError = err;
+    },
+    failNextSteer(err: Error) {
+      nextSteerError = err;
+    },
     get interruptCalls() {
       return interruptCalls;
     },

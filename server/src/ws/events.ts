@@ -1,8 +1,15 @@
 import type { StreamEvent } from '@moonshot-ai/kimi-agent-sdk';
 import type {
   ApprovalRequestPayload,
+  CompactionBeginPayload,
+  CompactionEndPayload,
+  ParseErrorPayload,
+  QuestionItemDTO,
+  QuestionRequestPayload,
   StatusUpdatePayload,
+  SteerInputPayload,
   StepBeginPayload,
+  StepInterruptedPayload,
   SubagentEventPayload,
   TextDeltaPayload,
   ThinkingDeltaPayload,
@@ -129,9 +136,57 @@ export function translateStreamEvent(
       return { type: 'approval_request', payload };
     }
 
-    // No-op for MVP: TurnEnd (caller emits from RunResult), StepInterrupted,
-    // CompactionBegin/End, HookTriggered/Resolved/Request, SteerInput,
-    // ApprovalResponse, ToolCallRequest, QuestionRequest, ParseError.
+    case 'QuestionRequest': {
+      const payload: QuestionRequestPayload = {
+        id: ev.payload.tool_call_id,
+        requestId: ev.payload.id,
+        questions: ev.payload.questions.map(normalizeQuestion),
+      };
+      return { type: 'question_request', payload };
+    }
+
+    case 'StepInterrupted': {
+      const payload: StepInterruptedPayload = {};
+      return { type: 'step_interrupted', payload };
+    }
+
+    case 'CompactionBegin': {
+      const payload: CompactionBeginPayload = {};
+      return { type: 'compaction_begin', payload };
+    }
+
+    case 'CompactionEnd': {
+      const payload: CompactionEndPayload = {};
+      return { type: 'compaction_end', payload };
+    }
+
+    case 'SteerInput': {
+      const payload: SteerInputPayload = {
+        content: contentPartsToText(ev.payload.user_input as string | ContentPart[]),
+      };
+      return { type: 'steer_input', payload };
+    }
+
+    case 'ParseError': {
+      const payload: ParseErrorPayload = {
+        code: ev.payload.code,
+        message: ev.payload.message,
+        ...(ev.payload.rawType ? { rawType: ev.payload.rawType } : {}),
+      };
+      return { type: 'parse_error', payload };
+    }
+
+    case 'error': {
+      const payload: ParseErrorPayload = {
+        code: ev.code,
+        message: ev.message,
+        ...(ev.raw ? { raw: ev.raw } : {}),
+      };
+      return { type: 'parse_error', payload };
+    }
+
+    // No-op for MVP: TurnEnd (caller emits from RunResult), HookTriggered,
+    // HookResolved, ApprovalResponse, ToolCallRequest, HookRequest.
     default:
       return null;
   }
@@ -162,4 +217,24 @@ function contentPartsToText(input: string | ContentPart[]): string {
       return '';
     })
     .join('');
+}
+
+// SDK ships `QuestionItem` in snake_case (`multi_select`); the wire protocol
+// uses camelCase. Normalize once here so downstream payloads stay in protocol
+// shape and clients never see `multi_select`.
+function normalizeQuestion(q: {
+  question: string;
+  header?: string;
+  options: { label: string; description?: string }[];
+  multi_select?: boolean;
+}): QuestionItemDTO {
+  return {
+    question: q.question,
+    ...(q.header != null ? { header: q.header } : {}),
+    options: q.options.map((o) => ({
+      label: o.label,
+      ...(o.description != null ? { description: o.description } : {}),
+    })),
+    ...(q.multi_select != null ? { multiSelect: q.multi_select } : {}),
+  };
 }

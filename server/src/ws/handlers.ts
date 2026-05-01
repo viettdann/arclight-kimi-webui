@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import type { ServerWebSocket } from 'bun';
 import type {
+  AnswerQuestionPayload,
   ApprovalResponse,
   ApproveToolPayload,
   CreateSessionPayload,
@@ -10,6 +11,7 @@ import type {
   ResumeSessionPayload,
   SendMessagePayload,
   SessionStatePayload,
+  SteerInputPayload,
   SubscribePayload,
   WSMessage,
   WSMessageType,
@@ -38,6 +40,8 @@ type RestoreInjection = (
   db: DB,
 ) => Promise<ActiveSession>;
 
+type CreateKimiInjection = typeof createKimi;
+
 // Client→server WS message handlers. Single dispatcher entrypoint
 // `handleMessage(ws, raw)`; each branch covers one client message type.
 //
@@ -61,6 +65,7 @@ interface HandlerDeps {
   manager: KimiSessionManager;
   restore: RestoreInjection;
   auditLog: typeof defaultAuditLog;
+  createKimi: CreateKimiInjection;
 }
 
 const defaultRestore: RestoreInjection = (sessionId, mgr, dbh) =>
@@ -71,6 +76,7 @@ let deps: HandlerDeps = {
   manager: defaultManager,
   restore: defaultRestore,
   auditLog: defaultAuditLog,
+  createKimi,
 };
 
 /** Test seam: swap module-level deps. Pass `null` to reset to defaults. */
@@ -81,6 +87,7 @@ export function setHandlerDeps(next: Partial<HandlerDeps> | null): void {
       manager: defaultManager,
       restore: defaultRestore,
       auditLog: defaultAuditLog,
+      createKimi,
     };
     return;
   }
@@ -89,6 +96,7 @@ export function setHandlerDeps(next: Partial<HandlerDeps> | null): void {
     manager: next.manager ?? defaultManager,
     restore: next.restore ?? defaultRestore,
     auditLog: next.auditLog ?? defaultAuditLog,
+    createKimi: next.createKimi ?? createKimi,
   };
 }
 
@@ -200,6 +208,16 @@ export async function handleMessage(ws: WS, raw: string | Buffer): Promise<void>
       case 'approve_tool':
         await handleApproveTool(ws, sessionId, parsed.payload as ApproveToolPayload | undefined);
         return;
+      case 'answer_question':
+        await handleAnswerQuestion(
+          ws,
+          sessionId,
+          parsed.payload as AnswerQuestionPayload | undefined,
+        );
+        return;
+      case 'steer_input':
+        await handleSteerInput(ws, sessionId, parsed.payload as SteerInputPayload | undefined);
+        return;
       case 'interrupt_turn':
         await handleInterruptTurn(ws, sessionId);
         return;
@@ -233,10 +251,11 @@ async function handleCreateSession(
 
   let kimi: ReturnType<typeof createKimi>;
   try {
-    kimi = createKimi({
+    kimi = deps.createKimi({
       workDir,
       ...(payload.model ? { model: payload.model } : {}),
       ...(payload.thinking != null ? { thinking: payload.thinking } : {}),
+      ...(payload.yoloMode != null ? { yoloMode: payload.yoloMode } : {}),
     });
   } catch (err) {
     logger.error({ err, workDir }, 'createSession failed');
@@ -254,6 +273,7 @@ async function handleCreateSession(
     workDir,
     model: payload.model ?? null,
     thinking: payload.thinking ?? false,
+    yoloMode: payload.yoloMode ?? false,
     status: 'active',
     kimiSessionId,
     title: null,
@@ -348,6 +368,84 @@ async function handleApproveTool(
   // SDK signature is positional: turn.approve(requestId, response).
   await pending.turn.approve(pending.requestId, payload.response as ApprovalResponse);
   active.pendingApprovals.delete(payload.requestId);
+}
+
+function isStringRecord(v: unknown): v is Record<string, string> {
+  if (v === null || typeof v !== 'object' || Array.isArray(v)) return false;
+  for (const val of Object.values(v as Record<string, unknown>)) {
+    if (typeof val !== 'string') return false;
+  }
+  return true;
+}
+
+async function handleAnswerQuestion(
+  ws: WS,
+  sessionId: string,
+  payload: AnswerQuestionPayload | undefined,
+): Promise<void> {
+  if (!sessionId) {
+    sendError(ws, 'bad_request');
+    return;
+  }
+  if (!payload || typeof payload.requestId !== 'string' || !isStringRecord(payload.answers)) {
+    sendError(ws, 'bad_request', sessionId);
+    return;
+  }
+  const active = deps.manager.getForUser(ws.data.userId, sessionId);
+  if (!active) {
+    sendError(ws, 'not_found', sessionId);
+    return;
+  }
+  const pending = active.pendingQuestions.get(payload.requestId);
+  if (!pending) {
+    sendError(ws, 'not_found', sessionId);
+    return;
+  }
+  try {
+    // SDK signature: respondQuestion(rpcRequestId, questionRequestId, answers).
+    // Per assumption A1 the two ids are equal — both round-tripped from the
+    // wire `QuestionRequest.id`.
+    await pending.turn.respondQuestion(
+      pending.rpcRequestId,
+      pending.questionRequestId,
+      payload.answers,
+    );
+  } catch (err) {
+    logger.error({ err, sessionId, requestId: payload.requestId }, 'respondQuestion failed');
+    sendError(ws, 'answer_failed', sessionId, 'failed to forward answer to agent', true);
+    return;
+  }
+  active.pendingQuestions.delete(payload.requestId);
+}
+
+async function handleSteerInput(
+  ws: WS,
+  sessionId: string,
+  payload: SteerInputPayload | undefined,
+): Promise<void> {
+  if (!sessionId) {
+    sendError(ws, 'bad_request');
+    return;
+  }
+  if (!payload || typeof payload.content !== 'string' || payload.content.length === 0) {
+    sendError(ws, 'bad_request', sessionId);
+    return;
+  }
+  const active = deps.manager.getForUser(ws.data.userId, sessionId);
+  if (!active) {
+    sendError(ws, 'not_found', sessionId);
+    return;
+  }
+  if (active.currentTurn === null) {
+    sendError(ws, 'no_turn', sessionId);
+    return;
+  }
+  try {
+    await active.currentTurn.steer(payload.content);
+  } catch (err) {
+    logger.error({ err, sessionId }, 'steer failed');
+    sendError(ws, 'steer_failed', sessionId, 'failed to steer turn', true);
+  }
 }
 
 async function handleInterruptTurn(ws: WS, sessionId: string): Promise<void> {

@@ -12,6 +12,7 @@ import { eq, sql } from 'drizzle-orm';
 import type {
   ApprovalRequestPayload,
   ErrorPayload,
+  QuestionRequestPayload,
   StatusUpdatePayload,
   TextDeltaPayload,
   ThinkingDeltaPayload,
@@ -24,6 +25,7 @@ import { createTranslatorState, translateStreamEvent } from '../ws/events';
 import {
   insertApproval,
   insertAssistantMessage,
+  insertQuestionMessage,
   insertToolCall,
   insertToolResult,
 } from './messages';
@@ -44,6 +46,12 @@ export interface CreateKimiArgs {
   workDir: string;
   model?: string;
   thinking?: boolean;
+  /**
+   * Forwarded to SDK `SessionOptions.yoloMode`. When true, the agent skips
+   * approval prompts for tool calls — caller is responsible for the trust
+   * decision and persistence to the `sessions` row.
+   */
+  yoloMode?: boolean;
   /** Restore an existing session by id (caller must have already restored files). */
   sessionId?: string;
   /** Forwarded as SDK env (e.g. HOME for non-root processes). */
@@ -58,6 +66,7 @@ export function createKimi(args: CreateKimiArgs): Session {
     ...(args.sessionId ? { sessionId: args.sessionId } : {}),
     ...(args.model ? { model: args.model } : {}),
     ...(args.thinking != null ? { thinking: args.thinking } : {}),
+    ...(args.yoloMode != null ? { yoloMode: args.yoloMode } : {}),
     ...(args.env ? { env: args.env } : {}),
     ...(args.shareDir ? { shareDir: args.shareDir } : {}),
   };
@@ -292,6 +301,25 @@ export async function pumpTurn(active: ActiveSession, turn: Turn, deps: PumpDeps
           });
           break;
         }
+        case 'question_request': {
+          const p = translated.payload as QuestionRequestPayload;
+          await insertQuestionMessage({
+            sessionId: active.sessionId,
+            requestId: p.requestId,
+            questions: p.questions,
+            db: dbh,
+          });
+          // Per assumption A1: SDK iterator does not surface the JSON-RPC
+          // envelope id separately, so the same `requestId` is reused as the
+          // RPC id when calling `turn.respondQuestion(rpcId, requestId, ...)`.
+          active.pendingQuestions.set(p.requestId, {
+            rpcRequestId: p.requestId,
+            questionRequestId: p.requestId,
+            payload: p,
+            turn,
+          });
+          break;
+        }
       }
 
       broadcastEvent(active, translated.type, translated.payload, manager);
@@ -331,6 +359,20 @@ export async function pumpTurn(active: ActiveSession, turn: Turn, deps: PumpDeps
       });
     }
     active.pendingApprovals.clear();
+  }
+
+  if (active.pendingQuestions.size > 0) {
+    for (const pending of active.pendingQuestions.values()) {
+      const toolName = active.toolNameByCallId.get(pending.payload.id) ?? 'unknown';
+      await insertToolResult({
+        sessionId: active.sessionId,
+        toolName,
+        content: '<question not answered>',
+        isError: true,
+        db: dbh,
+      });
+    }
+    active.pendingQuestions.clear();
   }
 
   // Invariant #2: clear before broadcast.
@@ -438,6 +480,7 @@ export async function restoreFromBackup(args: RestoreFromBackupArgs): Promise<Ac
     sessionId: sessRow.kimiSessionId,
     ...(sessRow.model ? { model: sessRow.model } : {}),
     thinking: sessRow.thinking,
+    yoloMode: sessRow.yoloMode,
     ...(args.shareDir ? { shareDir: args.shareDir } : {}),
   });
 

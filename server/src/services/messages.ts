@@ -1,3 +1,4 @@
+import type { QuestionItemDTO } from 'shared/types';
 import { type DB, db, schema } from '../db';
 
 // Persistence helpers for the `messages` table. Each row maps 1:1 to a wire
@@ -38,6 +39,13 @@ export interface InsertApprovalArgs {
   requestId: string;
   action: string;
   description: string;
+  db?: DB;
+}
+
+export interface InsertQuestionArgs {
+  sessionId: string;
+  requestId: string;
+  questions: QuestionItemDTO[];
   db?: DB;
 }
 
@@ -110,5 +118,21 @@ export async function insertApproval(args: InsertApprovalArgs): Promise<string> 
     })
     .returning({ id: schema.messages.id });
   if (!row) throw new Error('insertApproval: insert returned no row');
+  return row.id;
+}
+
+export async function insertQuestionMessage(args: InsertQuestionArgs): Promise<string> {
+  const dbh = args.db ?? db;
+  const [row] = await dbh
+    .insert(schema.messages)
+    .values({
+      sessionId: args.sessionId,
+      role: 'question',
+      content: null,
+      toolName: null,
+      toolInput: { requestId: args.requestId, questions: args.questions },
+    })
+    .returning({ id: schema.messages.id });
+  if (!row) throw new Error('insertQuestionMessage: insert returned no row');
   return row.id;
 }

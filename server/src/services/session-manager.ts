@@ -1,6 +1,10 @@
 import type { Session, Turn } from '@moonshot-ai/kimi-agent-sdk';
 import type { ServerWebSocket } from 'bun';
-import type { ApprovalRequestPayload, StatusUpdatePayload } from 'shared/types';
+import type {
+  ApprovalRequestPayload,
+  QuestionRequestPayload,
+  StatusUpdatePayload,
+} from 'shared/types';
 import { createEventBuffer, type EventBuffer } from '../lib/event-buffer';
 import type { TranslatorState } from '../ws/events';
 import { createTranslatorState } from '../ws/events';
@@ -17,6 +21,20 @@ export interface PendingApproval {
   turn: Turn;
 }
 
+export interface PendingQuestion {
+  /**
+   * RPC envelope id passed back to `turn.respondQuestion`. Per assumption A1
+   * in the design doc, this equals `questionRequestId` because the SDK does
+   * not surface the JSON-RPC envelope id separately on the iterator payload.
+   */
+  rpcRequestId: string;
+  /** Mirrors the wire `QuestionRequest.id` — round-tripped to `respondQuestion`. */
+  questionRequestId: string;
+  payload: QuestionRequestPayload;
+  // SDK Turn that issued the question — held so we can call turn.respondQuestion().
+  turn: Turn;
+}
+
 export interface ActiveSession {
   sessionId: string;
   userId: string;
@@ -28,6 +46,7 @@ export interface ActiveSession {
   eventBuffer: EventBuffer;
   translator: TranslatorState;
   pendingApprovals: Map<string, PendingApproval>;
+  pendingQuestions: Map<string, PendingQuestion>;
   /** Last assigned outbound seq for this session. Monotonic per session. */
   lastSeq: number;
   /** Unix epoch ms of last outbound activity. */
@@ -83,6 +102,7 @@ export class KimiSessionManager {
       eventBuffer: createEventBuffer(args.bufferCapacity),
       translator: createTranslatorState(),
       pendingApprovals: new Map(),
+      pendingQuestions: new Map(),
       lastSeq: 0,
       lastActivity: Date.now(),
       lastStatusUpdate: null,

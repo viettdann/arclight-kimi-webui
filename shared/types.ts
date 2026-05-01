@@ -27,6 +27,12 @@ export type WSMessageType =
   | 'subagent_event'
   | 'status_update'
   | 'approval_request'
+  | 'question_request'
+  | 'step_interrupted'
+  | 'parse_error'
+  | 'compaction_begin'
+  | 'compaction_end'
+  | 'steer_input'
   | 'turn_end'
   | 'session_state'
   | 'title_update'
@@ -37,6 +43,7 @@ export type WSMessageType =
   | 'resume_session'
   | 'send_message'
   | 'approve_tool'
+  | 'answer_question'
   | 'interrupt_turn'
   | 'close_session';
 
@@ -44,7 +51,13 @@ export type WSMessageType =
 
 export type SessionStatus = 'active' | 'idle' | 'closed';
 
-export type MessageRole = 'user' | 'assistant' | 'tool-call' | 'tool-result' | 'approval';
+export type MessageRole =
+  | 'user'
+  | 'assistant'
+  | 'tool-call'
+  | 'tool-result'
+  | 'approval'
+  | 'question';
 
 export interface MessageDTO {
   id: string;
@@ -76,6 +89,19 @@ export interface FileEntry {
   size: number;
   /** Unix epoch ms. */
   mtime: number;
+}
+
+export interface QuestionOptionDTO {
+  label: string;
+  description?: string;
+}
+
+export interface QuestionItemDTO {
+  question: string;
+  header?: string;
+  options: QuestionOptionDTO[];
+  /** Normalized from SDK snake_case `multi_select`. */
+  multiSelect?: boolean;
 }
 
 // ─────────────────────────── Server → Client payloads ───────────────────────────
@@ -144,6 +170,35 @@ export interface ApprovalRequestPayload {
   requestId: string;
 }
 
+export interface QuestionRequestPayload {
+  /** SDK `QuestionRequest.tool_call_id`. */
+  id: string;
+  /** SDK `QuestionRequest.id` — used to correlate `answer_question`. */
+  requestId: string;
+  questions: QuestionItemDTO[];
+}
+
+export type StepInterruptedPayload = Record<string, never>;
+export type CompactionBeginPayload = Record<string, never>;
+export type CompactionEndPayload = Record<string, never>;
+
+/**
+ * Carries either a SDK `WireEvent` ParseError (envelope decode of one wire
+ * frame failed — `rawType` set) or a top-level `StreamEvent` ParseError
+ * (raw frame text — `raw` set). Both surface to the client as `parse_error`.
+ */
+export interface ParseErrorPayload {
+  code: string;
+  message: string;
+  rawType?: string;
+  raw?: string;
+}
+
+/** Echo of a steer-input from any user — broadcast back to all attached sockets. */
+export interface SteerInputPayload {
+  content: string;
+}
+
 // Mirrors `RunResult.status` from `@moonshot-ai/kimi-agent-sdk`. Pump errors
 // (thrown during iteration) surface via the `error` event, not `turn_end`.
 export type TurnEndStatus = 'finished' | 'cancelled' | 'max_steps_reached';
@@ -184,6 +239,7 @@ export interface CreateSessionPayload {
   workDir: string;
   model?: string;
   thinking?: boolean;
+  yoloMode?: boolean;
 }
 
 export interface ResumeSessionPayload {
@@ -200,6 +256,11 @@ export type ApprovalResponse = 'approve' | 'approve_for_session' | 'reject';
 export interface ApproveToolPayload {
   requestId: string;
   response: ApprovalResponse;
+}
+
+export interface AnswerQuestionPayload {
+  requestId: string;
+  answers: Record<string, string>;
 }
 
 export type InterruptTurnPayload = Record<string, never>;

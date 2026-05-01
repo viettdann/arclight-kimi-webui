@@ -1,0 +1,1 @@
+ALTER TABLE "sessions" ADD COLUMN "yoloMode" boolean DEFAULT false NOT NULL;
