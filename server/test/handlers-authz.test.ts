@@ -27,7 +27,12 @@ class FakeWS {
   data: WSData;
   sent: string[] = [];
   constructor(userId: string) {
-    this.data = { userId, userSlug: userId, authSessionId: `auth-${userId}` };
+    this.data = {
+      userId,
+      userSlug: userId,
+      authSessionId: `auth-${userId}`,
+      lastValidatedAt: Date.now(),
+    };
   }
   send(payload: string): number {
     this.sent.push(payload);

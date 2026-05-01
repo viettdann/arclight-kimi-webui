@@ -6,6 +6,8 @@ export type WSData = {
   /** `slug(email)` — matches user-root dir created by auth + routes/files. */
   userSlug: string;
   authSessionId: string;
+  /** Epoch ms of the last successful auth-session revalidation for this socket. */
+  lastValidatedAt: number;
 };
 
 /**
@@ -24,7 +26,10 @@ export async function handleWsUpgrade(
     userId: session.user.id,
     userSlug: slug(session.user.email),
     authSessionId: session.session.id,
+    lastValidatedAt: Date.now(),
   };
+  // Registry insertion happens in `websocket.open` (index.ts) where Bun
+  // hands us the live `ws` reference; `server.upgrade` only returns a bool.
   if (server.upgrade(req, { data })) return undefined;
   return new Response(null, { status: 426 });
 }

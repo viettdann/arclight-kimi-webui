@@ -9,6 +9,8 @@ import filesRoutes from './routes/files';
 import { createSessionsRouter } from './routes/sessions';
 import { sessionManager } from './services/session-manager';
 import { handleMessage } from './ws/handlers';
+import { startWsHeartbeat } from './ws/heartbeat';
+import { registerSocket, unregisterSocket } from './ws/registry';
 import { handleWsUpgrade, type WSData } from './ws/upgrade';
 
 const SERVICE_VERSION = '0.0.0';
@@ -37,16 +39,31 @@ const server = Bun.serve<WSData>({
     return app.fetch(req);
   },
   websocket: {
+    open(ws) {
+      registerSocket(ws);
+    },
     async message(ws, raw) {
       await handleMessage(ws, raw);
     },
     close(ws) {
       // WS close ≠ session close (invariant #5). Pump keeps running; events
       // accumulate in the per-session ring buffer. Just drop this socket from
-      // every wsSet it was attached to.
+      // every wsSet it was attached to, and from the global auth registry.
+      unregisterSocket(ws);
       sessionManager.detachAllWS(ws);
     },
   },
 });
+
+const stopHeartbeat = startWsHeartbeat();
+
+function shutdown(signal: NodeJS.Signals): void {
+  logger.info({ signal }, 'shutting down');
+  stopHeartbeat();
+  process.exit(0);
+}
+
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
 
 logger.info({ port: server.port, env: env.NODE_ENV }, 'server started');

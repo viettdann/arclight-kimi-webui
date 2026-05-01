@@ -23,6 +23,7 @@ export class FakeWS {
       userId,
       userSlug: userSlug ?? userId,
       authSessionId: `auth-${userId}`,
+      lastValidatedAt: Date.now(),
     };
   }
   send(payload: string): number {

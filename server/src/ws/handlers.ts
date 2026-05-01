@@ -14,6 +14,7 @@ import type {
   WSMessage,
   WSMessageType,
 } from 'shared/types';
+import { validateAuthSession } from '../auth/session-check';
 import { type DB, db, schema } from '../db';
 import { env } from '../env';
 import { auditLog as defaultAuditLog, logger } from '../lib/logger';
@@ -27,6 +28,8 @@ import {
   type KimiSessionManager,
 } from '../services/session-manager';
 import { buildSnapshot } from '../services/snapshot';
+import { closeAuthExpired } from './close-codes';
+import { WS_HEARTBEAT_MS } from './heartbeat';
 import type { WSData } from './upgrade';
 
 type RestoreInjection = (
@@ -132,7 +135,39 @@ function validateWorkDir(userSlug: string, workDir: unknown): string | null {
   return normalized;
 }
 
+// TTL aligned with the heartbeat: after each cycle stamps `lastValidatedAt`,
+// the next heartbeat is the next refresh — keeping TTL ≤ heartbeat would
+// force redundant DB lookups for messages arriving between cycles.
+const REVALIDATE_TTL_MS = WS_HEARTBEAT_MS;
+
+/**
+ * Slow-path revalidation — only called when the per-WS TTL has expired.
+ * On DB error returns true (transient): the heartbeat is the authoritative
+ * checker and will close the socket on the next cycle if the session is
+ * truly gone. Closing the socket on every transient DB blip would punish
+ * users for an outage they cannot fix.
+ */
+async function revalidateAuthSession(ws: WS): Promise<boolean> {
+  let valid = false;
+  try {
+    valid = await validateAuthSession(ws.data.authSessionId, deps.db);
+  } catch (err) {
+    logger.error({ err, authSessionId: ws.data.authSessionId }, 'revalidateAuthSession: db error');
+    return true;
+  }
+  if (!valid) {
+    closeAuthExpired(ws);
+    return false;
+  }
+  ws.data.lastValidatedAt = Date.now();
+  return true;
+}
+
 export async function handleMessage(ws: WS, raw: string | Buffer): Promise<void> {
+  // Sync fast-path — avoids a microtask + Promise allocation on every WS frame.
+  if (Date.now() - ws.data.lastValidatedAt >= REVALIDATE_TTL_MS) {
+    if (!(await revalidateAuthSession(ws))) return;
+  }
   let parsed: IncomingMessage;
   try {
     const text = typeof raw === 'string' ? raw : raw.toString('utf8');
