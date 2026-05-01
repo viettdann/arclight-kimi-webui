@@ -1,6 +1,5 @@
 import { create } from 'zustand';
 import { getSession } from './auth-client';
-import { router } from './router';
 import { wsClient } from './ws-client';
 
 // Minimal client-side projection of the BetterAuth user record. Field set
@@ -20,6 +19,7 @@ export type ClearReason = 'rest-401' | 'ws-4401' | 'manual';
 export interface AuthState {
   status: AuthStatus;
   user: AuthUser | null;
+  lastClearReason: ClearReason | null;
   bootstrap: () => Promise<void>;
   setSession: (user: AuthUser) => void;
   clearSession: (reason: ClearReason) => void;
@@ -28,6 +28,7 @@ export interface AuthState {
 export const useAuthStore = create<AuthState>((set) => ({
   status: 'unknown',
   user: null,
+  lastClearReason: null,
 
   // `getSession()` always responds 200 — `data` is `null` for unauthenticated
   // requests. Network/CORS failures leave `status: 'unknown'` so the UI can
@@ -37,9 +38,9 @@ export const useAuthStore = create<AuthState>((set) => ({
       const res = await getSession();
       const user = (res?.data as { user?: AuthUser } | null)?.user ?? null;
       if (user) {
-        set({ status: 'authenticated', user });
+        set({ status: 'authenticated', user, lastClearReason: null });
       } else {
-        set({ status: 'unauthenticated', user: null });
+        set({ status: 'unauthenticated', user: null, lastClearReason: null });
       }
     } catch {
       // keep status: 'unknown'
@@ -47,19 +48,12 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   setSession: (user) => {
-    set({ status: 'authenticated', user });
+    set({ status: 'authenticated', user, lastClearReason: null });
   },
 
   clearSession: (reason) => {
-    // Audit trail — distinguishes server-driven (`ws-4401`, `rest-401`) from
-    // user-driven (`manual`) logouts when triaging support reports.
     if (typeof console !== 'undefined') console.info('[auth] clearSession', reason);
-    // Order matters: stop the socket first so reconnect logic doesn't race
-    // a follow-up `connect` from the auth-subscriber. Code 1000 is benign.
     wsClient.close(1000, reason);
-    set({ status: 'unauthenticated', user: null });
-    // `router.navigate` is available on the data router instance returned
-    // by `createBrowserRouter`. `replace: true` keeps /login out of history.
-    router.navigate('/login', { replace: true });
+    set({ status: 'unauthenticated', user: null, lastClearReason: reason });
   },
 }));

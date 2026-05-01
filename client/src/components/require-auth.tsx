@@ -2,7 +2,7 @@ import { Navigate, Outlet } from 'react-router';
 import { useAuthStore } from '../lib/auth-store';
 
 // Route guard for the protected app shell. Reads the auth store's `status`
-// and forks: loader for the bootstrap window, redirect to /login when
+// and forks: loader for the bootstrap window, redirect to / when
 // unauthenticated, render children when authenticated.
 export function RequireAuth() {
   const status = useAuthStore((s) => s.status);
@@ -17,7 +17,7 @@ export function RequireAuth() {
   }
 
   if (status === 'unauthenticated') {
-    return <Navigate to="/login" replace />;
+    return <Navigate to="/" replace />;
   }
 
   return <Outlet />;

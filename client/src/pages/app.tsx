@@ -1,34 +1,43 @@
-import { signOut } from '../lib/auth-client';
+import { useEffect, useRef, useState } from 'react';
+import { ChatInput } from '../components/chat-input';
+import { LoginModal } from '../components/login-modal';
+import { Sidebar } from '../components/sidebar';
+import { showToast, ToastProvider } from '../components/toast-provider';
+import { WelcomeScreen } from '../components/welcome-screen';
 import { useAuthStore } from '../lib/auth-store';
 
-// Protected app shell placeholder. Concrete UI is owned separately —
-// this file only proves the auth wiring (manual logout) end-to-end.
 export function AppShell() {
-  const user = useAuthStore((s) => s.user);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const { status, lastClearReason } = useAuthStore((s) => ({
+    status: s.status,
+    lastClearReason: s.lastClearReason,
+  }));
+  const wasPreviouslyAuthenticated = useRef(false);
 
-  const handleLogout = async (): Promise<void> => {
-    try {
-      await signOut();
-    } finally {
-      useAuthStore.getState().clearSession('manual');
+  useEffect(() => {
+    if (status === 'authenticated') {
+      wasPreviouslyAuthenticated.current = true;
+    } else if (status === 'unauthenticated' && wasPreviouslyAuthenticated.current) {
+      const message =
+        lastClearReason === 'manual' ? 'Signed out' : 'Session expired. Please sign in again.';
+      const type = lastClearReason === 'manual' ? 'info' : 'error';
+      showToast({ message, type });
+      setIsModalOpen(true);
+      wasPreviouslyAuthenticated.current = false;
     }
-  };
+  }, [status, lastClearReason]);
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-50 text-slate-900">
-      <div className="rounded-lg border border-slate-200 bg-white px-8 py-6 shadow-sm">
-        <h1 className="text-2xl font-semibold">Kimi WebUI</h1>
-        <p className="mt-2 text-sm text-slate-500">
-          Đã đăng nhập: <span className="font-medium">{user?.email ?? '—'}</span>
-        </p>
-        <button
-          type="button"
-          onClick={() => void handleLogout()}
-          className="mt-4 inline-flex items-center justify-center rounded-md border border-slate-200 px-3 py-1.5 text-sm hover:bg-slate-100"
-        >
-          Đăng xuất
-        </button>
-      </div>
+    <div className="flex min-h-screen bg-background">
+      <ToastProvider />
+      <Sidebar onLoginClick={() => setIsModalOpen(true)} />
+      <main className="flex flex-1 flex-col pl-64">
+        <div className="flex flex-1 flex-col justify-center">
+          <WelcomeScreen />
+        </div>
+        <ChatInput />
+      </main>
+      <LoginModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} />
     </div>
   );
 }
