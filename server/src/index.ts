@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import type { HealthResponse } from 'shared/types';
 import { auth } from './auth';
 import { type AuthVariables, sessionMiddleware } from './auth/middleware';
-import { db } from './db';
+import { client, db } from './db';
 import { env } from './env';
 import { auditLog, logger } from './lib/logger';
 import filesRoutes from './routes/files';
@@ -10,7 +10,7 @@ import { createSessionsRouter } from './routes/sessions';
 import { sessionManager } from './services/session-manager';
 import { handleMessage } from './ws/handlers';
 import { startWsHeartbeat } from './ws/heartbeat';
-import { registerSocket, unregisterSocket } from './ws/registry';
+import { registerSocket, snapshot, unregisterSocket } from './ws/registry';
 import { handleWsUpgrade, type WSData } from './ws/upgrade';
 
 const SERVICE_VERSION = '0.0.0';
@@ -57,10 +57,38 @@ const server = Bun.serve<WSData>({
 
 const stopHeartbeat = startWsHeartbeat();
 
-function shutdown(signal: NodeJS.Signals): void {
-  logger.info({ signal }, 'shutting down');
-  stopHeartbeat();
-  process.exit(0);
+const SHUTDOWN_TIMEOUT_MS = 5_000;
+
+let shuttingDown = false;
+
+async function shutdown(signal: NodeJS.Signals): Promise<void> {
+  if (shuttingDown) return;
+  shuttingDown = true;
+
+  let exitCode = 0;
+
+  try {
+    logger.info({ signal }, 'shutting down');
+    stopHeartbeat();
+
+    for (const ws of snapshot()) {
+      try {
+        ws.close(1001, 'server-shutdown');
+      } catch {}
+    }
+
+    await Promise.race([
+      server.stop(),
+      new Promise<void>((r) => setTimeout(r, SHUTDOWN_TIMEOUT_MS)),
+    ]);
+
+    await client.end({ timeout: Math.ceil(SHUTDOWN_TIMEOUT_MS / 1000) });
+  } catch (err) {
+    logger.error({ err }, 'shutdown error');
+    exitCode = 1;
+  }
+
+  process.exit(exitCode);
 }
 
 process.on('SIGTERM', shutdown);
