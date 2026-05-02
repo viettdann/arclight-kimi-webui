@@ -67,10 +67,10 @@ describe('translateStreamEvent — new cases', () => {
         ],
       },
     });
-    const q = (out!.payload as { questions: Record<string, unknown>[] }).questions[0];
+    const q = (out?.payload as { questions: Record<string, unknown>[] }).questions[0];
     expect(q).not.toHaveProperty('multiSelect');
     expect(q).not.toHaveProperty('header');
-    const opt = (q!.options as Record<string, unknown>[])[0];
+    const opt = (q?.options as Record<string, unknown>[])[0];
     expect(opt).not.toHaveProperty('description');
   });
 
@@ -151,7 +151,7 @@ describe('translateStreamEvent — new cases', () => {
       type: 'parse_error',
       payload: { code: 'bad_event', message: 'oops' },
     });
-    expect(outB!.payload).not.toHaveProperty('rawType');
+    expect(outB?.payload).not.toHaveProperty('rawType');
   });
 
   it('Top-level error StreamEvent → parse_error; raw is omitted when missing', () => {
@@ -181,7 +181,7 @@ describe('translateStreamEvent — new cases', () => {
       type: 'parse_error',
       payload: { code: 'parse_failed', message: 'bad json' },
     });
-    expect(outB!.payload).not.toHaveProperty('raw');
+    expect(outB?.payload).not.toHaveProperty('raw');
   });
 
   it('Unknown / unmapped event types return null', () => {

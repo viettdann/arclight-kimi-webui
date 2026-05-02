@@ -5,6 +5,7 @@ import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import busboyLib from 'busboy';
 import { Hono } from 'hono';
 import type { FileEntry, FileListResponse, FileUploadResponse } from 'shared/types';
+import { slug } from '../auth';
 import { type AuthVariables, requireAuth } from '../auth/middleware';
 import { env as defaultEnv, type Env } from '../env';
 import { auditLog as defaultAuditLog } from '../lib/logger';
@@ -30,8 +31,10 @@ export function createFilesRoutes(deps: FilesRoutesDeps): Hono<{ Variables: Auth
   files.use('*', requireAuth);
 
   async function userCtx(email: string | null | undefined, userId: string): Promise<UserCtx> {
-    const username = (email ?? '').split('@')[0] ?? '';
-    const userRoot = path.join(env.WORKSPACE_ROOT, username);
+    // Use canonical slug() so the dir matches what auth `databaseHooks.user.create.after`
+    // created at sign-up. A naive `email.split('@')[0]` would diverge for emails
+    // containing uppercase or special chars.
+    const userRoot = path.join(env.WORKSPACE_ROOT, slug(email ?? ''));
     // Idempotent — the auth `onCreateUser` hook also creates this dir.
     await mkdir(userRoot, { recursive: true, mode: 0o700 });
     return { userId, userRoot };
