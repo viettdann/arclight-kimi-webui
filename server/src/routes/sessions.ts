@@ -1,8 +1,11 @@
+import path from 'node:path';
 import { and, desc, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import type { SessionListItem, SessionListResponse, SessionStatus } from 'shared/types';
+import { slug } from '../auth';
 import { type AuthVariables, requireAuth } from '../auth/middleware';
 import { type DB, db as defaultDb, schema } from '../db';
+import { env as defaultEnv, type Env } from '../env';
 import { auditLog as defaultAuditLog } from '../lib/logger';
 import { closeActiveSession } from '../services/session-lifecycle';
 import {
@@ -21,6 +24,19 @@ export interface SessionsRouterDeps {
   db: DB;
   manager: KimiSessionManager;
   auditLog: typeof defaultAuditLog;
+  env: Pick<Env, 'WORKSPACE_ROOT'>;
+}
+
+// Sessions whose `workDir` does not sit under `<WORKSPACE_ROOT>/<userSlug>/<project>`
+// have no project to attribute them to (legacy rows, manual inserts, or rows
+// that escaped via symlink before path-guard caught it). Drop them from the
+// list so the FE never has to render a session without a sidebar bucket.
+function deriveProjectName(userRoot: string, workDir: string): string | null {
+  const rel = path.relative(userRoot, workDir);
+  if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) return null;
+  const seg = rel.split(path.sep)[0];
+  if (!seg || seg === '..' || seg === '.') return null;
+  return seg;
 }
 
 /**
@@ -35,7 +51,7 @@ export interface SessionsRouterDeps {
  * Cross-user / unknown ids return 404 to avoid leaking existence.
  */
 export function createSessionsRouter(deps: SessionsRouterDeps): Hono<{ Variables: AuthVariables }> {
-  const { db, manager, auditLog } = deps;
+  const { db, manager, auditLog, env } = deps;
 
   const sessions = new Hono<{ Variables: AuthVariables }>();
   // Caller mounts `sessionMiddleware` at the app level (see index.ts) so the
@@ -47,6 +63,11 @@ export function createSessionsRouter(deps: SessionsRouterDeps): Hono<{ Variables
   sessions.get('/', async (c) => {
     const user = c.var.user;
     if (user == null) return c.json({ error: 'unauthorized' }, 401);
+
+    // `slug()` matches the auth `databaseHooks.user.create.after` hook (and
+    // `routes/projects.ts`) so the userRoot computed here points at the same
+    // dir auth created at sign-up. See projects.ts userCtx for the rationale.
+    const userRoot = path.join(env.WORKSPACE_ROOT, slug(user.email ?? ''));
 
     const statusQ = c.req.query('status');
     const conditions = [eq(schema.sessions.userId, user.id)];
@@ -61,19 +82,25 @@ export function createSessionsRouter(deps: SessionsRouterDeps): Hono<{ Variables
       .orderBy(desc(schema.sessions.lastActiveAt))
       .limit(SESSIONS_LIST_LIMIT);
 
-    const items: SessionListItem[] = rows.map((r) => ({
-      id: r.id,
-      workDir: r.workDir,
-      title: r.title,
-      model: r.model,
-      thinking: r.thinking,
-      status: (VALID_STATUSES.has(r.status as SessionStatus)
-        ? r.status
-        : 'closed') as SessionStatus,
-      totalTokens: r.totalTokens,
-      createdAt: r.createdAt.toISOString(),
-      lastActiveAt: r.lastActiveAt.toISOString(),
-    }));
+    const items: SessionListItem[] = [];
+    for (const r of rows) {
+      const projectName = deriveProjectName(userRoot, r.workDir);
+      if (projectName === null) continue;
+      items.push({
+        id: r.id,
+        workDir: r.workDir,
+        title: r.title,
+        model: r.model,
+        thinking: r.thinking,
+        status: (VALID_STATUSES.has(r.status as SessionStatus)
+          ? r.status
+          : 'closed') as SessionStatus,
+        totalTokens: r.totalTokens,
+        projectName,
+        createdAt: r.createdAt.toISOString(),
+        lastActiveAt: r.lastActiveAt.toISOString(),
+      });
+    }
 
     const body: SessionListResponse = { sessions: items };
     return c.json(body);
@@ -129,4 +156,5 @@ export default createSessionsRouter({
   db: defaultDb,
   manager: defaultManager,
   auditLog: defaultAuditLog,
+  env: defaultEnv,
 });

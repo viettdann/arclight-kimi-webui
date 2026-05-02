@@ -27,7 +27,7 @@ export type Logger = typeof logger;
 
 // ─────────────────────────── Audit log ───────────────────────────
 
-export type AuditAction = 'upload' | 'download' | 'session_close';
+export type AuditAction = 'upload' | 'download' | 'session_close' | 'project_create';
 
 export interface AuditEvent {
   userId: string;

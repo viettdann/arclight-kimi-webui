@@ -6,6 +6,7 @@ import { client, db } from './db';
 import { env } from './env';
 import { auditLog, logger } from './lib/logger';
 import filesRoutes from './routes/files';
+import projectsRoutes from './routes/projects';
 import { createSessionsRouter } from './routes/sessions';
 import { sessionManager } from './services/session-manager';
 import { handleMessage } from './ws/handlers';
@@ -26,7 +27,8 @@ app.get('/api/health', (c) => {
 });
 
 app.route('/api/files', filesRoutes);
-app.route('/api/sessions', createSessionsRouter({ db, manager: sessionManager, auditLog }));
+app.route('/api/projects', projectsRoutes);
+app.route('/api/sessions', createSessionsRouter({ db, manager: sessionManager, auditLog, env }));
 
 const server = Bun.serve<WSData>({
   port: env.PORT,

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import path from 'node:path';
 import type { Session } from '@moonshot-ai/kimi-agent-sdk';
 import { getTableName } from 'drizzle-orm';
 import { Hono } from 'hono';
@@ -165,11 +166,14 @@ interface MockUser {
   email: string;
 }
 
+const DEFAULT_TEST_WORKSPACE_ROOT = '/tmp/kimi-webui-test';
+
 function buildApp(opts: {
   user: MockUser;
   db: DB;
   manager: KimiSessionManager;
   audit: AuditEvent[];
+  env?: { WORKSPACE_ROOT: string };
 }) {
   const app = new Hono<{ Variables: AuthVariables }>();
   app.use('*', async (c, next) => {
@@ -186,6 +190,7 @@ function buildApp(opts: {
       auditLog: (e) => {
         opts.audit.push(e);
       },
+      env: opts.env ?? { WORKSPACE_ROOT: DEFAULT_TEST_WORKSPACE_ROOT },
     }),
   );
   return app;
@@ -206,10 +211,12 @@ function registerActive(
   });
 }
 
+const ALICE_USER_ROOT = path.join(DEFAULT_TEST_WORKSPACE_ROOT, 'alice');
+
 const aliceRow = (overrides: Partial<SessionListItem> = {}): Record<string, unknown> => ({
   id: overrides.id ?? '11111111-1111-1111-1111-111111111111',
   userId: 'alice',
-  workDir: overrides.workDir ?? '/tmp/work/alice',
+  workDir: overrides.workDir ?? path.join(ALICE_USER_ROOT, 'work'),
   title: overrides.title ?? null,
   model: overrides.model ?? null,
   thinking: overrides.thinking ?? false,
@@ -286,10 +293,101 @@ describe('GET /api/sessions', () => {
         db: fake.db,
         manager,
         auditLog: (e) => audit.push(e),
+        env: { WORKSPACE_ROOT: DEFAULT_TEST_WORKSPACE_ROOT },
       }),
     );
     const res = await app.request('/api/sessions');
     expect(res.status).toBe(401);
+  });
+});
+
+// ─────────────────────────── GET /api/sessions — project filter ───────────
+
+describe('GET /api/sessions — project filter', () => {
+  it('derives projectName from workDir and drops rows that escape userRoot', async () => {
+    const audit: AuditEvent[] = [];
+    const fake = makeRecordingDb();
+    fake.selectQueue.push([
+      // sub-path under projA → keep, projectName='projA'
+      aliceRow({ id: 's-sub', workDir: path.join(ALICE_USER_ROOT, 'projA', 'sub') }),
+      // userRoot exact → drop (no project segment)
+      aliceRow({ id: 's-root', workDir: ALICE_USER_ROOT }),
+      // /etc → drop (escapes)
+      aliceRow({ id: 's-escape', workDir: '/etc' }),
+      // projB at root → keep, projectName='projB'
+      aliceRow({ id: 's-projB', workDir: path.join(ALICE_USER_ROOT, 'projB') }),
+    ]);
+    const manager = new KimiSessionManager();
+    const app = buildApp({
+      user: { id: 'alice', email: 'alice@example.com' },
+      db: fake.db,
+      manager,
+      audit,
+    });
+
+    const res = await app.request('/api/sessions');
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { sessions: SessionListItem[] };
+    expect(body.sessions.map((s) => s.id)).toEqual(['s-sub', 's-projB']);
+    expect(body.sessions[0]?.projectName).toBe('projA');
+    expect(body.sessions[1]?.projectName).toBe('projB');
+  });
+
+  it('drops rows when workDir equals userRoot exactly', async () => {
+    const audit: AuditEvent[] = [];
+    const fake = makeRecordingDb();
+    fake.selectQueue.push([aliceRow({ id: 's-root', workDir: ALICE_USER_ROOT })]);
+    const manager = new KimiSessionManager();
+    const app = buildApp({
+      user: { id: 'alice', email: 'alice@example.com' },
+      db: fake.db,
+      manager,
+      audit,
+    });
+
+    const res = await app.request('/api/sessions');
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { sessions: SessionListItem[] };
+    expect(body.sessions).toEqual([]);
+  });
+
+  it('drops rows whose workDir escapes userRoot', async () => {
+    const audit: AuditEvent[] = [];
+    const fake = makeRecordingDb();
+    fake.selectQueue.push([aliceRow({ id: 's-escape', workDir: '/etc' })]);
+    const manager = new KimiSessionManager();
+    const app = buildApp({
+      user: { id: 'alice', email: 'alice@example.com' },
+      db: fake.db,
+      manager,
+      audit,
+    });
+
+    const res = await app.request('/api/sessions');
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { sessions: SessionListItem[] };
+    expect(body.sessions).toEqual([]);
+  });
+
+  it('keeps rows whose workDir sits exactly at <userRoot>/<project>', async () => {
+    const audit: AuditEvent[] = [];
+    const fake = makeRecordingDb();
+    fake.selectQueue.push([
+      aliceRow({ id: 's-projB', workDir: path.join(ALICE_USER_ROOT, 'projB') }),
+    ]);
+    const manager = new KimiSessionManager();
+    const app = buildApp({
+      user: { id: 'alice', email: 'alice@example.com' },
+      db: fake.db,
+      manager,
+      audit,
+    });
+
+    const res = await app.request('/api/sessions');
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { sessions: SessionListItem[] };
+    expect(body.sessions).toHaveLength(1);
+    expect(body.sessions[0]?.projectName).toBe('projB');
   });
 });
 

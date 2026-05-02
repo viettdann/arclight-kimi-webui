@@ -74,6 +74,8 @@ export interface MessageDTO {
 export interface SessionListItem {
   id: string;
   workDir: string;
+  /** First path segment under user root; derived server-side from `workDir`. */
+  projectName: string;
   title: string | null;
   model: string | null;
   thinking: boolean;
@@ -287,4 +289,19 @@ export interface FileUploadResponse {
 
 export interface SessionListResponse {
   sessions: SessionListItem[];
+}
+
+export interface ProjectSummary {
+  name: string;
+  workDir: string;
+}
+
+export interface ProjectCreateRequest {
+  name: string;
+}
+
+export type ProjectCreateResponse = ProjectSummary;
+
+export interface ProjectListResponse {
+  projects: ProjectSummary[];
 }
