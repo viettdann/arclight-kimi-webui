@@ -305,3 +305,6 @@ export type ProjectCreateResponse = ProjectSummary;
 export interface ProjectListResponse {
   projects: ProjectSummary[];
 }
+
+// Re-export kimi-config types so `shared/types` entrypoint covers everything.
+export * from './types/kimi-config';

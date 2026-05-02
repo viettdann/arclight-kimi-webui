@@ -4,7 +4,7 @@ import { useAuthStore } from '../lib/auth-store';
 // Route guard for the protected app shell. Reads the auth store's `status`
 // and forks: loader for the bootstrap window, redirect to / when
 // unauthenticated, render children when authenticated.
-export function RequireAuth() {
+export function RequireAuth({ children }: { children?: React.ReactNode }) {
   const status = useAuthStore((s) => s.status);
 
   if (status === 'unknown') {
@@ -20,5 +20,5 @@ export function RequireAuth() {
     return <Navigate to="/" replace />;
   }
 
-  return <Outlet />;
+  return children ? children : <Outlet />;
 }

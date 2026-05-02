@@ -260,7 +260,13 @@ export function makeFakeDb(): FakeDb {
         });
         const ret = Promise.resolve();
         return Object.assign(ret, {
-          returning: () => Promise.resolve([{ id: `fake-${calls.length}` }]),
+          returning: () =>
+            Promise.resolve([
+              {
+                ...(v as Record<string, unknown>),
+                id: (v as Record<string, unknown>).id ?? `fake-${calls.length}`,
+              },
+            ]),
           onConflictDoUpdate: () => Promise.resolve(),
         });
       },

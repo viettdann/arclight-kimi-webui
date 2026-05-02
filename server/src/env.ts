@@ -22,6 +22,19 @@ const envSchema = z.object({
 
   WORKSPACE_ROOT: z.string().optional(),
   MAX_UPLOAD_BYTES: z.coerce.number().int().positive().default(104_857_600),
+
+  KIMI_SHARE_DIR: z.string().optional(),
+  KIMI_CLI_NO_AUTO_UPDATE: z.string().optional(),
+
+  KIMI_SEED_PROVIDER_TYPE: z.string().optional(),
+  KIMI_SEED_PROVIDER_BASE_URL: z.string().optional(),
+  KIMI_SEED_PROVIDER_API_KEY: z.string().optional(),
+  KIMI_SEED_DEFAULT_MODEL: z.string().optional(),
+  KIMI_SEED_MODEL_PROVIDER: z.string().optional(),
+  KIMI_SEED_MODEL_NAME: z.string().optional(),
+  KIMI_SEED_MODEL_MAX_CONTEXT_SIZE: z.string().optional(),
+  KIMI_SEED_MODEL_CAPABILITIES: z.string().optional(),
+  KIMI_SEED_MODEL_DISPLAY_NAME: z.string().optional(),
 });
 
 type ParsedEnv = z.infer<typeof envSchema>;

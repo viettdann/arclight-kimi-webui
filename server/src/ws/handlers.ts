@@ -21,6 +21,7 @@ import { type DB, db, schema } from '../db';
 import { env } from '../env';
 import { auditLog as defaultAuditLog, logger } from '../lib/logger';
 import { broadcastEvent, sendDirect } from '../lib/ws-broadcast';
+import { loadEnvForInjection } from '../services/kimi-config/env-injection';
 import { createKimi, pumpTurn, restoreFromBackup } from '../services/kimi-session';
 import { insertUserMessage } from '../services/messages';
 import { closeActiveSession } from '../services/session-lifecycle';
@@ -249,6 +250,8 @@ async function handleCreateSession(
     return;
   }
 
+  const envVars = await loadEnvForInjection(deps.db);
+
   let kimi: ReturnType<typeof createKimi>;
   try {
     kimi = deps.createKimi({
@@ -256,6 +259,7 @@ async function handleCreateSession(
       ...(payload.model ? { model: payload.model } : {}),
       ...(payload.thinking != null ? { thinking: payload.thinking } : {}),
       ...(payload.yoloMode != null ? { yoloMode: payload.yoloMode } : {}),
+      env: envVars,
     });
   } catch (err) {
     logger.error({ err, workDir }, 'createSession failed');

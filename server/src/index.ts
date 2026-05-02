@@ -6,8 +6,10 @@ import { client, db } from './db';
 import { env } from './env';
 import { auditLog, logger } from './lib/logger';
 import filesRoutes from './routes/files';
+import { createKimiConfigRouter } from './routes/kimi-config';
 import projectsRoutes from './routes/projects';
 import { createSessionsRouter } from './routes/sessions';
+import { bootstrap } from './services/kimi-config/bootstrap';
 import { sessionManager } from './services/session-manager';
 import { handleMessage } from './ws/handlers';
 import { startWsHeartbeat } from './ws/heartbeat';
@@ -15,6 +17,13 @@ import { registerSocket, snapshot, unregisterSocket } from './ws/registry';
 import { handleWsUpgrade, type WSData } from './ws/upgrade';
 
 const SERVICE_VERSION = '0.0.0';
+
+// Bootstrap: create share dir, seed/load config, render TOML.
+const { row: kimiConfigRow } = await bootstrap(db);
+logger.info(
+  { provider: kimiConfigRow.provider.type, ready: kimiConfigRow.provider.apiKey.length > 0 },
+  'kimi config bootstrapped',
+);
 
 const app = new Hono<{ Variables: AuthVariables }>();
 
@@ -29,6 +38,7 @@ app.get('/api/health', (c) => {
 app.route('/api/files', filesRoutes);
 app.route('/api/projects', projectsRoutes);
 app.route('/api/sessions', createSessionsRouter({ db, manager: sessionManager, auditLog, env }));
+app.route('/api/config', createKimiConfigRouter({ db }));
 
 const server = Bun.serve<WSData>({
   port: env.PORT,

@@ -22,6 +22,7 @@ import type {
 import { type DB, db, schema } from '../db';
 import { broadcastEvent } from '../lib/ws-broadcast';
 import { createTranslatorState, translateStreamEvent } from '../ws/events';
+import { loadEnvForInjection } from './kimi-config/env-injection';
 import {
   insertApproval,
   insertAssistantMessage,
@@ -475,12 +476,15 @@ export async function restoreFromBackup(args: RestoreFromBackupArgs): Promise<Ac
     });
   }
 
+  const envVars = await loadEnvForInjection(dbh);
+
   const kimi = factory({
     workDir: sessRow.workDir,
     sessionId: sessRow.kimiSessionId,
     ...(sessRow.model ? { model: sessRow.model } : {}),
     thinking: sessRow.thinking,
     yoloMode: sessRow.yoloMode,
+    env: envVars,
     ...(args.shareDir ? { shareDir: args.shareDir } : {}),
   });
 
