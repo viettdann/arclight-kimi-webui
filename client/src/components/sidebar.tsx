@@ -1,16 +1,26 @@
 import { LogOut, Plus, SquarePen, Zap } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { WSMessageType } from 'shared/types';
 import { useAuthStore } from '../lib/auth-store';
+import { useProjectsStore } from '../lib/projects-store';
+import { groupByProject, useSessionsStore } from '../lib/sessions-store';
+import { wsClient } from '../lib/ws-client';
+import { sendWS } from '../lib/ws-send';
+import { NewProjectModal } from './new-project-modal';
+import { ProjectPickerModal } from './project-picker-modal';
+import { ProjectRow } from './project-row';
+import { SkillsModal } from './skills-modal';
+import { showToast } from './toast-provider';
 
 interface SidebarProps {
   onLoginClick: () => void;
 }
 
 function AuthSection({ onLoginClick }: { onLoginClick: () => void }) {
-  const { status, user, clearSession } = useAuthStore((s) => ({
-    status: s.status,
-    user: s.user,
-    clearSession: s.clearSession,
-  }));
+  // Single-field selectors avoid re-renders on unrelated auth-store changes.
+  const status = useAuthStore((s) => s.status);
+  const user = useAuthStore((s) => s.user);
+  const clearSession = useAuthStore((s) => s.clearSession);
 
   if (status === 'unknown') {
     return (
@@ -66,66 +76,223 @@ function AuthSection({ onLoginClick }: { onLoginClick: () => void }) {
   );
 }
 
+const REFRESH_TRIGGER_TYPES = new Set<WSMessageType>(['snapshot', 'session_state', 'title_update']);
+// Cheap pre-filter so the streaming hot path (text_delta, thinking_delta, …)
+// avoids JSON.parse on every frame. We only parse when the raw frame contains
+// at least one trigger-type literal.
+const REFRESH_RAW_HINTS = ['"snapshot"', '"session_state"', '"title_update"'];
+
 export function Sidebar({ onLoginClick }: SidebarProps) {
+  const status = useAuthStore((s) => s.status);
+  const projects = useProjectsStore((s) => s.projects);
+  const projectsStatus = useProjectsStore((s) => s.status);
+  const fetchProjects = useProjectsStore((s) => s.fetch);
+  const sessions = useSessionsStore((s) => s.sessions);
+  const fetchSessions = useSessionsStore((s) => s.fetch);
+
+  const [newProjectOpen, setNewProjectOpen] = useState(false);
+  const [skillsOpen, setSkillsOpen] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+
+  // Initial load when authenticated.
+  useEffect(() => {
+    if (status !== 'authenticated') return;
+    void fetchProjects();
+    void fetchSessions();
+  }, [status, fetchProjects, fetchSessions]);
+
+  // Window focus → refresh sessions list.
+  useEffect(() => {
+    if (status !== 'authenticated') return;
+    const onFocus = () => {
+      void useSessionsStore.getState().fetch();
+    };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [status]);
+
+  // WS message subscription → debounced sessions refresh on session-mutating events.
+  useEffect(() => {
+    if (status !== 'authenticated') return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const unsubscribe = wsClient.on('message', (ev: MessageEvent) => {
+      const raw = typeof ev.data === 'string' ? ev.data : '';
+      if (!raw) return;
+      // Hot-path pre-filter: skip JSON.parse for streaming frames that can't
+      // possibly carry a refresh-trigger type.
+      let hinted = false;
+      for (const h of REFRESH_RAW_HINTS) {
+        if (raw.includes(h)) {
+          hinted = true;
+          break;
+        }
+      }
+      if (!hinted) return;
+      let type: string | undefined;
+      try {
+        const parsed = JSON.parse(raw) as { type?: string };
+        type = parsed.type;
+      } catch {
+        return;
+      }
+      if (!type || !REFRESH_TRIGGER_TYPES.has(type as WSMessageType)) return;
+      if (timer !== null) clearTimeout(timer);
+      timer = setTimeout(() => {
+        timer = null;
+        void useSessionsStore.getState().fetch();
+      }, 500);
+    });
+    return () => {
+      unsubscribe();
+      if (timer !== null) clearTimeout(timer);
+    };
+  }, [status]);
+
+  const triggerNewTask = useCallback(() => {
+    const list = useProjectsStore.getState().projects;
+    if (list.length === 0) {
+      setNewProjectOpen(true);
+      showToast({ message: 'Create a project first', type: 'info' });
+      return;
+    }
+    if (list.length === 1) {
+      const only = list[0];
+      if (only) sendWS('create_session', { workDir: only.workDir });
+      return;
+    }
+    setPickerOpen(true);
+  }, []);
+
+  // ⌘N / Ctrl+N hotkey → new task.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      if (e.shiftKey || e.altKey) return;
+      if (e.key.toLowerCase() !== 'n') return;
+      const target = e.target as HTMLElement | null;
+      if (target) {
+        const tag = target.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+        if (target.isContentEditable) return;
+      }
+      e.preventDefault();
+      e.stopPropagation();
+      triggerNewTask();
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [triggerNewTask]);
+
+  // Memoize so ProjectRow receives a stable bucket reference per project name
+  // and bails out of unrelated re-renders (modal open/close, auth churn).
+  const sessionsByProject = useMemo(() => groupByProject(sessions), [sessions]);
+
   return (
-    <aside className="fixed left-0 top-0 flex h-screen w-64 flex-col border-r border-border bg-sidebar">
-      {/* Logo */}
-      <div className="flex items-center gap-2 px-4 py-3">
-        <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground font-bold text-sm">
-          M
+    <>
+      <aside className="fixed left-0 top-0 flex h-screen w-64 flex-col border-r border-border bg-sidebar">
+        {/* Logo */}
+        <div className="flex items-center gap-2 px-4 py-3">
+          <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground font-bold text-sm">
+            M
+          </div>
+          <span className="text-sm font-semibold">More Than Coding</span>
         </div>
-        <span className="text-sm font-semibold">More Than Coding</span>
-      </div>
 
-      {/* Nav items */}
-      <nav className="flex flex-col gap-0.5 px-3 py-2">
-        <button
-          type="button"
-          className="flex items-center justify-between rounded-md px-3 py-2 text-sm text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
-        >
-          <span className="flex items-center gap-2">
-            <SquarePen className="h-4 w-4" />
-            New task
-          </span>
-          <kbd className="rounded border border-sidebar-border bg-sidebar px-1.5 py-0.5 text-[10px] font-medium text-sidebar-foreground">
-            ⌘N
-          </kbd>
-        </button>
-        <button
-          type="button"
-          className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
-        >
-          <Zap className="h-4 w-4" />
-          Skills
-        </button>
-      </nav>
-
-      {/* Project list */}
-      <div className="flex flex-1 flex-col px-3 py-2">
-        <div className="mb-2 flex items-center justify-between px-3">
-          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-            Project list
-          </span>
+        {/* Nav items */}
+        <nav className="flex flex-col gap-0.5 px-3 py-2">
           <button
             type="button"
-            className="rounded p-1 text-muted-foreground hover:bg-accent transition-colors"
-            aria-label="Add project"
+            onClick={triggerNewTask}
+            className="flex items-center justify-between rounded-md px-3 py-2 text-sm text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
           >
-            <Plus className="h-3.5 w-3.5" />
+            <span className="flex items-center gap-2">
+              <SquarePen className="h-4 w-4" />
+              New task
+            </span>
+            <kbd className="rounded border border-sidebar-border bg-sidebar px-1.5 py-0.5 text-[10px] font-medium text-sidebar-foreground">
+              ⌘N
+            </kbd>
           </button>
-        </div>
-        <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
-          <div className="rounded-full bg-muted p-3">
-            <Plus className="h-5 w-5 text-muted-foreground" />
-          </div>
-          <p className="text-sm text-muted-foreground">No projects yet</p>
-        </div>
-      </div>
+          <button
+            type="button"
+            onClick={() => setSkillsOpen(true)}
+            className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
+          >
+            <Zap className="h-4 w-4" />
+            Skills
+          </button>
+        </nav>
 
-      {/* Auth section */}
-      <div className="border-t border-sidebar-border py-3">
-        <AuthSection onLoginClick={onLoginClick} />
-      </div>
-    </aside>
+        {/* Project list */}
+        <div className="flex flex-1 flex-col px-3 py-2">
+          <div className="mb-2 flex items-center justify-between px-3">
+            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              Project list
+            </span>
+            <button
+              type="button"
+              onClick={() => setNewProjectOpen(true)}
+              className="rounded p-1 text-muted-foreground hover:bg-accent transition-colors"
+              aria-label="Add project"
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </button>
+          </div>
+
+          <div className="flex flex-1 flex-col overflow-y-auto">
+            {projectsStatus === 'loading' ? (
+              <div className="flex flex-col gap-2 px-3 py-2">
+                <div className="h-4 w-3/4 animate-pulse rounded bg-muted" />
+                <div className="h-4 w-2/3 animate-pulse rounded bg-muted" />
+                <div className="h-4 w-4/5 animate-pulse rounded bg-muted" />
+              </div>
+            ) : projectsStatus === 'error' ? (
+              <div className="flex flex-col items-center justify-center gap-2 py-6 text-center">
+                <p className="text-sm text-muted-foreground">Failed to load projects</p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void fetchProjects();
+                  }}
+                  className="rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium hover:bg-accent transition-colors"
+                >
+                  Retry
+                </button>
+              </div>
+            ) : projects.length === 0 ? (
+              <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
+                <div className="rounded-full bg-muted p-3">
+                  <Plus className="h-5 w-5 text-muted-foreground" />
+                </div>
+                <p className="text-sm text-muted-foreground">No projects yet</p>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-0.5">
+                {projects.map((project) => (
+                  <ProjectRow
+                    key={project.name}
+                    project={project}
+                    sessions={sessionsByProject[project.name] ?? []}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Auth section */}
+        <div className="border-t border-sidebar-border py-3">
+          <AuthSection onLoginClick={onLoginClick} />
+        </div>
+      </aside>
+
+      <NewProjectModal isOpen={newProjectOpen} onClose={() => setNewProjectOpen(false)} />
+      <SkillsModal isOpen={skillsOpen} onClose={() => setSkillsOpen(false)} />
+      <ProjectPickerModal
+        isOpen={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        projects={projects}
+      />
+    </>
   );
 }
