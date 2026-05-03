@@ -1,5 +1,6 @@
 import { X } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { Button } from '@/components/ui/button';
 
 export interface ToastItem {
   id: string;
@@ -46,14 +47,16 @@ export function Toast({ toast, onDismiss }: ToastProps) {
       }}
     >
       <span className="text-sm font-medium">{toast.message}</span>
-      <button
+      <Button
         type="button"
+        variant="ghost"
+        size="icon-xs"
         onClick={handleClose}
-        className="ml-auto rounded p-0.5 hover:bg-black/5"
+        className="ml-auto"
         aria-label="Close toast"
       >
-        <X className="h-4 w-4" />
-      </button>
+        <X />
+      </Button>
     </div>
   );
 }

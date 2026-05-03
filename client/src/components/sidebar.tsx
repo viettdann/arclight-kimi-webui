@@ -1,6 +1,7 @@
 import { LogOut, Plus, SquarePen, Zap } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { WSMessageType } from 'shared/types';
+import { Button } from '@/components/ui/button';
 import { useAuthStore } from '../lib/auth-store';
 import { useProjectsStore } from '../lib/projects-store';
 import { groupByProject, useSessionsStore } from '../lib/sessions-store';
@@ -34,13 +35,9 @@ function AuthSection({ onLoginClick }: { onLoginClick: () => void }) {
   if (status === 'unauthenticated') {
     return (
       <div className="px-3">
-        <button
-          type="button"
-          onClick={onLoginClick}
-          className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm font-medium hover:bg-accent transition-colors"
-        >
+        <Button type="button" variant="outline" onClick={onLoginClick} className="w-full">
           Log in
-        </button>
+        </Button>
       </div>
     );
   }
@@ -63,14 +60,15 @@ function AuthSection({ onLoginClick }: { onLoginClick: () => void }) {
           <p className="truncate text-sm font-medium">{user?.name}</p>
           <p className="truncate text-xs text-muted-foreground">{user?.email}</p>
         </div>
-        <button
+        <Button
           type="button"
+          variant="ghost"
+          size="icon-sm"
           onClick={() => clearSession('manual')}
-          className="rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
           aria-label="Log out"
         >
-          <LogOut className="h-4 w-4" />
-        </button>
+          <LogOut />
+        </Button>
       </div>
     </div>
   );
@@ -200,27 +198,29 @@ export function Sidebar({ onLoginClick }: SidebarProps) {
 
         {/* Nav items */}
         <nav className="flex flex-col gap-0.5 px-3 py-2">
-          <button
+          <Button
             type="button"
+            variant="ghost"
             onClick={triggerNewTask}
-            className="flex items-center justify-between rounded-md px-3 py-2 text-sm text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
+            className="w-full justify-between px-3 py-2 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground"
           >
             <span className="flex items-center gap-2">
-              <SquarePen className="h-4 w-4" />
+              <SquarePen />
               New task
             </span>
             <kbd className="rounded border border-sidebar-border bg-sidebar px-1.5 py-0.5 text-[10px] font-medium text-sidebar-foreground">
               ⌘N
             </kbd>
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
+            variant="ghost"
             onClick={() => setSkillsOpen(true)}
-            className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
+            className="w-full justify-start gap-2 px-3 py-2 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground"
           >
-            <Zap className="h-4 w-4" />
+            <Zap />
             Skills
-          </button>
+          </Button>
         </nav>
 
         {/* Project list */}
@@ -229,14 +229,15 @@ export function Sidebar({ onLoginClick }: SidebarProps) {
             <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
               Project list
             </span>
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size="icon-xs"
               onClick={() => setNewProjectOpen(true)}
-              className="rounded p-1 text-muted-foreground hover:bg-accent transition-colors"
               aria-label="Add project"
             >
-              <Plus className="h-3.5 w-3.5" />
-            </button>
+              <Plus />
+            </Button>
           </div>
 
           <div className="flex flex-1 flex-col overflow-y-auto">
@@ -249,15 +250,16 @@ export function Sidebar({ onLoginClick }: SidebarProps) {
             ) : projectsStatus === 'error' ? (
               <div className="flex flex-col items-center justify-center gap-2 py-6 text-center">
                 <p className="text-sm text-muted-foreground">Failed to load projects</p>
-                <button
+                <Button
                   type="button"
+                  variant="outline"
+                  size="xs"
                   onClick={() => {
                     void fetchProjects();
                   }}
-                  className="rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium hover:bg-accent transition-colors"
                 >
                   Retry
-                </button>
+                </Button>
               </div>
             ) : projects.length === 0 ? (
               <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">

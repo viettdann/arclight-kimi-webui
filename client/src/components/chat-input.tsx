@@ -1,5 +1,6 @@
 import { ChevronDown, Paperclip, Send, Zap } from 'lucide-react';
 import { useCallback, useRef, useState } from 'react';
+import { Button } from '@/components/ui/button';
 
 export function ChatInput() {
   const [text, setText] = useState('');
@@ -47,40 +48,41 @@ export function ChatInput() {
 
         <div className="flex items-center justify-between px-3 pb-2.5">
           <div className="flex items-center gap-1">
-            <button
-              type="button"
-              className="flex items-center gap-1 rounded-md px-2 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-            >
+            <Button type="button" variant="ghost" size="xs" className="text-muted-foreground">
               Create project
-              <ChevronDown className="h-3 w-3" />
-            </button>
-            <button
+              <ChevronDown />
+            </Button>
+            <Button
               type="button"
-              className="rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+              variant="ghost"
+              size="icon-sm"
+              className="text-muted-foreground"
               aria-label="Quick action"
             >
-              <Zap className="h-4 w-4" />
-            </button>
-            <button
+              <Zap />
+            </Button>
+            <Button
               type="button"
-              className="rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+              variant="ghost"
+              size="icon-sm"
+              className="text-muted-foreground"
               aria-label="Attach file"
             >
-              <Paperclip className="h-4 w-4" />
-            </button>
+              <Paperclip />
+            </Button>
           </div>
 
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground">SOLO Auto Model</span>
-            <button
+            <Button
               type="button"
+              size="icon-sm"
               onClick={handleSend}
               disabled={!text.trim()}
-              className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
               aria-label="Send message"
             >
-              <Send className="h-3.5 w-3.5" />
-            </button>
+              <Send />
+            </Button>
           </div>
         </div>
       </div>

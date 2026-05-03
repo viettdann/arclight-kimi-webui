@@ -1,6 +1,16 @@
 import { type FormEvent, useEffect, useState } from 'react';
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { useProjectsStore } from '../lib/projects-store';
-import { Modal } from './modal';
 
 interface NewProjectModalProps {
   isOpen: boolean;
@@ -44,46 +54,44 @@ export function NewProjectModal({ isOpen, onClose }: NewProjectModalProps) {
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} ariaLabel="New project">
-      <h2 className="text-lg font-semibold">New project</h2>
-      <p className="mt-1 text-sm text-muted-foreground">
-        Create a workspace folder for your tasks.
-      </p>
+    <Dialog
+      open={isOpen}
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>New project</DialogTitle>
+          <DialogDescription>Create a workspace folder for your tasks.</DialogDescription>
+        </DialogHeader>
 
-      <form onSubmit={handleSubmit} className="mt-4 flex flex-col gap-3">
-        <label className="flex flex-col gap-1.5">
-          <span className="text-xs font-medium text-foreground">Project name</span>
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="My project"
-            maxLength={60}
-            className="rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
-            // biome-ignore lint/a11y/noAutofocus: modal entry input
-            autoFocus
-          />
-        </label>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="new-project-name">Project name</Label>
+            <Input
+              id="new-project-name"
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="My project"
+              maxLength={60}
+              autoFocus
+            />
+          </div>
 
-        {error && <p className="text-sm text-destructive">{error}</p>}
+          {error && <p className="text-sm text-destructive">{error}</p>}
 
-        <div className="mt-2 flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md border border-border bg-background px-4 py-2 text-sm font-medium hover:bg-accent transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={submitting}
-            className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50"
-          >
-            {submitting ? 'Creating…' : 'Create'}
-          </button>
-        </div>
-      </form>
-    </Modal>
+          <DialogFooter className="mt-2">
+            <Button type="button" variant="outline" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={submitting}>
+              {submitting ? 'Creating…' : 'Create'}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

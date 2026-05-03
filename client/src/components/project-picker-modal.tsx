@@ -1,6 +1,14 @@
 import type { ProjectSummary } from 'shared/types';
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { sendWS } from '../lib/ws-send';
-import { Modal } from './modal';
 
 interface ProjectPickerModalProps {
   isOpen: boolean;
@@ -15,33 +23,39 @@ export function ProjectPickerModal({ isOpen, onClose, projects }: ProjectPickerM
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} ariaLabel="Pick a project">
-      <h2 className="text-lg font-semibold">Pick a project</h2>
-      <p className="mt-1 text-sm text-muted-foreground">Where should this new task live?</p>
+    <Dialog
+      open={isOpen}
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Pick a project</DialogTitle>
+          <DialogDescription>Where should this new task live?</DialogDescription>
+        </DialogHeader>
 
-      <ul className="mt-4 flex max-h-72 flex-col gap-1 overflow-y-auto">
-        {projects.map((p) => (
-          <li key={p.name}>
-            <button
-              type="button"
-              onClick={() => handlePick(p)}
-              className="w-full rounded-md px-3 py-2 text-left text-sm hover:bg-accent transition-colors"
-            >
-              {p.name}
-            </button>
-          </li>
-        ))}
-      </ul>
+        <ul className="flex max-h-72 flex-col gap-1 overflow-y-auto">
+          {projects.map((p) => (
+            <li key={p.name}>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => handlePick(p)}
+                className="w-full justify-start"
+              >
+                {p.name}
+              </Button>
+            </li>
+          ))}
+        </ul>
 
-      <div className="mt-4 flex justify-end">
-        <button
-          type="button"
-          onClick={onClose}
-          className="rounded-md border border-border bg-background px-4 py-2 text-sm font-medium hover:bg-accent transition-colors"
-        >
-          Cancel
-        </button>
-      </div>
-    </Modal>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

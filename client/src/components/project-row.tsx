@@ -1,5 +1,6 @@
 import { ChevronDown, ChevronRight, Plus } from 'lucide-react';
 import type { ProjectSummary, SessionListItem } from 'shared/types';
+import { Button } from '@/components/ui/button';
 import { useProjectsStore } from '../lib/projects-store';
 import { sendWS } from '../lib/ws-send';
 import { SessionRow } from './session-row';
@@ -21,26 +22,25 @@ export function ProjectRow({ project, sessions }: ProjectRowProps) {
   return (
     <div className="flex flex-col">
       <div className="flex items-center gap-1">
-        <button
+        <Button
           type="button"
+          variant="ghost"
           onClick={() => toggleExpanded(project.name)}
-          className="flex flex-1 items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
+          className="flex-1 justify-start gap-1.5 px-2 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground"
         >
-          {expanded ? (
-            <ChevronDown className="h-3.5 w-3.5 shrink-0" />
-          ) : (
-            <ChevronRight className="h-3.5 w-3.5 shrink-0" />
-          )}
+          {expanded ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
           <span className="truncate font-medium">{project.name}</span>
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
+          variant="ghost"
+          size="icon-xs"
           onClick={handleNewTask}
-          className="rounded p-1 text-muted-foreground hover:bg-sidebar-accent transition-colors"
           aria-label={`New task in ${project.name}`}
+          className="hover:bg-sidebar-accent"
         >
-          <Plus className="h-3.5 w-3.5" />
-        </button>
+          <Plus />
+        </Button>
       </div>
       {expanded && (
         <div className="ml-4 flex flex-col gap-0.5 py-0.5">
