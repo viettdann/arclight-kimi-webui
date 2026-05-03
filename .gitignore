@@ -25,3 +25,5 @@ bun.lockb
 # Certs — whitelist only the CA bundle, ignore everything else (private keys, etc.)
 certs/*
 !certs/ca.crt
+workspace/*
+!workspace/.gitkeep

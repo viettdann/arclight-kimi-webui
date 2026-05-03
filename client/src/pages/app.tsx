@@ -8,10 +8,8 @@ import { useAuthStore } from '../lib/auth-store';
 
 export function AppShell() {
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const { status, lastClearReason } = useAuthStore((s) => ({
-    status: s.status,
-    lastClearReason: s.lastClearReason,
-  }));
+  const status = useAuthStore((s) => s.status);
+  const lastClearReason = useAuthStore((s) => s.lastClearReason);
   const wasPreviouslyAuthenticated = useRef(false);
 
   useEffect(() => {
