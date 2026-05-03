@@ -9,9 +9,9 @@ const stubs: Record<string, string> = {
   DATABASE_URL: 'postgres://test:test@127.0.0.1:1/test',
   BETTER_AUTH_SECRET: 'test-secret-min-32-chars-for-validation-only-x',
   BETTER_AUTH_URL: 'http://localhost:3000',
-  AZURE_CLIENT_ID: 'test-client',
-  AZURE_CLIENT_SECRET: 'test-secret',
-  AZURE_TENANT_ID: 'test-tenant',
+  AZURE_AD_CLIENT_ID: 'test-client',
+  AZURE_AD_CLIENT_SECRET: 'test-secret',
+  AZURE_AD_TENANT_ID: 'test-tenant',
   WORKSPACE_ROOT: '/tmp/kimi-webui-test',
 };
 

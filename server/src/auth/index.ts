@@ -33,9 +33,9 @@ export const auth = betterAuth({
 
   socialProviders: {
     microsoft: {
-      clientId: env.AZURE_CLIENT_ID,
-      clientSecret: env.AZURE_CLIENT_SECRET,
-      tenantId: env.AZURE_TENANT_ID,
+      clientId: env.AZURE_AD_CLIENT_ID,
+      clientSecret: env.AZURE_AD_CLIENT_SECRET,
+      tenantId: env.AZURE_AD_TENANT_ID,
       prompt: 'select_account',
     },
   },

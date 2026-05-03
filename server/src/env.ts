@@ -16,9 +16,9 @@ const envSchema = z.object({
 
   BETTER_AUTH_SECRET: z.string().min(32),
   BETTER_AUTH_URL: z.string().url(),
-  AZURE_CLIENT_ID: z.string().min(1),
-  AZURE_CLIENT_SECRET: z.string().min(1),
-  AZURE_TENANT_ID: z.string().min(1),
+  AZURE_AD_CLIENT_ID: z.string().min(1),
+  AZURE_AD_CLIENT_SECRET: z.string().min(1),
+  AZURE_AD_TENANT_ID: z.string().min(1),
 
   WORKSPACE_ROOT: z.string().optional(),
   MAX_UPLOAD_BYTES: z.coerce.number().int().positive().default(104_857_600),
