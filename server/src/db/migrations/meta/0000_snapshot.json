@@ -1,5 +1,5 @@
 {
-  "id": "36e6371c-bf48-4722-ba98-d8679da31802",
+  "id": "865d6970-fa0e-4a4a-8e46-85b0d4e6ea82",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -366,6 +366,98 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.kimi_config": {
+      "name": "kimi_config",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "defaults": {
+          "name": "defaults",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "provider": {
+          "name": "provider",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "models": {
+          "name": "models",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "services": {
+          "name": "services",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "loop_control": {
+          "name": "loop_control",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "background": {
+          "name": "background",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "notifications": {
+          "name": "notifications",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "mcp_client": {
+          "name": "mcp_client",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "hooks": {
+          "name": "hooks",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "extra_toml_override": {
+          "name": "extra_toml_override",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "kimi_config_singleton": {
+          "name": "kimi_config_singleton",
+          "value": "id = 1"
+        }
+      },
+      "isRLSEnabled": false
+    },
     "public.messages": {
       "name": "messages",
       "schema": "",
@@ -582,6 +674,13 @@
         },
         "thinking": {
           "name": "thinking",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "yoloMode": {
+          "name": "yoloMode",
           "type": "boolean",
           "primaryKey": false,
           "notNull": true,

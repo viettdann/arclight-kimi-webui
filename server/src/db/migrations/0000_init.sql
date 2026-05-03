@@ -47,6 +47,22 @@ CREATE TABLE "verification" (
 	"updated_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE "kimi_config" (
+	"id" integer PRIMARY KEY NOT NULL,
+	"defaults" jsonb NOT NULL,
+	"provider" jsonb NOT NULL,
+	"models" jsonb NOT NULL,
+	"services" jsonb NOT NULL,
+	"loop_control" jsonb NOT NULL,
+	"background" jsonb NOT NULL,
+	"notifications" jsonb NOT NULL,
+	"mcp_client" jsonb NOT NULL,
+	"hooks" jsonb NOT NULL,
+	"extra_toml_override" text DEFAULT '' NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL,
+	CONSTRAINT "kimi_config_singleton" CHECK (id = 1)
+);
+--> statement-breakpoint
 CREATE TABLE "messages" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"sessionId" uuid NOT NULL,
@@ -76,6 +92,7 @@ CREATE TABLE "sessions" (
 	"title" varchar(255),
 	"model" varchar(100),
 	"thinking" boolean DEFAULT false NOT NULL,
+	"yoloMode" boolean DEFAULT false NOT NULL,
 	"status" varchar(20) DEFAULT 'active' NOT NULL,
 	"kimiSessionId" varchar(100),
 	"totalTokens" integer DEFAULT 0 NOT NULL,
