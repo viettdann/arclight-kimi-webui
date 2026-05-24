@@ -122,7 +122,19 @@ describe('POST /api/config/test', () => {
     const app = buildApp(fake);
     const res = await app.request('/test', { method: 'POST' });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { ok: boolean };
-    expect(body.ok).toBe(true);
+    const body = (await res.json()) as { ok: boolean; error?: string };
+    expect(body).toEqual({ ok: true });
+  });
+
+  it('returns missing fields when api key is empty', async () => {
+    const fake = makeFakeDb();
+    fake.selectQueue.push([makeFakeKimiConfigRow('')]);
+
+    const app = buildApp(fake);
+    const res = await app.request('/test', { method: 'POST' });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ok: boolean; error?: string };
+    expect(body.ok).toBe(false);
+    expect(body.error).toContain('provider.apiKey');
   });
 });

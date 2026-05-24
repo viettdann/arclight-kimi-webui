@@ -21,6 +21,7 @@ import type {
 } from 'shared/types';
 import { type DB, db, schema } from '../db';
 import { broadcastEvent } from '../lib/ws-broadcast';
+import { SERVICE_NAME, SERVICE_VERSION } from '../version';
 import { createTranslatorState, translateStreamEvent } from '../ws/events';
 import { loadEnvForInjection } from './kimi-config/env-injection';
 import {
@@ -64,6 +65,7 @@ export interface CreateKimiArgs {
 export function createKimi(args: CreateKimiArgs): Session {
   const opts: SessionOptions = {
     workDir: args.workDir,
+    clientInfo: { name: SERVICE_NAME, version: SERVICE_VERSION },
     ...(args.sessionId ? { sessionId: args.sessionId } : {}),
     ...(args.model ? { model: args.model } : {}),
     ...(args.thinking != null ? { thinking: args.thinking } : {}),

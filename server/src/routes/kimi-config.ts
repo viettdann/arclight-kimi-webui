@@ -18,6 +18,8 @@ import { writeConfigToml } from '../services/kimi-config/write-toml';
 
 export interface KimiConfigRouterDeps {
   db: DB;
+  /** Forwarded to write-toml. Defaults to `resolveShareDir()`. */
+  shareDir?: string;
 }
 
 function isValidProviderType(t: string): t is KimiConfigRow['provider']['type'] {
@@ -111,7 +113,7 @@ export function createKimiConfigRouter(
       .where(eq(kimiConfig.id, 1));
 
     // Re-render TOML file after update
-    writeConfigToml(next);
+    writeConfigToml(next, deps.shareDir);
 
     const dto: KimiConfigDTO = maskConfigDTO(next);
     return c.json(dto);
