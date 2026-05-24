@@ -18,6 +18,7 @@ logs/
 # Editor
 .vscode/
 .idea/
+.antigravitycli
 
 # Bun — commit `bun.lock` (text) for reproducible installs; ignore legacy binary lockfile.
 bun.lockb
