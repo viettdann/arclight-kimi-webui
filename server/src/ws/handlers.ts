@@ -23,7 +23,7 @@ import { auditLog as defaultAuditLog, logger } from '../lib/logger';
 import { broadcastEvent, sendDirect } from '../lib/ws-broadcast';
 import { loadEnvForInjection } from '../services/kimi-config/env-injection';
 import { createKimi, pumpTurn, restoreFromBackup } from '../services/kimi-session';
-import { insertUserMessage } from '../services/messages';
+import { clearPendingPrompt, enqueuePendingPrompt } from '../services/pending-prompts';
 import { closeActiveSession } from '../services/session-lifecycle';
 import {
   type ActiveSession,
@@ -296,7 +296,7 @@ async function handleCreateSession(
   broadcastEvent(
     active,
     'snapshot',
-    { messages: [], status: 'active', totalTokens: 0, title: null },
+    { blocks: [], status: 'active', totalTokens: 0, title: null, pendingPrompt: null },
     deps.manager,
   );
   sendDirect(
@@ -327,12 +327,14 @@ async function handleSendMessage(
     sendError(ws, 'turn_in_progress', sessionId);
     return;
   }
-  await insertUserMessage({
-    sessionId: active.sessionId,
-    content: payload.content,
-    db: deps.db,
-  });
-  const turn = active.kimiSession.prompt(payload.content);
+  await enqueuePendingPrompt(active.sessionId, payload.content, deps.db);
+  let turn;
+  try {
+    turn = active.kimiSession.prompt(payload.content);
+  } catch (err) {
+    await clearPendingPrompt(active.sessionId, deps.db);
+    throw err;
+  }
   active.currentTurn = turn;
   // Pump runs detached. Errors are caught inside pumpTurn and surfaced as
   // `error` events; awaiting here would block the dispatcher and stall the
@@ -512,7 +514,11 @@ async function reconnect(
   const needSnapshot = forceSnapshot || lastSeq == null || gap > buffer.capacity || gap < 0;
 
   if (needSnapshot) {
-    const snap = await buildSnapshot({ sessionId: active.sessionId, db: deps.db });
+    const snap = await buildSnapshot({
+      sessionId: active.sessionId,
+      manager: deps.manager,
+      db: deps.db,
+    });
     if (!snap) {
       sendError(ws, 'not_found', sessionId);
       return null;

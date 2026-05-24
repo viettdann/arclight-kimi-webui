@@ -1,10 +1,17 @@
 import { ChevronDown, Paperclip, Send, Zap } from 'lucide-react';
 import { useCallback, useRef, useState } from 'react';
+import { useParams } from 'react-router';
 import { Button } from '@/components/ui/button';
+import { useChatStore } from '../lib/chat-store';
+import { sendWS } from '../lib/ws-send';
 
 export function ChatInput() {
+  const { id: sessionId } = useParams<{ id: string }>();
   const [text, setText] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const session = useChatStore((s) => (sessionId ? s.sessions[sessionId] : null));
+  const isTurnInProgress = session?.isTurnInProgress ?? false;
 
   const handleInput = useCallback(() => {
     const el = textareaRef.current;
@@ -15,10 +22,17 @@ export function ChatInput() {
   }, []);
 
   const sendMessage = () => {
-    if (!text.trim()) return;
+    if (!text.trim() || !sessionId || isTurnInProgress) return;
+    const content = text.trim();
     setText('');
     const el = textareaRef.current;
     if (el) el.style.height = 'auto';
+
+    // 1. Instantly render a pending user bubble locally
+    useChatStore.getState().addPendingUserBlock(sessionId, content);
+
+    // 2. Transmit to server over WS
+    sendWS('send_message', { content }, sessionId);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -30,25 +44,42 @@ export function ChatInput() {
 
   const handleSend = sendMessage;
 
+  const placeholderText = !sessionId
+    ? 'Select or create a project to start...'
+    : isTurnInProgress
+      ? 'Agent is thinking/working...'
+      : 'Ask anything...';
+
   return (
     <div className="mx-auto w-full max-w-3xl px-4 pb-6">
-      <div className="relative rounded-2xl border border-border bg-card shadow-sm focus-within:ring-1 focus-within:ring-ring">
+      <div
+        className={`relative rounded-2xl border bg-card shadow-sm transition-all focus-within:ring-1 focus-within:ring-ring ${
+          isTurnInProgress ? 'border-primary/30 opacity-80' : 'border-border'
+        }`}
+      >
         <textarea
           ref={textareaRef}
           value={text}
           onChange={(e) => setText(e.target.value)}
           onInput={handleInput}
           onKeyDown={handleKeyDown}
-          placeholder="Ask anything..."
+          placeholder={placeholderText}
+          disabled={!sessionId || isTurnInProgress}
           aria-label="Chat input"
           rows={1}
-          className="w-full resize-none bg-transparent px-4 pt-3.5 pb-2 text-sm outline-none placeholder:text-muted-foreground"
+          className="w-full resize-none bg-transparent px-4 pt-3.5 pb-2 text-sm outline-none placeholder:text-muted-foreground/60 disabled:cursor-not-allowed"
           style={{ minHeight: '44px', maxHeight: '144px' }}
         />
 
         <div className="flex items-center justify-between px-3 pb-2.5">
           <div className="flex items-center gap-1">
-            <Button type="button" variant="ghost" size="xs" className="text-muted-foreground">
+            <Button
+              type="button"
+              variant="ghost"
+              size="xs"
+              className="text-muted-foreground"
+              disabled={!sessionId || isTurnInProgress}
+            >
               Create project
               <ChevronDown />
             </Button>
@@ -58,6 +89,7 @@ export function ChatInput() {
               size="icon-sm"
               className="text-muted-foreground"
               aria-label="Quick action"
+              disabled={!sessionId || isTurnInProgress}
             >
               <Zap />
             </Button>
@@ -67,18 +99,19 @@ export function ChatInput() {
               size="icon-sm"
               className="text-muted-foreground"
               aria-label="Attach file"
+              disabled={!sessionId || isTurnInProgress}
             >
               <Paperclip />
             </Button>
           </div>
 
           <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">SOLO Auto Model</span>
+            <span className="text-xs text-muted-foreground select-none">SOLO Auto Model</span>
             <Button
               type="button"
               size="icon-sm"
               onClick={handleSend}
-              disabled={!text.trim()}
+              disabled={!text.trim() || !sessionId || isTurnInProgress}
               aria-label="Send message"
             >
               <Send />

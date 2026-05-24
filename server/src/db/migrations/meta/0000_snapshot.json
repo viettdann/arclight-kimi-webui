@@ -1,5 +1,5 @@
 {
-  "id": "865d6970-fa0e-4a4a-8e46-85b0d4e6ea82",
+  "id": "622aa44c-49f8-4246-bc05-523ac34796bd",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -458,111 +458,6 @@
       },
       "isRLSEnabled": false
     },
-    "public.messages": {
-      "name": "messages",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "sessionId": {
-          "name": "sessionId",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "role": {
-          "name": "role",
-          "type": "varchar(20)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "content": {
-          "name": "content",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "toolName": {
-          "name": "toolName",
-          "type": "varchar(100)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "toolInput": {
-          "name": "toolInput",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "isError": {
-          "name": "isError",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "thinking": {
-          "name": "thinking",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "createdAt": {
-          "name": "createdAt",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "messages_session_idx": {
-          "name": "messages_session_idx",
-          "columns": [
-            {
-              "expression": "sessionId",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "createdAt",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "messages_sessionId_sessions_id_fk": {
-          "name": "messages_sessionId_sessions_id_fk",
-          "tableFrom": "messages",
-          "tableTo": "sessions",
-          "columnsFrom": [
-            "sessionId"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "public.session_files": {
       "name": "session_files",
       "schema": "",
@@ -719,6 +614,18 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "pendingPrompt": {
+          "name": "pendingPrompt",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pendingEnqueuedAt": {
+          "name": "pendingEnqueuedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {

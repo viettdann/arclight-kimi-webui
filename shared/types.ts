@@ -27,6 +27,7 @@ export type WSMessageType =
   | 'subagent_event'
   | 'status_update'
   | 'approval_request'
+  | 'approval_response'
   | 'question_request'
   | 'step_interrupted'
   | 'parse_error'
@@ -51,25 +52,83 @@ export type WSMessageType =
 
 export type SessionStatus = 'active' | 'idle' | 'closed';
 
-export type MessageRole =
-  | 'user'
-  | 'assistant'
-  | 'tool-call'
-  | 'tool-result'
-  | 'approval'
-  | 'question';
+export type DisplayBlock =
+  | { type: 'shell'; command: string; language: string }
+  | { type: 'diff'; path: string; oldText: string; newText: string }
+  | { type: 'todo'; items: { title: string; status: 'pending' | 'in_progress' | 'done' }[] }
+  | { type: 'brief'; text: string }
+  | { type: 'unknown'; rawType: string; raw: Record<string, unknown> };
 
-export interface MessageDTO {
-  id: string;
-  role: MessageRole;
-  content: string | null;
-  toolName: string | null;
-  toolInput: unknown;
-  /** Tool-result rows only; `null` for other roles. */
-  isError: boolean | null;
-  thinking: string | null;
-  createdAt: string;
-}
+export type Block =
+  | { kind: 'user'; id: string; content: string; createdAt: string; status?: 'pending' | 'sent' }
+  | {
+      kind: 'text';
+      id: string;
+      turnIdx: number;
+      stepIdx: number;
+      content: string;
+      isStreaming: boolean;
+      createdAt: string;
+    }
+  | {
+      kind: 'thinking';
+      id: string;
+      turnIdx: number;
+      stepIdx: number;
+      content: string;
+      encrypted: boolean;
+      isStreaming: boolean;
+      createdAt: string;
+    }
+  | {
+      kind: 'tool_call';
+      id: string;
+      toolCallId: string;
+      name: string;
+      args: unknown;
+      argsStreaming?: string;
+      isStreaming: boolean;
+      createdAt: string;
+    }
+  | {
+      kind: 'tool_result';
+      id: string;
+      toolCallId: string;
+      toolName: string;
+      output: unknown;
+      message: string | null;
+      displayBlocks: DisplayBlock[];
+      isError: boolean;
+      synthetic?: 'interrupted';
+      createdAt: string;
+    }
+  | {
+      kind: 'subagent';
+      id: string;
+      parentToolCallId: string;
+      blocks: Block[];
+      isStreaming: boolean;
+      createdAt: string;
+    }
+  | {
+      kind: 'approval_request';
+      id: string;
+      requestId: string;
+      toolCallId: string;
+      action: string;
+      description: string;
+      resolution?: 'approve' | 'approve_for_session' | 'reject';
+      createdAt: string;
+    }
+  | {
+      kind: 'question_request';
+      id: string;
+      requestId: string;
+      questions: QuestionItemDTO[];
+      createdAt: string;
+    }
+  | { kind: 'steer'; id: string; content: string; createdAt: string }
+  | { kind: 'error'; id: string; code: string; message: string; createdAt: string };
 
 export interface SessionListItem {
   id: string;
@@ -109,10 +168,11 @@ export interface QuestionItemDTO {
 // ─────────────────────────── Server → Client payloads ───────────────────────────
 
 export interface SnapshotPayload {
-  messages: MessageDTO[];
+  blocks: Block[];
   status: SessionStatus;
   totalTokens: number;
   title: string | null;
+  pendingPrompt: { text: string; enqueuedAt: string } | null;
 }
 
 export interface ReplayDonePayload {
@@ -170,6 +230,11 @@ export interface ApprovalRequestPayload {
   action: string;
   description: string;
   requestId: string;
+}
+
+export interface ApprovalResponsePayload {
+  requestId: string;
+  response: 'approve' | 'approve_for_session' | 'reject';
 }
 
 export interface QuestionRequestPayload {

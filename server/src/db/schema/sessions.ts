@@ -2,7 +2,6 @@ import {
   boolean,
   index,
   integer,
-  jsonb,
   pgTable,
   text,
   timestamp,
@@ -28,27 +27,10 @@ export const sessions = pgTable(
     totalTokens: integer('totalTokens').notNull().default(0),
     createdAt: timestamp('createdAt', { mode: 'date' }).notNull().defaultNow(),
     lastActiveAt: timestamp('lastActiveAt', { mode: 'date' }).notNull().defaultNow(),
+    pendingPrompt: text('pendingPrompt'),
+    pendingEnqueuedAt: timestamp('pendingEnqueuedAt', { mode: 'date' }),
   },
   (t) => [index('sessions_user_idx').on(t.userId, t.status, t.lastActiveAt.desc())],
-);
-
-export const messages = pgTable(
-  'messages',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    sessionId: uuid('sessionId')
-      .notNull()
-      .references(() => sessions.id, { onDelete: 'cascade' }),
-    role: varchar('role', { length: 20 }).notNull(),
-    content: text('content'),
-    toolName: varchar('toolName', { length: 100 }),
-    toolInput: jsonb('toolInput'),
-    /** Tool-result rows only: did the tool throw / return error. Null elsewhere. */
-    isError: boolean('isError'),
-    thinking: text('thinking'),
-    createdAt: timestamp('createdAt', { mode: 'date' }).notNull().defaultNow(),
-  },
-  (t) => [index('messages_session_idx').on(t.sessionId, t.createdAt)],
 );
 
 export const sessionFiles = pgTable('session_files', {
@@ -65,7 +47,5 @@ export const sessionFiles = pgTable('session_files', {
 
 export type Session = typeof sessions.$inferSelect;
 export type NewSession = typeof sessions.$inferInsert;
-export type Message = typeof messages.$inferSelect;
-export type NewMessage = typeof messages.$inferInsert;
 export type SessionFile = typeof sessionFiles.$inferSelect;
 export type NewSessionFile = typeof sessionFiles.$inferInsert;

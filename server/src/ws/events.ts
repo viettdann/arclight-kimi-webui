@@ -1,4 +1,5 @@
 import type { StreamEvent } from '@moonshot-ai/kimi-agent-sdk';
+import { contentPartsToText, mapDisplayBlocks } from '../services/wire-events';
 import type {
   ApprovalRequestPayload,
   CompactionBeginPayload,
@@ -113,7 +114,7 @@ export function translateStreamEvent(
         output: rv.output,
         isError: rv.is_error,
         message: rv.message,
-        displayBlocks: rv.display,
+        displayBlocks: mapDisplayBlocks(rv.display),
       };
       return { type: 'tool_result', payload };
     }
@@ -185,8 +186,18 @@ export function translateStreamEvent(
       return { type: 'parse_error', payload };
     }
 
+    case 'ApprovalResponse': {
+      return {
+        type: 'approval_response',
+        payload: {
+          requestId: ev.payload.id,
+          response: ev.payload.response,
+        },
+      };
+    }
+
     // No-op for MVP: TurnEnd (caller emits from RunResult), HookTriggered,
-    // HookResolved, ApprovalResponse, ToolCallRequest, HookRequest.
+    // HookResolved, ToolCallRequest, HookRequest.
     default:
       return null;
   }
@@ -207,16 +218,6 @@ function mapContentPart(
   }
   // image_url / audio_url / video_url not in MVP protocol.
   return null;
-}
-
-function contentPartsToText(input: string | ContentPart[]): string {
-  if (typeof input === 'string') return input;
-  return input
-    .map((p) => {
-      if (p.type === 'text') return p.text;
-      return '';
-    })
-    .join('');
 }
 
 // SDK ships `QuestionItem` in snake_case (`multi_select`); the wire protocol

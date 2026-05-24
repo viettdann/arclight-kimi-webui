@@ -10,6 +10,7 @@ import { createKimiConfigRouter } from './routes/kimi-config';
 import projectsRoutes from './routes/projects';
 import { createSessionsRouter } from './routes/sessions';
 import { bootstrap } from './services/kimi-config/bootstrap';
+import { reconcileOnStartup } from './services/reconcile';
 import { sessionManager } from './services/session-manager';
 import { SERVICE_VERSION } from './version';
 import { handleMessage } from './ws/handlers';
@@ -42,6 +43,8 @@ app.route('/api/files', filesRoutes);
 app.route('/api/projects', projectsRoutes);
 app.route('/api/sessions', createSessionsRouter({ db, manager: sessionManager, auditLog, env }));
 app.route('/api/config', createKimiConfigRouter({ db, shareDir: kimiShareDir }));
+
+await reconcileOnStartup({ db });
 
 const server = Bun.serve<WSData>({
   port: env.PORT,

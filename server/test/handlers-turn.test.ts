@@ -311,14 +311,6 @@ describe('handlers — approval flow', () => {
     const turnEnd = ws.parsed().find((m) => m.type === 'turn_end');
     expect((turnEnd?.payload as { status: string }).status).toBe('cancelled');
     expect(active.pendingApprovals.size).toBe(0);
-
-    // Terminal tool_result row was inserted by the pump for the orphan approval.
-    const inserts = fake.calls.filter((c) => c.op === 'insert');
-    const hasOrphanResult = inserts.some((c) => {
-      const v = c.values as { role?: string; content?: string };
-      return v.role === 'tool-result' && v.content === '<approval not answered>';
-    });
-    expect(hasOrphanResult).toBe(true);
   });
 });
 

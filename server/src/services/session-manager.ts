@@ -67,6 +67,11 @@ export interface ActiveSession {
    * `KimiSessionManager.tryBeginClose`. Pure event-loop semantics — no atomics.
    */
   closing: boolean;
+  liveTextDelta: string;
+  liveThinkingDelta: string;
+  liveTurnIdx: number | null;
+  liveStepIdx: number | null;
+  partialToolCallArgs: Map<string, string>;
 }
 
 export interface RegisterArgs {
@@ -109,6 +114,11 @@ export class KimiSessionManager {
       toolNameByCallId: new Map(),
       backupMutex: Promise.resolve(),
       closing: false,
+      liveTextDelta: '',
+      liveThinkingDelta: '',
+      liveTurnIdx: null,
+      liveStepIdx: null,
+      partialToolCallArgs: new Map(),
     };
     this.sessions.set(args.sessionId, active);
     let userSet = this.byUser.get(args.userId);
@@ -142,6 +152,10 @@ export class KimiSessionManager {
     const active = this.sessions.get(sessionId);
     if (!active || active.userId !== userId) return null;
     return active;
+  }
+
+  peek(sessionId: string): ActiveSession | null {
+    return this.sessions.get(sessionId) ?? null;
   }
 
   /** True iff sessionId exists in memory regardless of owner. Internal use. */

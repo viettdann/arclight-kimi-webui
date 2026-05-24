@@ -1,8 +1,9 @@
 import { eq } from 'drizzle-orm';
 import type { SessionStatePayload, SessionStateReason } from 'shared/types';
 import { type DB, db as defaultDb, schema } from '../db';
-import { auditLog as defaultAuditLog } from '../lib/logger';
+import { auditLog as defaultAuditLog, logger } from '../lib/logger';
 import { broadcastEvent } from '../lib/ws-broadcast';
+import { appendWireDelta, flushContextAndState } from './kimi-session';
 import type { ActiveSession, KimiSessionManager } from './session-manager';
 
 // Single source of truth for session teardown. Both the REST `POST
@@ -69,6 +70,16 @@ export async function closeActiveSession(
     await active.backupMutex;
   } catch {
     // ignore
+  }
+
+  try {
+    await appendWireDelta(active, true, dbh);
+    await flushContextAndState(active, dbh);
+  } catch (err) {
+    logger.error(
+      { err, sessionId: active.sessionId },
+      'Failed to flush wire or context/state on close',
+    );
   }
 
   try {

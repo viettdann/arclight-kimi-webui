@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import type { Session } from '@moonshot-ai/kimi-agent-sdk';
 import type { ReplayDonePayload, SnapshotPayload, WSMessage } from 'shared/types';
 import type { DB } from '../src/db';
@@ -6,6 +6,19 @@ import { broadcastEvent } from '../src/lib/ws-broadcast';
 import { type ActiveSession, KimiSessionManager } from '../src/services/session-manager';
 import { handleMessage, setHandlerDeps } from '../src/ws/handlers';
 import { asWS, FakeWS, makeFakeDb } from './_helpers';
+
+mock.module('node:fs/promises', () => {
+  return {
+    readFile: async (path: string) => {
+      if (path.endsWith('wire.jsonl')) {
+        const err = new Error('ENOENT: no such file or directory');
+        (err as any).code = 'ENOENT';
+        throw err;
+      }
+      throw new Error('Not mocked path: ' + path);
+    },
+  };
+});
 
 // Reconnect / replay tests for `subscribe` and `resume_session`. Plan §5b
 // invariants exercised:
@@ -33,6 +46,36 @@ function registerActive(
 }
 
 function withRows<T>(fakeDb: ReturnType<typeof makeFakeDb>, ...rows: T[][]): void {
+  if (rows.length === 2) {
+    const sessionRow = rows[0]?.[0] as any;
+    if (sessionRow && 'status' in sessionRow) {
+      const sess = {
+        id: sessionRow.id ?? 'sess-A',
+        userId: sessionRow.userId ?? 'alice',
+        workDir: sessionRow.workDir ?? '/tmp/work',
+        kimiSessionId: sessionRow.kimiSessionId ?? 'kimi-sess-A',
+        status: sessionRow.status ?? 'active',
+        totalTokens: sessionRow.totalTokens ?? 0,
+        title: sessionRow.title ?? null,
+        pendingPrompt: null,
+        pendingEnqueuedAt: null,
+      };
+      const fileRow = {
+        wireJsonl: '',
+        contextJsonl: '',
+        stateJson: '',
+        wireByteOffset: 0,
+      };
+      const pendingRow = {
+        pendingPrompt: null,
+        pendingEnqueuedAt: null,
+      };
+      fakeDb.selectQueue.push([sess]);
+      fakeDb.selectQueue.push([fileRow]);
+      fakeDb.selectQueue.push([pendingRow]);
+      return;
+    }
+  }
   for (const r of rows) fakeDb.selectQueue.push(r);
 }
 

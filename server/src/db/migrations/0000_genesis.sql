@@ -63,18 +63,6 @@ CREATE TABLE "kimi_config" (
 	CONSTRAINT "kimi_config_singleton" CHECK (id = 1)
 );
 --> statement-breakpoint
-CREATE TABLE "messages" (
-	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-	"sessionId" uuid NOT NULL,
-	"role" varchar(20) NOT NULL,
-	"content" text,
-	"toolName" varchar(100),
-	"toolInput" jsonb,
-	"isError" boolean,
-	"thinking" text,
-	"createdAt" timestamp DEFAULT now() NOT NULL
-);
---> statement-breakpoint
 CREATE TABLE "session_files" (
 	"sessionId" uuid PRIMARY KEY NOT NULL,
 	"workDirHash" varchar(32) NOT NULL,
@@ -97,16 +85,16 @@ CREATE TABLE "sessions" (
 	"kimiSessionId" varchar(100),
 	"totalTokens" integer DEFAULT 0 NOT NULL,
 	"createdAt" timestamp DEFAULT now() NOT NULL,
-	"lastActiveAt" timestamp DEFAULT now() NOT NULL
+	"lastActiveAt" timestamp DEFAULT now() NOT NULL,
+	"pendingPrompt" text,
+	"pendingEnqueuedAt" timestamp
 );
 --> statement-breakpoint
 ALTER TABLE "account" ADD CONSTRAINT "account_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "session" ADD CONSTRAINT "session_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "messages" ADD CONSTRAINT "messages_sessionId_sessions_id_fk" FOREIGN KEY ("sessionId") REFERENCES "public"."sessions"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "session_files" ADD CONSTRAINT "session_files_sessionId_sessions_id_fk" FOREIGN KEY ("sessionId") REFERENCES "public"."sessions"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "sessions" ADD CONSTRAINT "sessions_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "account_userId_idx" ON "account" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "session_userId_idx" ON "session" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "verification_identifier_idx" ON "verification" USING btree ("identifier");--> statement-breakpoint
-CREATE INDEX "messages_session_idx" ON "messages" USING btree ("sessionId","createdAt");--> statement-breakpoint
 CREATE INDEX "sessions_user_idx" ON "sessions" USING btree ("user_id","status","lastActiveAt" DESC NULLS LAST);
