@@ -1,9 +1,23 @@
-import { parseEventPayload, type StreamEvent } from '@moonshot-ai/kimi-agent-sdk';
+import {
+  parseEventPayload,
+  parseRequestPayload,
+  type StreamEvent,
+} from '@moonshot-ai/kimi-agent-sdk';
 
 type WireEvent = StreamEvent;
 
 import type { Block, DisplayBlock, QuestionItemDTO } from 'shared/types';
 import { logger } from '../lib/logger';
+
+// Wire-only types that ride alongside StreamEvent but live in RequestSchemas,
+// not EventSchemas. SDK still writes them to wire.jsonl, so the replay parser
+// must accept them or the snapshot drops pending approvals/questions.
+const REQUEST_TYPES_IN_WIRE = new Set([
+  'ApprovalRequest',
+  'QuestionRequest',
+  'ToolCallRequest',
+  'HookRequest',
+]);
 
 export interface LiveOverlay {
   pendingApprovals: Map<
@@ -29,14 +43,27 @@ export function parseWireFromBytes(bytes: string): (WireEvent & { timestamp: str
       if (!rec.message) continue;
       const type = rec.message.type;
       const payload = rec.message.payload;
+      let resolvedType: string;
+      let resolvedPayload: unknown;
       const parsed = parseEventPayload(type, payload);
-      if (!parsed.ok) {
+      if (parsed.ok) {
+        resolvedType = parsed.value.type;
+        resolvedPayload = parsed.value.payload;
+      } else if (REQUEST_TYPES_IN_WIRE.has(type)) {
+        const reqParsed = parseRequestPayload(type, payload);
+        if (!reqParsed.ok) {
+          logger.warn(`Failed to parse wire request payload: ${reqParsed.error}`);
+          continue;
+        }
+        resolvedType = reqParsed.value.type;
+        resolvedPayload = reqParsed.value.payload;
+      } else {
         logger.warn(`Failed to parse wire event payload: ${parsed.error}`);
         continue;
       }
       events.push({
-        type: parsed.value.type,
-        payload: parsed.value.payload,
+        type: resolvedType,
+        payload: resolvedPayload,
         timestamp: rec.timestamp || new Date().toISOString(),
       } as any);
     } catch (err) {
@@ -215,11 +242,21 @@ export function wireEventsToBlocks(
         }
 
         if (rawEvent && typeof rawEvent === 'object') {
-          const parsed = parseEventPayload(rawEvent.type, rawEvent.payload);
+          const rawType = (rawEvent as any).type;
+          let resolved: { type: string; payload: unknown } | null = null;
+          const parsed = parseEventPayload(rawType, (rawEvent as any).payload);
           if (parsed.ok) {
+            resolved = { type: parsed.value.type, payload: parsed.value.payload };
+          } else if (REQUEST_TYPES_IN_WIRE.has(rawType)) {
+            const reqParsed = parseRequestPayload(rawType, (rawEvent as any).payload);
+            if (reqParsed.ok) {
+              resolved = { type: reqParsed.value.type, payload: reqParsed.value.payload };
+            }
+          }
+          if (resolved) {
             subState.nested.push({
-              type: parsed.value.type,
-              payload: parsed.value.payload,
+              type: resolved.type,
+              payload: resolved.payload,
               timestamp: (rawEvent as any).timestamp || timestamp,
             } as any);
             subState.block.blocks = wireEventsToBlocks(subState.nested, opts);
@@ -237,6 +274,47 @@ export function wireEventsToBlocks(
           content,
           createdAt: timestamp,
         });
+        break;
+      }
+
+      case 'ApprovalRequest': {
+        flush(timestamp);
+        const payload = ev.payload as any;
+        if (!blocks.some((b) => b.kind === 'approval_request' && b.requestId === payload.id)) {
+          blocks.push({
+            kind: 'approval_request',
+            id: `approval:${payload.id}`,
+            requestId: payload.id,
+            toolCallId: payload.tool_call_id,
+            action: payload.action,
+            description: payload.description,
+            createdAt: timestamp,
+          });
+        }
+        break;
+      }
+
+      case 'QuestionRequest': {
+        flush(timestamp);
+        const payload = ev.payload as any;
+        if (!blocks.some((b) => b.kind === 'question_request' && b.requestId === payload.id)) {
+          const questions: QuestionItemDTO[] = (payload.questions || []).map((q: any) => ({
+            question: q.question,
+            ...(q.header != null ? { header: q.header } : {}),
+            options: (q.options || []).map((o: any) => ({
+              label: o.label,
+              ...(o.description != null ? { description: o.description } : {}),
+            })),
+            ...(q.multi_select != null ? { multiSelect: q.multi_select } : {}),
+          }));
+          blocks.push({
+            kind: 'question_request',
+            id: `question:${payload.id}`,
+            requestId: payload.id,
+            questions,
+            createdAt: timestamp,
+          });
+        }
         break;
       }
 
