@@ -86,6 +86,15 @@ export function createKimiConfigRouter(
     return c.json(response);
   });
 
+  // Force-render .kimi/config.toml from the current DB row. Useful when the
+  // boot-time write policy is 'never' / 'if-missing' and the on-disk file has
+  // drifted from DB.
+  router.post('/sync-toml', async (c) => {
+    const row = await loadOrSeed(db);
+    writeConfigToml(row, deps.shareDir);
+    return c.json({ ok: true });
+  });
+
   router.patch('/', async (c) => {
     const body = (await c.req.json()) as KimiConfigPatchDTO;
 

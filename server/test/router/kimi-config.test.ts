@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'bun:test';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
+import path from 'node:path';
 import { Hono } from 'hono';
 import { createMiddleware } from 'hono/factory';
 import { createKimiConfigRouter } from '../../src/routes/kimi-config';
@@ -14,6 +16,7 @@ const mockAuth = createMiddleware(async (c, next) => {
 function buildApp(
   fakeDb: ReturnType<typeof makeFakeDb>,
   fetchFn?: typeof fetch,
+  shareDir?: string,
 ) {
   const effectiveFetch =
     fetchFn ??
@@ -21,7 +24,10 @@ function buildApp(
       new Response(JSON.stringify({ data: [] }), { status: 200 })) as unknown) as typeof fetch);
   const app = new Hono();
   app.use('*', mockAuth);
-  app.route('/', createKimiConfigRouter({ db: fakeDb.db, fetchFn: effectiveFetch }));
+  app.route(
+    '/',
+    createKimiConfigRouter({ db: fakeDb.db, fetchFn: effectiveFetch, shareDir }),
+  );
   return app;
 }
 
@@ -156,5 +162,28 @@ describe('POST /api/config/test', () => {
     const body = (await res.json()) as { ok: boolean; error?: string };
     expect(body.ok).toBe(false);
     expect(body.error).toContain('401');
+  });
+});
+
+describe('POST /api/config/sync-toml', () => {
+  it('renders config.toml from the current DB row', async () => {
+    const tmp = path.join('/tmp', `kimi-sync-toml-${Date.now()}-${Math.random()}`);
+    try {
+      const fake = makeFakeDb();
+      fake.selectQueue.push([makeFakeKimiConfigRow('sk-sync-test')]);
+
+      const app = buildApp(fake, undefined, tmp);
+      const res = await app.request('/sync-toml', { method: 'POST' });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { ok: boolean };
+      expect(body.ok).toBe(true);
+
+      const tomlPath = path.join(tmp, 'config.toml');
+      expect(existsSync(tomlPath)).toBe(true);
+      const content = readFileSync(tomlPath, 'utf8');
+      expect(content).toContain('[providers."managed:kimi-code"]');
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });

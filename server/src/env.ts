@@ -26,6 +26,12 @@ const envSchema = z.object({
   KIMI_SHARE_DIR: z.string().optional(),
   KIMI_CLI_NO_AUTO_UPDATE: z.string().optional(),
 
+  // Controls whether bootstrap renders .kimi/config.toml from the DB row.
+  // - if-missing (default): only write when the file does not exist
+  // - always: overwrite every boot (legacy behavior)
+  // - never:  never write at boot; rely on PATCH /api/config or POST /api/config/sync-toml
+  KIMI_CONFIG_WRITE_TOML: z.enum(['if-missing', 'always', 'never']).default('if-missing'),
+
   KIMI_SEED_PROVIDER_TYPE: z.string().optional(),
   KIMI_SEED_PROVIDER_BASE_URL: z.string().optional(),
   KIMI_SEED_PROVIDER_API_KEY: z.string().optional(),

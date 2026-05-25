@@ -19,12 +19,18 @@ import { registerSocket, snapshot, unregisterSocket } from './ws/registry';
 import { handleWsUpgrade, type WSData } from './ws/upgrade';
 
 // Bootstrap: create share dir, seed/load config, render TOML.
-const { row: kimiConfigRow, shareDir: kimiShareDir } = await bootstrap(db);
+const {
+  row: kimiConfigRow,
+  shareDir: kimiShareDir,
+  tomlWritten: kimiTomlWritten,
+} = await bootstrap(db);
 logger.info(
   {
     provider: kimiConfigRow.provider.type,
     ready: kimiConfigRow.provider.apiKey.length > 0,
     shareDir: kimiShareDir,
+    writeTomlMode: env.KIMI_CONFIG_WRITE_TOML,
+    tomlWritten: kimiTomlWritten,
   },
   'kimi config bootstrapped',
 );
