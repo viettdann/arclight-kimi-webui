@@ -10,7 +10,6 @@
     "build": "bun build --target=bun --outdir dist src/index.ts",
     "check": "tsc --noEmit",
     "test": "bun run scripts/run-isolated-tests.ts",
-    "test:bundled": "bun test",
     "db:generate": "bun --env-file=../.env scripts/db-generate.ts",
     "db:migrate": "bun --env-file=../.env x drizzle-kit migrate",
     "db:push": "bun --env-file=../.env x drizzle-kit push",

@@ -1,8 +1,11 @@
-import { describe, expect, it, mock } from 'bun:test';
+import { afterAll, describe, expect, it, mock } from 'bun:test';
 import { makeFakeDb, stubSession } from '../_helpers';
 import { flushContextAndState } from '../../src/services/kimi-session';
 import { KimiSessionManager } from '../../src/services/session-manager';
 import * as realFsPromises from 'node:fs/promises';
+
+// Snapshot real export before `mock.module` swaps the namespace.
+const originalReadFile = realFsPromises.readFile;
 
 mock.module('node:fs/promises', () => {
   return {
@@ -14,9 +17,13 @@ mock.module('node:fs/promises', () => {
       if (p.endsWith('state.json')) {
         return '{"custom_title":"Mock Title"}';
       }
-      return realFsPromises.readFile(p, encoding);
+      return originalReadFile(p, encoding);
     },
   };
+});
+
+afterAll(() => {
+  mock.restore();
 });
 
 describe('flushContextAndState', () => {

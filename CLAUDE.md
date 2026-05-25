@@ -14,9 +14,11 @@
 
 ## Testing
 
-Run server tests in **isolated mode by default**: each `test/**/*.test.ts` file spawns its own `bun test` subprocess via `server/scripts/run-isolated-tests.ts`. One file = one Bun runtime, so module state, singletons (DB pool, `setHandlerDeps`, in-memory caches), and `process.env` mutations never bleed across files.
+Server tests run **isolated only**: each `test/**/*.test.ts` file spawns its own `bun test` subprocess via `server/scripts/run-isolated-tests.ts`. One file = one Bun runtime, so module state, singletons (DB pool, `setHandlerDeps`, in-memory caches), `mock.module` registrations, and `process.env` mutations never bleed across files. Per-file wall-clock timeout is 30s; per-test timeout is 5s.
 
-- `bun --filter server test` — isolated (default, also what `turbo run test` invokes)
-- `bun --filter server run test:bundled` — single-process `bun test`, faster, use for debugging only
+- `bun --filter server test` — full suite (also what `turbo run test` invokes)
+- `bun test server/test/path/to/file.test.ts` — single file, for debugging only
 
-Preload `server/test/setup.ts` (stub env) applies to both modes via root `bunfig.toml`. When adding new tests, place them under `server/test/**/*.test.ts` — the isolated runner picks them up automatically. Do not introduce cross-file test ordering assumptions; if a test only passes in bundled mode, fix the test, not the runner.
+Never invoke `bun test` without a specific file path. The bundled scan loads every `*.test.ts` into one process, which breaks the isolation invariants above and hangs on teardown.
+
+Preload `server/test/setup.ts` (stub env) applies via root `bunfig.toml`. Place new tests under `server/test/**/*.test.ts`; the isolated runner picks them up automatically. Tests must be order-independent — never rely on side effects from a previously executed file.

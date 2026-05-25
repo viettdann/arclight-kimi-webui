@@ -11,6 +11,9 @@ function assertKind<K extends Block['kind']>(b: Block | undefined, kind: K): Blo
   return b as BlockOfKind<K>;
 }
 
+// Snapshot real export before `mock.module` swaps the namespace.
+const originalReadFile = realFsPromises.readFile;
+
 mock.module('node:fs/promises', () => {
   return {
     ...realFsPromises,
@@ -24,7 +27,7 @@ mock.module('node:fs/promises', () => {
           },
         }) + '\n';
       }
-      return realFsPromises.readFile(p, encoding);
+      return originalReadFile(p, encoding);
     },
   };
 });

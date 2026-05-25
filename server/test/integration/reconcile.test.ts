@@ -1,4 +1,4 @@
-import { describe, expect, it, mock } from 'bun:test';
+import { afterAll, describe, expect, it, mock } from 'bun:test';
 import { makeFakeDb } from '../_helpers';
 import { reconcileOnStartup } from '../../src/services/reconcile';
 import * as realFs from 'node:fs';
@@ -8,12 +8,18 @@ let mockExists = false;
 let mockSize = 0;
 let mockContent = '';
 
+// Snapshot real exports before `mock.module` swaps the namespaces.
+const originalExistsSync = realFs.existsSync;
+const originalStat = realFsPromises.stat;
+const originalReadFile = realFsPromises.readFile;
+const originalOpen = realFsPromises.open;
+
 mock.module('node:fs', () => {
   return {
     ...realFs,
     existsSync: (p: string) => {
       if (p.endsWith('wire.jsonl')) return mockExists;
-      return realFs.existsSync(p);
+      return originalExistsSync(p);
     },
   };
 });
@@ -23,11 +29,11 @@ mock.module('node:fs/promises', () => {
     ...realFsPromises,
     stat: async (p: string) => {
       if (p.endsWith('wire.jsonl')) return { size: mockSize } as any;
-      return realFsPromises.stat(p);
+      return originalStat(p);
     },
     readFile: async (p: string, encoding?: any) => {
       if (p.endsWith('wire.jsonl')) return Buffer.from(mockContent, 'utf8');
-      return realFsPromises.readFile(p, encoding);
+      return originalReadFile(p, encoding);
     },
     open: async (p: string, mode: string) => {
       if (p.endsWith('wire.jsonl') && mode === 'r') {
@@ -40,9 +46,13 @@ mock.module('node:fs/promises', () => {
           close: async () => {},
         } as any;
       }
-      return realFsPromises.open(p, mode);
+      return originalOpen(p, mode);
     },
   };
+});
+
+afterAll(() => {
+  mock.restore();
 });
 
 describe('Integration — reconcileOnStartup', () => {

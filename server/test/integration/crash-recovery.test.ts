@@ -1,10 +1,15 @@
-import { describe, expect, it, mock } from 'bun:test';
+import { afterAll, describe, expect, it, mock } from 'bun:test';
 import { makeFakeDb } from '../_helpers';
 import { catchUpWireBackup } from '../../src/services/reconcile';
 import * as realFsPromises from 'node:fs/promises';
 
 let mockWireSize = 0;
 let mockWireContent = '';
+
+// Snapshot real exports before `mock.module` swaps the namespace.
+const originalStat = realFsPromises.stat;
+const originalOpen = realFsPromises.open;
+const originalReadFile = realFsPromises.readFile;
 
 mock.module('node:fs/promises', () => {
   return {
@@ -13,7 +18,7 @@ mock.module('node:fs/promises', () => {
       if (p.endsWith('wire.jsonl')) {
         return { size: mockWireSize } as any;
       }
-      return realFsPromises.stat(p);
+      return originalStat(p);
     },
     open: async (p: string, mode: string) => {
       if (p.endsWith('wire.jsonl') && mode === 'r') {
@@ -26,15 +31,19 @@ mock.module('node:fs/promises', () => {
           close: async () => {},
         } as any;
       }
-      return realFsPromises.open(p, mode);
+      return originalOpen(p, mode);
     },
     readFile: async (p: string, encoding?: any) => {
       if (p.endsWith('wire.jsonl')) {
         return Buffer.from(mockWireContent, 'utf8');
       }
-      return realFsPromises.readFile(p, encoding);
+      return originalReadFile(p, encoding);
     },
   };
+});
+
+afterAll(() => {
+  mock.restore();
 });
 
 describe('Integration — Crash Recovery', () => {

@@ -1,5 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import type { Session } from '@moonshot-ai/kimi-agent-sdk';
+import * as realFsPromises from 'node:fs/promises';
 import type { ReplayDonePayload, SnapshotPayload, WSMessage } from 'shared/types';
 import type { DB } from '../src/db';
 import { broadcastEvent } from '../src/lib/ws-broadcast';
@@ -7,17 +8,28 @@ import { type ActiveSession, KimiSessionManager } from '../src/services/session-
 import { handleMessage, setHandlerDeps } from '../src/ws/handlers';
 import { asWS, FakeWS, makeFakeDb } from './_helpers';
 
+// Snapshot the real export bindings before `mock.module` swaps them.
+// `import * as realFsPromises` resolves through the live namespace, so after
+// the mock is installed, `realFsPromises.readFile` *is* the mock — using it
+// inside the mock would recurse forever in bundled mode.
+const originalReadFile = realFsPromises.readFile;
+
 mock.module('node:fs/promises', () => {
   return {
-    readFile: async (path: string) => {
+    ...realFsPromises,
+    readFile: async (path: string, encoding?: any) => {
       if (path.endsWith('wire.jsonl')) {
         const err = new Error('ENOENT: no such file or directory');
         (err as any).code = 'ENOENT';
         throw err;
       }
-      throw new Error('Not mocked path: ' + path);
+      return originalReadFile(path, encoding);
     },
   };
+});
+
+afterAll(() => {
+  mock.restore();
 });
 
 // Reconnect / replay tests for `subscribe` and `resume_session`. Plan §5b
