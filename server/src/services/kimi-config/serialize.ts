@@ -28,19 +28,25 @@ function fmtStrArr(values: string[]): string {
 
 function writeScalarLines(row: KimiConfigRow): string[] {
   const d = row.defaults;
-  return [
-    `model = ${fmtStr(d.model)}`,
-    `thinking = ${fmtBool(d.thinking)}`,
-    `yolo = ${fmtBool(d.yolo)}`,
-    `plan_mode = ${fmtBool(d.planMode)}`,
-    `editor = ${fmtStr(d.editor)}`,
+  const lines = [
+    `default_model = ${fmtStr(d.model)}`,
+    `default_thinking = ${fmtBool(d.thinking)}`,
+    `default_yolo = ${fmtBool(d.yolo)}`,
+    `skip_afk_prompt_injection = ${fmtBool(d.skipAfkPromptInjection)}`,
+    `default_plan_mode = ${fmtBool(d.planMode)}`,
+    `default_editor = ${fmtStr(d.editor)}`,
     `theme = ${fmtStr(d.theme)}`,
     `show_thinking_stream = ${fmtBool(d.showThinkingStream)}`,
-    `skip_afk_prompt_injection = ${fmtBool(d.skipAfkPromptInjection)}`,
+  ];
+  if (row.hooks.length === 0) {
+    lines.push('hooks = []');
+  }
+  lines.push(
     `merge_all_available_skills = ${fmtBool(d.mergeAllAvailableSkills)}`,
     `extra_skill_dirs = ${fmtStrArr(d.extraSkillDirs)}`,
     `telemetry = ${fmtBool(d.telemetry)}`,
-  ];
+  );
+  return lines;
 }
 
 function writeModels(row: KimiConfigRow): string[] {
@@ -50,7 +56,7 @@ function writeModels(row: KimiConfigRow): string[] {
     const m = row.models[id];
     if (m === undefined) continue;
     if (lines.length > 0) lines.push('');
-    lines.push(`[models.${id}]`);
+    lines.push(`[models."${escapeToml(id)}"]`);
     lines.push(`provider = ${fmtStr(m.provider)}`);
     lines.push(`model = ${fmtStr(m.model)}`);
     lines.push(`max_context_size = ${fmtNum(m.maxContextSize)}`);
@@ -64,21 +70,31 @@ function writeModels(row: KimiConfigRow): string[] {
 
 function writeProvider(row: KimiConfigRow, redactSecrets: boolean): string[] {
   const p = row.provider;
-  const lines: string[] = [`[providers.${p.name}]`];
+  const lines: string[] = [`[providers."${escapeToml(p.name)}"]`];
+  lines.push(`type = ${fmtStr(p.type)}`);
   lines.push(`base_url = ${fmtStr(p.baseUrl)}`);
 
   const shouldRedact = redactSecrets && REDACT_TYPES.includes(p.type);
   lines.push(`api_key = ${shouldRedact ? '""' : fmtStr(p.apiKey)}`);
 
+  if (p.type === 'kimi') {
+    lines.push('');
+    lines.push(`[providers."${escapeToml(p.name)}".oauth]`);
+    lines.push('storage = "file"');
+    lines.push('key = "oauth/kimi-code"');
+  }
+
   if (Object.keys(p.env).length > 0) {
-    lines.push(`[providers.${p.name}.env]`);
+    lines.push('');
+    lines.push(`[providers."${escapeToml(p.name)}".env]`);
     for (const [k, v] of Object.entries(p.env).sort(([a], [b]) => a.localeCompare(b))) {
       lines.push(`${k} = ${fmtStr(v)}`);
     }
   }
 
   if (Object.keys(p.customHeaders).length > 0) {
-    lines.push(`[providers.${p.name}.custom_headers]`);
+    lines.push('');
+    lines.push(`[providers."${escapeToml(p.name)}".custom_headers]`);
     for (const [k, v] of Object.entries(p.customHeaders).sort(([a], [b]) => a.localeCompare(b))) {
       lines.push(`${k} = ${fmtStr(v)}`);
     }
@@ -131,7 +147,12 @@ function writeServices(row: KimiConfigRow): string[] {
     lines.push('[services.moonshot_search]');
     lines.push(`base_url = ${fmtStr(s.baseUrl)}`);
     lines.push(`api_key = ${fmtStr(s.apiKey)}`);
+    lines.push('');
+    lines.push('[services.moonshot_search.oauth]');
+    lines.push('storage = "file"');
+    lines.push('key = "oauth/kimi-code"');
     if (s.customHeaders) {
+      lines.push('');
       lines.push('[services.moonshot_search.custom_headers]');
       for (const [k, v] of Object.entries(s.customHeaders).sort(([a], [b]) => a.localeCompare(b))) {
         lines.push(`${k} = ${fmtStr(v)}`);
@@ -144,7 +165,12 @@ function writeServices(row: KimiConfigRow): string[] {
     lines.push('[services.moonshot_fetch]');
     lines.push(`base_url = ${fmtStr(f.baseUrl)}`);
     lines.push(`api_key = ${fmtStr(f.apiKey)}`);
+    lines.push('');
+    lines.push('[services.moonshot_fetch.oauth]');
+    lines.push('storage = "file"');
+    lines.push('key = "oauth/kimi-code"');
     if (f.customHeaders) {
+      lines.push('');
       lines.push('[services.moonshot_fetch.custom_headers]');
       for (const [k, v] of Object.entries(f.customHeaders).sort(([a], [b]) => a.localeCompare(b))) {
         lines.push(`${k} = ${fmtStr(v)}`);
@@ -200,7 +226,7 @@ export function renderToml(row: KimiConfigRow, opts?: { redactSecrets?: boolean 
 
   let result = '';
   for (let i = 0; i < sections.length; i++) {
-    if (i > 0) result += '\n';
+    if (i > 0) result += '\n\n';
     const sec = sections[i];
     if (sec) result += sec.join('\n');
   }

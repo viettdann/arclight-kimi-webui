@@ -4,19 +4,19 @@ export const DEFAULT_KIMI_CONFIG: KimiConfigRow = {
   id: 1,
   defaults: {
     model: 'kimi-code/kimi-for-coding',
-    thinking: false,
+    thinking: true,
     yolo: false,
     planMode: false,
     editor: '',
     theme: 'dark',
     showThinkingStream: true,
     skipAfkPromptInjection: false,
-    mergeAllAvailableSkills: false,
+    mergeAllAvailableSkills: true,
     extraSkillDirs: [],
     telemetry: true,
   },
   provider: {
-    name: 'kimi',
+    name: 'managed:kimi-code',
     type: 'kimi',
     baseUrl: 'https://api.kimi.com/coding/v1',
     apiKey: '',
@@ -25,7 +25,7 @@ export const DEFAULT_KIMI_CONFIG: KimiConfigRow = {
   },
   models: {
     'kimi-code/kimi-for-coding': {
-      provider: 'kimi',
+      provider: 'managed:kimi-code',
       model: 'kimi-for-coding',
       maxContextSize: 262_144,
       capabilities: ['thinking', 'image_in', 'video_in'],
@@ -33,11 +33,17 @@ export const DEFAULT_KIMI_CONFIG: KimiConfigRow = {
     },
   },
   services: {
-    search: null,
-    fetch: null,
+    search: {
+      baseUrl: 'https://api.kimi.com/coding/v1/search',
+      apiKey: '',
+    },
+    fetch: {
+      baseUrl: 'https://api.kimi.com/coding/v1/fetch',
+      apiKey: '',
+    },
   },
   loopControl: {
-    maxStepsPerTurn: 100,
+    maxStepsPerTurn: 1000,
     maxRetriesPerStep: 3,
     maxRalphIterations: 0,
     reservedContextSize: 50_000,

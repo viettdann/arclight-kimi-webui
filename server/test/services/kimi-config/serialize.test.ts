@@ -19,13 +19,13 @@ describe('escapeToml', () => {
 describe('renderToml', () => {
   it('renders full config without redaction', () => {
     const toml = renderToml(DEFAULT_KIMI_CONFIG, { redactSecrets: false });
-    expect(toml).toContain('model = "kimi-code/kimi-for-coding"');
-    expect(toml).toContain('thinking = false');
-    expect(toml).toContain('[providers.kimi]');
+    expect(toml).toContain('default_model = "kimi-code/kimi-for-coding"');
+    expect(toml).toContain('default_thinking = true');
+    expect(toml).toContain('[providers."managed:kimi-code"]');
     expect(toml).toContain('base_url = "https://api.kimi.com/coding/v1"');
     expect(toml).toContain('api_key = ""');
     expect(toml).toContain('[loop_control]');
-    expect(toml).toContain('max_steps_per_turn = 100');
+    expect(toml).toContain('max_steps_per_turn = 1000');
     expect(toml).toContain('[background]');
     expect(toml).toContain('[notifications]');
     expect(toml).toContain('[mcp.client]');
@@ -88,7 +88,11 @@ describe('renderToml', () => {
   });
 
   it('omits services section when both are null', () => {
-    const toml = renderToml(DEFAULT_KIMI_CONFIG);
+    const row = {
+      ...DEFAULT_KIMI_CONFIG,
+      services: { search: null, fetch: null },
+    };
+    const toml = renderToml(row);
     expect(toml).not.toContain('[services.moonshot_search]');
     expect(toml).not.toContain('[services.moonshot_fetch]');
   });

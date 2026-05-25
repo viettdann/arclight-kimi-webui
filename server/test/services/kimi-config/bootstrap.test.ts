@@ -49,7 +49,7 @@ describe('bootstrap', () => {
     expect(existsSync(tomlPath)).toBe(true);
 
     const content = readFileSync(tomlPath, 'utf8');
-    expect(content).toContain('[providers.kimi]');
+    expect(content).toContain('[providers."managed:kimi-code"]');
     expect(content).toContain('api_key = ""');
     expect(content.endsWith('\n')).toBe(true);
   });
@@ -78,6 +78,6 @@ describe('bootstrap', () => {
 
     const tomlPath = path.join(TMP_SHARE_DIR, 'config.toml');
     const content = readFileSync(tomlPath, 'utf8');
-    expect(content).toContain('[providers.kimi]');
+    expect(content).toContain('[providers."managed:kimi-code"]');
   });
 });
