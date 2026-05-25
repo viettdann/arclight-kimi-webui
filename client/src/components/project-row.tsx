@@ -16,7 +16,7 @@ export function ProjectRow({ project, sessions }: ProjectRowProps) {
 
   const handleNewTask = (e: React.MouseEvent) => {
     e.stopPropagation();
-    sendWS('create_session', { workDir: project.workDir });
+    sendWS('create_session', { workDir: project.workDir, thinking: true });
   };
 
   return (

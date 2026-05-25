@@ -155,7 +155,7 @@ export function Sidebar({ onLoginClick }: SidebarProps) {
     }
     if (list.length === 1) {
       const only = list[0];
-      if (only) sendWS('create_session', { workDir: only.workDir });
+      if (only) sendWS('create_session', { workDir: only.workDir, thinking: true });
       return;
     }
     setPickerOpen(true);

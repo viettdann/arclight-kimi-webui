@@ -18,7 +18,7 @@ interface ProjectPickerModalProps {
 
 export function ProjectPickerModal({ isOpen, onClose, projects }: ProjectPickerModalProps) {
   const handlePick = (project: ProjectSummary) => {
-    sendWS('create_session', { workDir: project.workDir });
+    sendWS('create_session', { workDir: project.workDir, thinking: true });
     onClose();
   };
 

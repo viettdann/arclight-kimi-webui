@@ -1,5 +1,5 @@
 import { Box, ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 interface ToolCallCardProps {
   name: string;
@@ -10,10 +10,16 @@ interface ToolCallCardProps {
 
 export function ToolCallCard({ name, args, argsStreaming, isStreaming }: ToolCallCardProps) {
   const [isOpen, setIsOpen] = useState(false);
+  // Auto-expand on first stream tick, but never override an explicit user toggle.
+  const autoExpandedRef = useRef(false);
+  useEffect(() => {
+    if (isStreaming && !autoExpandedRef.current) {
+      autoExpandedRef.current = true;
+      setIsOpen(true);
+    }
+  }, [isStreaming]);
 
-  const toggleOpen = () => {
-    setIsOpen(!isOpen);
-  };
+  const toggleOpen = () => setIsOpen((v) => !v);
 
   const getArgsString = () => {
     if (isStreaming || argsStreaming) {
@@ -48,6 +54,7 @@ export function ToolCallCard({ name, args, argsStreaming, isStreaming }: ToolCal
 
         {argsStr && (
           <button
+            type="button"
             onClick={toggleOpen}
             className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
           >
@@ -63,8 +70,8 @@ export function ToolCallCard({ name, args, argsStreaming, isStreaming }: ToolCal
         )}
       </div>
 
-      {/* Expanded/Streaming Arguments */}
-      {(isOpen || isStreaming) && argsStr && (
+      {/* Expanded Arguments */}
+      {isOpen && argsStr && (
         <div className="px-4 pb-3 pt-2 border-t border-border/40 text-[11px] font-mono text-muted-foreground bg-muted/5 max-h-48 overflow-y-auto scrollbar-thin select-text">
           <pre className="whitespace-pre-wrap leading-relaxed">{argsStr}</pre>
         </div>

@@ -1,12 +1,15 @@
 import { Check, Copy, FileCode, Loader2 } from 'lucide-react';
 import { useState } from 'react';
+import ReactMarkdown, { type Components } from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { parseHarnessTags } from '../../lib/harness-tags';
+import { HarnessTagBlock } from './harness-tag-block';
 
 interface TextBlockProps {
   content: string;
   isStreaming?: boolean;
 }
 
-// Sleek and beautiful built-in CodeBlock component for markdown code chunks
 function CodeBlock({ code, language }: { code: string; language: string }) {
   const [copied, setCopied] = useState(false);
 
@@ -24,6 +27,7 @@ function CodeBlock({ code, language }: { code: string; language: string }) {
           <span>{language || 'code'}</span>
         </div>
         <button
+          type="button"
           onClick={handleCopy}
           className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors px-1.5 py-0.5 rounded hover:bg-muted"
         >
@@ -36,174 +40,179 @@ function CodeBlock({ code, language }: { code: string; language: string }) {
         </button>
       </div>
       <div className="p-4 font-mono text-xs overflow-x-auto leading-relaxed select-text bg-muted/5 max-h-[30rem] scrollbar-thin">
-        <pre>{code}</pre>
+        <pre className="whitespace-pre-wrap break-words">{code}</pre>
       </div>
     </div>
   );
 }
 
+const components: Components = {
+  h1: ({ children, ...rest }) => (
+    <h1
+      {...rest}
+      className="text-2xl font-bold tracking-tight mt-6 mb-3 text-foreground font-sans"
+    >
+      {children}
+    </h1>
+  ),
+  h2: ({ children, ...rest }) => (
+    <h2
+      {...rest}
+      className="text-xl font-semibold mt-5 mb-2.5 text-foreground font-sans border-b border-border/40 pb-1"
+    >
+      {children}
+    </h2>
+  ),
+  h3: ({ children, ...rest }) => (
+    <h3 {...rest} className="text-lg font-semibold mt-4 mb-2 text-foreground font-sans">
+      {children}
+    </h3>
+  ),
+  h4: ({ children, ...rest }) => (
+    <h4 {...rest} className="text-base font-semibold mt-3 mb-1.5 text-foreground font-sans">
+      {children}
+    </h4>
+  ),
+  h5: ({ children, ...rest }) => (
+    <h5
+      {...rest}
+      className="text-sm font-semibold mt-3 mb-1.5 text-foreground/90 font-sans uppercase tracking-wide"
+    >
+      {children}
+    </h5>
+  ),
+  h6: ({ children, ...rest }) => (
+    <h6
+      {...rest}
+      className="text-xs font-semibold mt-3 mb-1.5 text-muted-foreground font-sans uppercase tracking-wider"
+    >
+      {children}
+    </h6>
+  ),
+  p: ({ children, ...rest }) => (
+    <p
+      {...rest}
+      className="my-3 text-sm text-foreground/90 leading-relaxed font-sans select-text break-words"
+    >
+      {children}
+    </p>
+  ),
+  a: ({ children, href, ...rest }) => (
+    <a
+      {...rest}
+      href={href}
+      target="_blank"
+      rel="noreferrer noopener"
+      className="text-primary underline underline-offset-2 hover:text-primary/80 break-all"
+    >
+      {children}
+    </a>
+  ),
+  ul: ({ children, ...rest }) => (
+    <ul
+      {...rest}
+      className="list-disc pl-6 space-y-1.5 my-3 text-sm text-foreground/90 font-sans leading-relaxed"
+    >
+      {children}
+    </ul>
+  ),
+  ol: ({ children, ...rest }) => (
+    <ol
+      {...rest}
+      className="list-decimal pl-6 space-y-1.5 my-3 text-sm text-foreground/90 font-sans leading-relaxed"
+    >
+      {children}
+    </ol>
+  ),
+  li: ({ children, ...rest }) => (
+    <li {...rest} className="leading-relaxed">
+      {children}
+    </li>
+  ),
+  blockquote: ({ children, ...rest }) => (
+    <blockquote
+      {...rest}
+      className="border-l-4 border-primary/50 pl-4 py-1.5 my-4 italic text-muted-foreground bg-muted/10 rounded-r-md"
+    >
+      {children}
+    </blockquote>
+  ),
+  hr: ({ ...rest }) => <hr {...rest} className="my-6 border-t border-border/60" />,
+  table: ({ children, ...rest }) => (
+    <div className="my-4 overflow-x-auto rounded-lg border border-border/60">
+      <table {...rest} className="w-full text-sm font-sans border-collapse">
+        {children}
+      </table>
+    </div>
+  ),
+  thead: ({ children, ...rest }) => (
+    <thead {...rest} className="bg-muted/30 text-xs uppercase tracking-wide text-muted-foreground">
+      {children}
+    </thead>
+  ),
+  th: ({ children, ...rest }) => (
+    <th {...rest} className="px-3 py-2 text-left font-semibold border-b border-border/60">
+      {children}
+    </th>
+  ),
+  td: ({ children, ...rest }) => (
+    <td {...rest} className="px-3 py-2 border-b border-border/30 align-top">
+      {children}
+    </td>
+  ),
+  strong: ({ children, ...rest }) => (
+    <strong {...rest} className="font-bold text-foreground">
+      {children}
+    </strong>
+  ),
+  em: ({ children, ...rest }) => (
+    <em {...rest} className="italic">
+      {children}
+    </em>
+  ),
+  code: ({ children, className, ...rest }) => {
+    const match = /language-(\w+)/.exec(className || '');
+    const text = String(children ?? '').replace(/\n$/, '');
+    // Inline code — no language fence and no newline.
+    if (!match && !text.includes('\n')) {
+      return (
+        <code
+          {...rest}
+          className="font-mono text-xs bg-muted border border-border px-1.5 py-0.5 rounded text-primary break-words"
+        >
+          {children}
+        </code>
+      );
+    }
+    return <CodeBlock code={text} language={match?.[1] ?? ''} />;
+  },
+  pre: ({ children }) => <>{children}</>,
+};
+
 export function TextBlock({ content, isStreaming }: TextBlockProps) {
-  // Parse simple markdown block elements
-  const parseMarkdown = (text: string) => {
-    if (!text) return [];
-
-    const elements: React.ReactNode[] = [];
-    const parts = text.split(/(```[\s\S]*?```)/g);
-
-    parts.forEach((part, index) => {
-      if (part.startsWith('```') && part.endsWith('```')) {
-        // Code Block
-        const lines = part.slice(3, -3).split('\n');
-        const firstLine = lines[0]?.trim() || '';
-        const language = /^[a-zA-Z0-9+#-]+$/.test(firstLine) ? firstLine : '';
-        const code = (language ? lines.slice(1) : lines).join('\n').trim();
-        elements.push(<CodeBlock key={`code-${index}`} code={code} language={language} />);
-      } else {
-        // Normal text block
-        const paragraphs = part.split(/\n\n+/);
-        paragraphs.forEach((p, pIdx) => {
-          const trimmed = p.trim();
-          if (!trimmed) return;
-
-          // Headings
-          if (trimmed.startsWith('# ')) {
-            elements.push(
-              <h1
-                key={`h1-${index}-${pIdx}`}
-                className="text-2xl font-bold tracking-tight mt-6 mb-3 text-foreground font-sans"
-              >
-                {renderInlineMarkdown(trimmed.slice(2))}
-              </h1>,
-            );
-          } else if (trimmed.startsWith('## ')) {
-            elements.push(
-              <h2
-                key={`h2-${index}-${pIdx}`}
-                className="text-xl font-semibold mt-5 mb-2.5 text-foreground font-sans border-b border-border/40 pb-1"
-              >
-                {renderInlineMarkdown(trimmed.slice(3))}
-              </h2>,
-            );
-          } else if (trimmed.startsWith('### ')) {
-            elements.push(
-              <h3
-                key={`h3-${index}-${pIdx}`}
-                className="text-lg font-semibold mt-4 mb-2 text-foreground font-sans"
-              >
-                {renderInlineMarkdown(trimmed.slice(4))}
-              </h3>,
-            );
-          }
-          // Bullet lists
-          else if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
-            const items = trimmed.split(/\n[-*]\s+/).map((line) => {
-              // Strip initial indicator if present
-              if (line.startsWith('- ') || line.startsWith('* ')) {
-                return line.slice(2);
-              }
-              return line;
-            });
-            elements.push(
-              <ul
-                key={`ul-${index}-${pIdx}`}
-                className="list-disc pl-6 space-y-1.5 my-3 text-foreground/90 font-sans leading-relaxed"
-              >
-                {items.map((item, itemIdx) => (
-                  <li key={itemIdx}>{renderInlineMarkdown(item)}</li>
-                ))}
-              </ul>,
-            );
-          }
-          // Numbered lists
-          else if (/^\d+\.\s+/.test(trimmed)) {
-            const items = trimmed.split(/\n\d+\.\s+/).map((line) => {
-              const match = line.match(/^\d+\.\s+(.*)/);
-              return match ? match[1]! : line;
-            });
-            elements.push(
-              <ol
-                key={`ol-${index}-${pIdx}`}
-                className="list-decimal pl-6 space-y-1.5 my-3 text-foreground/90 font-sans leading-relaxed"
-              >
-                {items.map((item, itemIdx) => (
-                  <li key={itemIdx}>{renderInlineMarkdown(item)}</li>
-                ))}
-              </ol>,
-            );
-          }
-          // Standard Paragraph
-          else {
-            // Handle block quotes
-            if (trimmed.startsWith('> ')) {
-              elements.push(
-                <blockquote
-                  key={`bq-${index}-${pIdx}`}
-                  className="border-l-4 border-primary/50 pl-4 py-1.5 my-4 italic text-muted-foreground bg-muted/10 rounded-r-md"
-                >
-                  {renderInlineMarkdown(trimmed.slice(2))}
-                </blockquote>,
-              );
-            } else {
-              elements.push(
-                <p
-                  key={`p-${index}-${pIdx}`}
-                  className="my-3 text-sm text-foreground/90 leading-relaxed font-sans select-text break-words"
-                >
-                  {renderInlineMarkdown(trimmed)}
-                </p>,
-              );
-            }
-          }
-        });
-      }
-    });
-
-    return elements;
-  };
-
-  // Parse bold, italic, and inline code formatting inside lines
-  const renderInlineMarkdown = (text: string): React.ReactNode[] => {
-    if (!text) return [];
-
-    const elements: React.ReactNode[] = [];
-    // Match inline code, bold, italic
-    const regex = /(\*\*.*?\*\*|\*.*?\*|`.*?`)/g;
-    const parts = text.split(regex);
-
-    parts.forEach((part, idx) => {
-      if (part.startsWith('**') && part.endsWith('**')) {
-        elements.push(
-          <strong key={idx} className="font-bold text-foreground">
-            {part.slice(2, -2)}
-          </strong>,
-        );
-      } else if (part.startsWith('*') && part.endsWith('*')) {
-        elements.push(
-          <em key={idx} className="italic">
-            {part.slice(1, -1)}
-          </em>,
-        );
-      } else if (part.startsWith('`') && part.endsWith('`')) {
-        elements.push(
-          <code
-            key={idx}
-            className="font-mono text-xs bg-muted border border-border px-1.5 py-0.5 rounded text-primary"
-          >
-            {part.slice(1, -1)}
-          </code>,
-        );
-      } else {
-        elements.push(part);
-      }
-    });
-
-    return elements;
-  };
+  const segments = parseHarnessTags(content);
+  const hasTags = segments.some((s) => s.kind === 'tag');
 
   return (
-    <div className="flex flex-col gap-1 w-full prose dark:prose-invert max-w-none">
-      <div className="space-y-1 select-text">
-        {parseMarkdown(content)}
+    <div className="flex flex-col gap-2 w-full max-w-none">
+      <div className="space-y-2 select-text">
+        {hasTags
+          ? segments.map((seg, i) =>
+              seg.kind === 'tag' ? (
+                <HarnessTagBlock key={i} name={seg.name} content={seg.content} />
+              ) : (
+                seg.content.trim() && (
+                  <ReactMarkdown key={i} remarkPlugins={[remarkGfm]} components={components}>
+                    {seg.content}
+                  </ReactMarkdown>
+                )
+              ),
+            )
+          : (
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+              {content}
+            </ReactMarkdown>
+          )}
         {isStreaming && (
           <span className="inline-flex items-center gap-1.5 ml-1 text-primary select-none font-medium text-xs">
             <Loader2 className="h-3 w-3 animate-spin" />

@@ -1,4 +1,4 @@
-import { Check, Copy, FileText } from 'lucide-react';
+import { Check, Copy, FilePlus, FileText, FileX } from 'lucide-react';
 import { useState } from 'react';
 
 interface DiffBlockProps {
@@ -6,6 +6,15 @@ interface DiffBlockProps {
   oldText: string;
   newText: string;
 }
+
+type DiffLine = {
+  type: 'addition' | 'deletion' | 'normal';
+  content: string;
+  numOld?: number;
+  numNew?: number;
+};
+
+type DiffMode = 'create' | 'delete' | 'modify';
 
 export function DiffBlock({ path, oldText, newText }: DiffBlockProps) {
   const [copied, setCopied] = useState(false);
@@ -16,16 +25,28 @@ export function DiffBlock({ path, oldText, newText }: DiffBlockProps) {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const mode: DiffMode =
+    oldText === '' && newText !== '' ? 'create' : newText === '' && oldText !== '' ? 'delete' : 'modify';
+
   // Simple line-by-line diff generator for visualization
-  const getDiffLines = () => {
+  const getDiffLines = (): DiffLine[] => {
+    if (mode === 'create') {
+      return newText.split('\n').map((line, i) => ({
+        type: 'addition',
+        content: line,
+        numNew: i + 1,
+      }));
+    }
+    if (mode === 'delete') {
+      return oldText.split('\n').map((line, i) => ({
+        type: 'deletion',
+        content: line,
+        numOld: i + 1,
+      }));
+    }
     const oldLines = oldText.split('\n');
     const newLines = newText.split('\n');
-    const diff: {
-      type: 'addition' | 'deletion' | 'normal';
-      content: string;
-      numOld?: number;
-      numNew?: number;
-    }[] = [];
+    const diff: DiffLine[] = [];
 
     let o = 0;
     let n = 0;
@@ -41,7 +62,6 @@ export function DiffBlock({ path, oldText, newText }: DiffBlockProps) {
           let foundMatch = false;
           for (let look = 1; look <= 5; look++) {
             if (o + look < oldLines.length && oldLines[o + look] === newLines[n]) {
-              // old lines were deleted
               for (let i = 0; i < look; i++) {
                 diff.push({ type: 'deletion', content: oldLines[o + i]!, numOld: o + i + 1 });
               }
@@ -50,7 +70,6 @@ export function DiffBlock({ path, oldText, newText }: DiffBlockProps) {
               break;
             }
             if (n + look < newLines.length && oldLines[o] === newLines[n + look]) {
-              // new lines were added
               for (let i = 0; i < look; i++) {
                 diff.push({ type: 'addition', content: newLines[n + i]!, numNew: n + i + 1 });
               }
@@ -61,7 +80,6 @@ export function DiffBlock({ path, oldText, newText }: DiffBlockProps) {
           }
 
           if (!foundMatch) {
-            // treat as replace (delete old line, add new line)
             diff.push({ type: 'deletion', content: oldLines[o]!, numOld: o + 1 });
             diff.push({ type: 'addition', content: newLines[n]!, numNew: n + 1 });
             o++;
@@ -82,13 +100,35 @@ export function DiffBlock({ path, oldText, newText }: DiffBlockProps) {
 
   const diffLines = getDiffLines();
   const filename = path.split('/').pop() || path;
+  const HeaderIcon = mode === 'create' ? FilePlus : mode === 'delete' ? FileX : FileText;
+  const headerLabel =
+    mode === 'create' ? 'New file' : mode === 'delete' ? 'Deleted file' : 'Modified';
 
   return (
     <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden backdrop-blur-sm">
       <div className="flex items-center justify-between bg-muted/40 px-4 py-2 border-b border-border/80 text-xs font-medium">
         <div className="flex items-center gap-2 text-foreground/80 font-mono">
-          <FileText className="h-4 w-4 text-primary" />
+          <HeaderIcon
+            className={`h-4 w-4 ${
+              mode === 'create'
+                ? 'text-emerald-500'
+                : mode === 'delete'
+                  ? 'text-red-500'
+                  : 'text-primary'
+            }`}
+          />
           <span>{filename}</span>
+          <span
+            className={`text-[10px] font-sans rounded px-1.5 py-0.5 border ${
+              mode === 'create'
+                ? 'text-emerald-500 border-emerald-500/30 bg-emerald-500/10'
+                : mode === 'delete'
+                  ? 'text-red-500 border-red-500/30 bg-red-500/10'
+                  : 'text-muted-foreground border-border bg-muted/30'
+            }`}
+          >
+            {headerLabel}
+          </span>
           <span className="text-[10px] text-muted-foreground font-sans">({path})</span>
         </div>
         <button

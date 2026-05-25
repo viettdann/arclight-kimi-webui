@@ -1,8 +1,61 @@
-import { Sparkles, Terminal } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+import { Terminal } from 'lucide-react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useParams } from 'react-router';
-import { useSessionChat } from '../lib/chat-store';
+import type { Block } from 'shared/types';
+import { useChatStore, useSessionChat } from '../lib/chat-store';
+import { wsClient } from '../lib/ws-client';
+import { sendWS } from '../lib/ws-send';
 import { BlockRegistry } from './blocks/block-registry';
+import { SubagentBundle } from './blocks/subagent-bundle';
+
+type RenderItem =
+  | { kind: 'block'; block: Block }
+  | {
+      kind: 'subagent-bundle';
+      id: string;
+      toolCall: Extract<Block, { kind: 'tool_call' }>;
+      subagent: Extract<Block, { kind: 'subagent' }> | null;
+      toolResult: Extract<Block, { kind: 'tool_result' }> | null;
+    };
+
+function bundleSubagents(blocks: Block[]): RenderItem[] {
+  // Index subagents by parentToolCallId so we can attach them to their tool_call.
+  const subagentByParent = new Map<string, Extract<Block, { kind: 'subagent' }>>();
+  for (const b of blocks) {
+    if (b.kind === 'subagent') subagentByParent.set(b.parentToolCallId, b);
+  }
+
+  const consumed = new Set<string>();
+  const items: RenderItem[] = [];
+
+  for (const b of blocks) {
+    if (consumed.has(b.id)) continue;
+
+    if (b.kind === 'tool_call' && subagentByParent.has(b.toolCallId)) {
+      const subagent = subagentByParent.get(b.toolCallId) ?? null;
+      const toolResult =
+        (blocks.find(
+          (x) => x.kind === 'tool_result' && x.toolCallId === b.toolCallId,
+        ) as Extract<Block, { kind: 'tool_result' }> | undefined) ?? null;
+
+      if (subagent) consumed.add(subagent.id);
+      if (toolResult) consumed.add(toolResult.id);
+
+      items.push({
+        kind: 'subagent-bundle',
+        id: `bundle:${b.toolCallId}`,
+        toolCall: b,
+        subagent,
+        toolResult,
+      });
+      continue;
+    }
+
+    items.push({ kind: 'block', block: b });
+  }
+
+  return items;
+}
 
 export function Transcript() {
   const { id: sessionId } = useParams<{ id: string }>();
@@ -12,6 +65,30 @@ export function Transcript() {
 
   const blocks = session?.blocks || [];
   const isTurnInProgress = session?.isTurnInProgress || false;
+  const renderItems = useMemo(() => bundleSubagents(blocks), [blocks]);
+
+  // Hydrate session from server when we land on /session/:id directly (F5 / deep link).
+  // If the chat-store has no snapshot for this session, send resume_session as soon
+  // as the WebSocket is open. Server replies with a `snapshot` frame that loadSnapshot
+  // installs via ws-subscriber.
+  useEffect(() => {
+    if (!sessionId) return;
+    const hasSnapshot = !!useChatStore.getState().sessions[sessionId];
+    if (hasSnapshot) return;
+
+    let cancelled = false;
+    const request = () => {
+      if (cancelled) return;
+      sendWS('resume_session', { sessionId });
+    };
+
+    if (wsClient.isOpen()) request();
+    const unsubOpen = wsClient.on('open', () => request());
+    return () => {
+      cancelled = true;
+      unsubOpen();
+    };
+  }, [sessionId]);
 
   // Auto-scroll to bottom during active turn updates
   useEffect(() => {
@@ -55,17 +132,25 @@ export function Transcript() {
       <div className="mx-auto max-w-3xl space-y-6 pb-24">
         {blocks.length === 0 ? (
           <div className="flex flex-col items-center justify-center text-center pt-24 pb-8 select-none">
-            <div className="rounded-full bg-primary/10 p-3 border border-primary/20 shadow-sm text-primary mb-4 animate-bounce">
-              <Sparkles className="h-6 w-6" />
-            </div>
-            <h3 className="text-sm font-semibold text-foreground/95">Session initialized</h3>
+            <h3 className="text-sm font-semibold text-foreground/90">Session ready</h3>
             <p className="text-xs text-muted-foreground mt-1 max-w-sm leading-relaxed">
               Ask anything to get started. The agent will run shell commands, write files, and show
               rich previews.
             </p>
           </div>
         ) : (
-          blocks.map((block) => <BlockRegistry key={block.id} block={block} />)
+          renderItems.map((item) =>
+            item.kind === 'subagent-bundle' ? (
+              <SubagentBundle
+                key={item.id}
+                toolCall={item.toolCall}
+                subagent={item.subagent}
+                toolResult={item.toolResult}
+              />
+            ) : (
+              <BlockRegistry key={item.block.id} block={item.block} />
+            ),
+          )
         )}
         <div ref={bottomAnchorRef} />
       </div>

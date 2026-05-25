@@ -81,6 +81,11 @@ class WsClient {
     }
   }
 
+  /** True iff the socket is currently in OPEN state. */
+  isOpen(): boolean {
+    return !!this.socket && this.socket.readyState === WebSocket.OPEN;
+  }
+
   on<K extends keyof Listeners>(
     event: K,
     handler: K extends 'message'
