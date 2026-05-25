@@ -18,6 +18,7 @@ export const sessions = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: 'cascade' }),
     workDir: text('workDir').notNull(),
+    projectName: varchar('projectName', { length: 255 }).notNull(),
     title: varchar('title', { length: 255 }),
     model: varchar('model', { length: 100 }),
     thinking: boolean('thinking').notNull().default(false),
@@ -37,7 +38,6 @@ export const sessionFiles = pgTable('session_files', {
   sessionId: uuid('sessionId')
     .primaryKey()
     .references(() => sessions.id, { onDelete: 'cascade' }),
-  workDirHash: varchar('workDirHash', { length: 32 }).notNull(),
   wireJsonl: text('wireJsonl').notNull().default(''),
   contextJsonl: text('contextJsonl').notNull().default(''),
   stateJson: text('stateJson').notNull().default(''),

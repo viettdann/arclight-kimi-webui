@@ -36,6 +36,7 @@ import {
   type KimiSessionManager,
 } from '../services/session-manager';
 import { buildSnapshot } from '../services/snapshot';
+import { deriveProjectName } from '../services/work-dir';
 import { closeAuthExpired } from './close-codes';
 import { WS_HEARTBEAT_MS } from './heartbeat';
 import type { WSData } from './upgrade';
@@ -254,6 +255,12 @@ async function handleCreateSession(
     sendError(ws, 'bad_request');
     return;
   }
+  const userRoot = path.resolve(env.WORKSPACE_ROOT, ws.data.userSlug);
+  const projectName = deriveProjectName(userRoot, workDir);
+  if (projectName === null) {
+    sendError(ws, 'bad_request');
+    return;
+  }
 
   const envVars = await loadEnvForInjection(deps.db);
 
@@ -280,6 +287,7 @@ async function handleCreateSession(
     id: sessionRowId,
     userId: ws.data.userId,
     workDir,
+    projectName,
     model: payload.model ?? null,
     thinking: payload.thinking ?? false,
     yoloMode: payload.yoloMode ?? false,

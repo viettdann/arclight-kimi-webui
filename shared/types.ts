@@ -132,9 +132,14 @@ export type Block =
 
 export interface SessionListItem {
   id: string;
+  /** Cached last-known absolute workDir from the DB. May differ from the local machine path. */
   workDir: string;
-  /** First path segment under user root; derived server-side from `workDir`. */
+  /** Logical project slug, sourced from the `sessions.projectName` DB column. */
   projectName: string;
+  /** Server-computed `<WORKSPACE_ROOT>/<userSlug>/<projectName>` for the current machine. */
+  localWorkDir: string;
+  /** `local` when `workDir === localWorkDir`; `foreign` otherwise. */
+  origin: 'local' | 'foreign';
   title: string | null;
   model: string | null;
   thinking: boolean;

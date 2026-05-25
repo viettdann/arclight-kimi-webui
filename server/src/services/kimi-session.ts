@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { mkdir, open, readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
@@ -11,8 +10,9 @@ import {
 import { eq, sql } from 'drizzle-orm';
 import type { ApprovalRequestPayload, ErrorPayload, QuestionRequestPayload } from 'shared/types';
 import { type DB, db, schema } from '../db';
-import { broadcastEvent } from '../lib/ws-broadcast';
+import { env as defaultEnv } from '../env';
 import { logger } from '../lib/logger';
+import { broadcastEvent } from '../lib/ws-broadcast';
 import { SERVICE_NAME, SERVICE_VERSION } from '../version';
 import { createTranslatorState, translateStreamEvent } from '../ws/events';
 import { loadEnvForInjection } from './kimi-config/env-injection';
@@ -21,16 +21,13 @@ import { resolveShareDir } from './kimi-config/share-dir';
 import { clearPendingPrompt } from './pending-prompts';
 import type { ActiveSession, KimiSessionManager } from './session-manager';
 import { extractTitle, stateJsonPathFor } from './title';
+import { ensureWorkDir, resolveWorkDir } from './work-dir';
 
 // Workspace-rooted Kimi sessions live at:
 //   <KIMI_SHARE_DIR>/sessions/{md5(workDirAbs)}/{sessionId}/{state.json,wire.jsonl,context.jsonl}
 // `kimiPaths().sessionDir(workDir, sessionId)` returns that path; the SDK reads
 // from it on `createSession({ sessionId })`. We mirror the three files into
 // session_files after every turn, and rehydrate them before resume.
-
-export function workDirHash(workDirAbs: string): string {
-  return createHash('md5').update(workDirAbs).digest('hex');
-}
 
 export interface CreateKimiArgs {
   workDir: string;
@@ -154,13 +151,11 @@ export async function appendWireDelta(
   }
 
   const wireChunk = appendBytes.toString('utf8');
-  const hash = workDirHash(active.workDir);
 
   await dbh
     .insert(schema.sessionFiles)
     .values({
       sessionId: active.sessionId,
-      workDirHash: hash,
       wireJsonl: wireChunk,
       contextJsonl: '',
       stateJson: '',
@@ -170,7 +165,6 @@ export async function appendWireDelta(
     .onConflictDoUpdate({
       target: schema.sessionFiles.sessionId,
       set: {
-        workDirHash: hash,
         wireJsonl: resetWire ? wireChunk : sql`${schema.sessionFiles.wireJsonl} || ${wireChunk}`,
         wireByteOffset: newOffset,
         updatedAt: sql`now()`,
@@ -193,13 +187,10 @@ export async function flushContextAndState(active: ActiveSession, dbConn?: DB): 
     readFile(statePath, 'utf8').catch(() => ''),
   ]);
 
-  const hash = workDirHash(active.workDir);
-
   await dbh
     .insert(schema.sessionFiles)
     .values({
       sessionId: active.sessionId,
-      workDirHash: hash,
       wireJsonl: '',
       contextJsonl,
       stateJson,
@@ -209,7 +200,6 @@ export async function flushContextAndState(active: ActiveSession, dbConn?: DB): 
     .onConflictDoUpdate({
       target: schema.sessionFiles.sessionId,
       set: {
-        workDirHash: hash,
         contextJsonl,
         stateJson,
         updatedAt: sql`now()`,
@@ -403,33 +393,61 @@ export interface RestoreFromBackupArgs {
   manager: KimiSessionManager;
   db?: DB;
   shareDir?: string;
+  env?: { WORKSPACE_ROOT: string };
   /** Override SDK factory for tests. Defaults to `createKimi`. */
   createKimiFn?: (args: CreateKimiArgs) => Session;
 }
 
 /**
- * Lazy resume of a not-in-memory session. Reads `sessions` + `session_files`
- * from DB, re-materializes `~/.kimi/sessions/...` files, calls
- * `createSession({sessionId})`, and registers the resulting `ActiveSession`.
+ * Lazy resume of a not-in-memory session. Reads `sessions` joined with `user`
+ * for the owner email, computes the local absolute workDir from
+ * `(WORKSPACE_ROOT, slug(email), projectName)`, materialises the on-disk
+ * `.kimi/sessions/...` files from `session_files`, updates the cached
+ * `sessions.workDir` if the local path differs (cross-machine adoption), and
+ * registers the resulting `ActiveSession`.
  */
 export async function restoreFromBackup(args: RestoreFromBackupArgs): Promise<ActiveSession> {
   const dbh = args.db ?? db;
   const factory = args.createKimiFn ?? createKimi;
+  const envSrc = args.env ?? defaultEnv;
 
-  const [sessRow] = await dbh
-    .select()
+  const [joined] = await dbh
+    .select({
+      session: schema.sessions,
+      userEmail: schema.user.email,
+    })
     .from(schema.sessions)
+    .innerJoin(schema.user, eq(schema.user.id, schema.sessions.userId))
     .where(eq(schema.sessions.id, args.sessionId))
     .limit(1);
-  if (!sessRow || sessRow.status === 'closed' || sessRow.kimiSessionId === null) {
+  if (!joined || joined.session.status === 'closed') {
+    throw new Error('not_found');
+  }
+  const sessRow = joined.session;
+  const kimiSessionId = sessRow.kimiSessionId;
+  if (kimiSessionId === null) {
     throw new Error('not_found');
   }
 
-  const [filesRow] = await dbh
-    .select()
-    .from(schema.sessionFiles)
-    .where(eq(schema.sessionFiles.sessionId, args.sessionId))
-    .limit(1);
+  const localWorkDir = resolveWorkDir({
+    userEmail: joined.userEmail,
+    projectName: sessRow.projectName,
+    env: envSrc,
+  });
+
+  // ensureWorkDir, session_files SELECT, and loadEnvForInjection are independent
+  // after the joined SELECT — run them concurrently to shave round-trips off the
+  // lazy-resume hot path.
+  const [, filesRows, envVars] = await Promise.all([
+    ensureWorkDir(localWorkDir),
+    dbh
+      .select()
+      .from(schema.sessionFiles)
+      .where(eq(schema.sessionFiles.sessionId, args.sessionId))
+      .limit(1),
+    loadEnvForInjection(dbh),
+  ]);
+  const filesRow = filesRows[0];
 
   const hasBackup =
     filesRow != null &&
@@ -438,18 +456,23 @@ export async function restoreFromBackup(args: RestoreFromBackupArgs): Promise<Ac
       filesRow.stateJson.length > 0);
 
   if (hasBackup && filesRow != null) {
-    await restoreKimiFiles(sessRow.workDir, sessRow.kimiSessionId, {
+    await restoreKimiFiles(localWorkDir, kimiSessionId, {
       wireJsonl: filesRow.wireJsonl,
       contextJsonl: filesRow.contextJsonl,
       stateJson: filesRow.stateJson,
     });
   }
 
-  const envVars = await loadEnvForInjection(dbh);
+  if (sessRow.workDir !== localWorkDir) {
+    await dbh
+      .update(schema.sessions)
+      .set({ workDir: localWorkDir })
+      .where(eq(schema.sessions.id, sessRow.id));
+  }
 
   const kimi = factory({
-    workDir: sessRow.workDir,
-    sessionId: sessRow.kimiSessionId,
+    workDir: localWorkDir,
+    sessionId: kimiSessionId,
     ...(sessRow.model ? { model: sessRow.model } : {}),
     thinking: sessRow.thinking,
     yoloMode: sessRow.yoloMode,
@@ -460,8 +483,8 @@ export async function restoreFromBackup(args: RestoreFromBackupArgs): Promise<Ac
   return args.manager.register({
     sessionId: sessRow.id,
     userId: sessRow.userId,
-    workDir: sessRow.workDir,
-    kimiSessionId: sessRow.kimiSessionId,
+    workDir: localWorkDir,
+    kimiSessionId,
     kimiSession: kimi,
   });
 }

@@ -29,18 +29,6 @@ export interface SessionsRouterDeps {
   env: Pick<Env, 'WORKSPACE_ROOT'>;
 }
 
-// Sessions whose `workDir` does not sit under `<WORKSPACE_ROOT>/<userSlug>/<project>`
-// have no project to attribute them to (legacy rows, manual inserts, or rows
-// that escaped via symlink before path-guard caught it). Drop them from the
-// list so the FE never has to render a session without a sidebar bucket.
-function deriveProjectName(userRoot: string, workDir: string): string | null {
-  const rel = path.relative(userRoot, workDir);
-  if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) return null;
-  const seg = rel.split(path.sep)[0];
-  if (!seg || seg === '..' || seg === '.') return null;
-  return seg;
-}
-
 /**
  * Factory: build the `/api/sessions` router with injected deps. Tests build a
  * fresh router per case with stub `db`/`manager`/`auditLog`. Production wiring
@@ -67,11 +55,6 @@ export function createSessionsRouter(deps: SessionsRouterDeps): Hono<{ Variables
     const user = c.var.user;
     if (user == null) return c.json({ error: 'unauthorized' }, 401);
 
-    // `slug()` matches the auth `databaseHooks.user.create.after` hook (and
-    // `routes/projects.ts`) so the userRoot computed here points at the same
-    // dir auth created at sign-up. See projects.ts userCtx for the rationale.
-    const userRoot = path.join(env.WORKSPACE_ROOT, slug(user.email ?? ''));
-
     const statusQ = c.req.query('status');
     const conditions = [eq(schema.sessions.userId, user.id)];
     if (isStatus(statusQ)) {
@@ -85,13 +68,19 @@ export function createSessionsRouter(deps: SessionsRouterDeps): Hono<{ Variables
       .orderBy(desc(schema.sessions.lastActiveAt))
       .limit(SESSIONS_LIST_LIMIT);
 
+    // Hoist user root out of the row loop: slug(email) and the WORKSPACE_ROOT
+    // join only depend on the current user, so they're constant across every
+    // row of this response. Saves ~200 redundant slug() passes per listing.
+    const userRoot = path.join(env.WORKSPACE_ROOT, slug(user.email ?? ''));
+
     const items: SessionListItem[] = [];
     for (const r of rows) {
-      const projectName = deriveProjectName(userRoot, r.workDir);
-      if (projectName === null) continue;
+      const localWorkDir = path.join(userRoot, r.projectName);
       items.push({
         id: r.id,
         workDir: r.workDir,
+        localWorkDir,
+        origin: r.workDir === localWorkDir ? 'local' : 'foreign',
         title: r.title,
         model: r.model,
         thinking: r.thinking,
@@ -99,7 +88,7 @@ export function createSessionsRouter(deps: SessionsRouterDeps): Hono<{ Variables
           ? r.status
           : 'closed') as SessionStatus,
         totalTokens: r.totalTokens,
-        projectName,
+        projectName: r.projectName,
         createdAt: r.createdAt.toISOString(),
         lastActiveAt: r.lastActiveAt.toISOString(),
       });

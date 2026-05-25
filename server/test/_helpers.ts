@@ -242,6 +242,8 @@ export function makeFakeDb(): FakeDb {
     chain.where = () => chain;
     chain.orderBy = () => chain;
     chain.limit = () => chain;
+    chain.innerJoin = () => chain;
+    chain.leftJoin = () => chain;
     // biome-ignore lint/suspicious/noThenProperty: drizzle-shape thenable test fake.
     chain.then = (onF: (v: unknown[]) => unknown, onR: (e: unknown) => unknown) => {
       const rows = selectQueue.shift() ?? [];

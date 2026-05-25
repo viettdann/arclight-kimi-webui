@@ -86,5 +86,39 @@ describe('Integration — reconcileOnStartup', () => {
     expect(insertCall).toBeDefined();
     expect((insertCall?.values as any).wireJsonl).toBe('NEW_DELTA_DATA\n');
     expect((insertCall?.values as any).wireByteOffset).toBe(65);
+    // The dropped `workDirHash` column must not appear on the catch-up payload.
+    expect(Object.keys(insertCall?.values as object)).not.toContain('workDirHash');
+  });
+
+  it('leaves foreign rows untouched when local disk is absent but DB backup exists', async () => {
+    const fake = makeFakeDb();
+
+    // Active row whose cached workDir points to another machine's path.
+    fake.selectQueue.push([
+      {
+        id: 'sess-foreign',
+        workDir: '/legacy/foreign/path',
+        kimiSessionId: 'kimi-session-foreign',
+      },
+    ]);
+
+    // session_files row carrying a non-empty backup → dbHasBackup === true.
+    fake.selectQueue.push([
+      {
+        offset: 120,
+        wireLen: 120,
+        ctxLen: 0,
+        stateLen: 0,
+      },
+    ]);
+
+    mockExists = false; // local disk wire missing — this is a foreign row.
+
+    await reconcileOnStartup({ db: fake.db });
+
+    // No adopt (no UPDATE), no zombie prune, no catch-up INSERT. The lazy
+    // restore path runs on the next WS attach instead.
+    expect(fake.calls.find((c) => c.op === 'update')).toBeUndefined();
+    expect(fake.calls.find((c) => c.op === 'insert')).toBeUndefined();
   });
 });

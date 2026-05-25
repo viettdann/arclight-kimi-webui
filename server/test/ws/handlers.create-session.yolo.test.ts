@@ -106,18 +106,22 @@ describe('restoreFromBackup — yoloMode plumbing', () => {
     const fake = makeFakeDb();
     fake.selectQueue.push([
       {
-        id: 'sess-1',
-        userId: 'alice',
-        workDir: '/tmp/work',
-        model: null,
-        thinking: false,
-        yoloMode: true,
-        status: 'active',
-        kimiSessionId: 'kimi-x',
-        title: null,
-        totalTokens: 0,
-        createdAt: new Date(),
-        lastActiveAt: new Date(),
+        session: {
+          id: 'sess-1',
+          userId: 'alice',
+          workDir: '/tmp/kimi-webui-test/alice/proj',
+          projectName: 'proj',
+          model: null,
+          thinking: false,
+          yoloMode: true,
+          status: 'active',
+          kimiSessionId: 'kimi-x',
+          title: null,
+          totalTokens: 0,
+          createdAt: new Date(),
+          lastActiveAt: new Date(),
+        },
+        userEmail: 'alice@example.com',
       },
     ]);
     fake.selectQueue.push([]); // no session_files backup
@@ -132,6 +136,7 @@ describe('restoreFromBackup — yoloMode plumbing', () => {
       sessionId: 'sess-1',
       manager,
       db: fake.db,
+      env: { WORKSPACE_ROOT: '/tmp/kimi-webui-test' },
       createKimiFn,
     });
 
@@ -144,18 +149,22 @@ describe('restoreFromBackup — yoloMode plumbing', () => {
     const fake = makeFakeDb();
     fake.selectQueue.push([
       {
-        id: 'sess-2',
-        userId: 'alice',
-        workDir: '/tmp/work',
-        model: null,
-        thinking: false,
-        yoloMode: false,
-        status: 'active',
-        kimiSessionId: 'kimi-y',
-        title: null,
-        totalTokens: 0,
-        createdAt: new Date(),
-        lastActiveAt: new Date(),
+        session: {
+          id: 'sess-2',
+          userId: 'alice',
+          workDir: '/tmp/kimi-webui-test/alice/proj',
+          projectName: 'proj',
+          model: null,
+          thinking: false,
+          yoloMode: false,
+          status: 'active',
+          kimiSessionId: 'kimi-y',
+          title: null,
+          totalTokens: 0,
+          createdAt: new Date(),
+          lastActiveAt: new Date(),
+        },
+        userEmail: 'alice@example.com',
       },
     ]);
     fake.selectQueue.push([]); // no session_files backup
@@ -170,6 +179,7 @@ describe('restoreFromBackup — yoloMode plumbing', () => {
       sessionId: 'sess-2',
       manager,
       db: fake.db,
+      env: { WORKSPACE_ROOT: '/tmp/kimi-webui-test' },
       createKimiFn,
     });
 

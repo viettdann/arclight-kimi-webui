@@ -8,6 +8,13 @@
       "when": 1779645404918,
       "tag": "0000_genesis",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1779732000000,
+      "tag": "0001_session_cross_machine_restore",
+      "breakpoints": true
     }
   ]
 }

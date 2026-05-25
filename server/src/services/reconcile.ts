@@ -5,7 +5,7 @@ import { and, eq, isNotNull, sql } from 'drizzle-orm';
 import { type DB, schema } from '../db';
 import { logger } from '../lib/logger';
 import { kimiPaths } from './kimi-config/paths';
-import { fileSize, readRange, workDirHash } from './kimi-session';
+import { fileSize, readRange } from './kimi-session';
 
 export async function catchUpWireBackup(args: {
   sessionRowId: string;
@@ -38,13 +38,11 @@ export async function catchUpWireBackup(args: {
   }
 
   const wireChunk = appendBytes.toString('utf8');
-  const hash = workDirHash(args.workDir);
 
   await dbh
     .insert(schema.sessionFiles)
     .values({
       sessionId: args.sessionRowId,
-      workDirHash: hash,
       wireJsonl: wireChunk,
       contextJsonl: '',
       stateJson: '',
@@ -54,7 +52,6 @@ export async function catchUpWireBackup(args: {
     .onConflictDoUpdate({
       target: schema.sessionFiles.sessionId,
       set: {
-        workDirHash: hash,
         wireJsonl: resetWire ? wireChunk : sql`${schema.sessionFiles.wireJsonl} || ${wireChunk}`,
         wireByteOffset: newOffset,
         updatedAt: sql`now()`,
@@ -107,6 +104,8 @@ export async function reconcileOnStartup({ db }: { db: DB }): Promise<void> {
 
     if (!diskExists) {
       // Disk gone but DB has backup — leave it for lazy restoreFromBackup.
+      // Cross-machine: foreign rows from another machine's `WORKSPACE_ROOT`
+      // also land here. They stay `active`; adoption happens at first WS attach.
       continue;
     }
 
