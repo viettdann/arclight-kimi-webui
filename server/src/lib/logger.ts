@@ -27,14 +27,19 @@ export type Logger = typeof logger;
 
 // ─────────────────────────── Audit log ───────────────────────────
 
-export type AuditAction = 'upload' | 'download' | 'session_close' | 'project_create';
+export type AuditAction =
+  | 'upload'
+  | 'download'
+  | 'session_close'
+  | 'session_delete'
+  | 'project_create';
 
 export interface AuditEvent {
   userId: string;
   action: AuditAction;
   path: string;
   bytes: number;
-  /** For `session_close`: which path triggered the close. */
+  /** For `session_close` / `session_delete`: which path triggered the action. */
   source?: SessionStateReason;
 }
 

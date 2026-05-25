@@ -7,9 +7,10 @@ interface SessionsState {
   status: 'idle' | 'loading' | 'ready' | 'error';
   error: string | null;
   fetch: () => Promise<void>;
+  remove: (sessionId: string) => Promise<void>;
 }
 
-export const useSessionsStore = create<SessionsState>((set) => ({
+export const useSessionsStore = create<SessionsState>((set, get) => ({
   sessions: [],
   status: 'idle',
   error: null,
@@ -26,6 +27,15 @@ export const useSessionsStore = create<SessionsState>((set) => ({
     } catch (err) {
       set({ status: 'error', error: err instanceof Error ? err.message : 'network_error' });
     }
+  },
+  remove: async (sessionId) => {
+    const res = await authFetch(`/api/sessions/${encodeURIComponent(sessionId)}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) {
+      throw new Error(`http_${res.status}`);
+    }
+    set({ sessions: get().sessions.filter((s) => s.id !== sessionId) });
   },
 }));
 

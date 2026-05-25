@@ -1,3 +1,4 @@
+import { rm } from 'node:fs/promises';
 import path from 'node:path';
 import { and, desc, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
@@ -6,7 +7,8 @@ import { slug } from '../auth';
 import { type AuthVariables, requireAuth } from '../auth/middleware';
 import { type DB, db as defaultDb, schema } from '../db';
 import { env as defaultEnv, type Env } from '../env';
-import { auditLog as defaultAuditLog } from '../lib/logger';
+import { auditLog as defaultAuditLog, logger } from '../lib/logger';
+import { kimiPaths } from '../services/kimi-config/paths';
 import { closeActiveSession } from '../services/session-lifecycle';
 import {
   sessionManager as defaultManager,
@@ -47,6 +49,7 @@ function deriveProjectName(userRoot: string, workDir: string): string | null {
  * Endpoints:
  *   GET  /            list sessions for current user (LIMIT 200, sorted desc)
  *   POST /:id/close   teardown session (in-memory or DB-only); idempotent
+ *   DELETE /:id       teardown if needed, remove disk dir, DELETE row
  *
  * Cross-user / unknown ids return 404 to avoid leaking existence.
  */
@@ -139,6 +142,53 @@ export function createSessionsRouter(deps: SessionsRouterDeps): Hono<{ Variables
     auditLog({
       userId: user.id,
       action: 'session_close',
+      path: id,
+      bytes: 0,
+      source: 'rest',
+    });
+
+    return c.json({ ok: true });
+  });
+
+  // DELETE /:id — hard delete. If in memory, run the full close teardown first
+  // so the SDK is shut down and any in-flight backup drains. Then remove the
+  // Kimi session dir on disk (best-effort) and DELETE the row. `session_files`
+  // is removed via ON DELETE CASCADE.
+  sessions.delete('/:id', async (c) => {
+    const user = c.var.user;
+    if (user == null) return c.json({ error: 'unauthorized' }, 401);
+    const id = c.req.param('id');
+
+    const [row] = await db
+      .select({ workDir: schema.sessions.workDir, kimiSessionId: schema.sessions.kimiSessionId })
+      .from(schema.sessions)
+      .where(and(eq(schema.sessions.id, id), eq(schema.sessions.userId, user.id)))
+      .limit(1);
+    if (!row) {
+      return c.json({ error: 'not_found' }, 404);
+    }
+
+    const active = manager.getForUser(user.id, id);
+    if (active != null) {
+      await closeActiveSession(active, { manager, db, auditLog }, { reason: 'rest' });
+    }
+
+    if (row.kimiSessionId) {
+      const sessionDir = kimiPaths().sessionDir(row.workDir, row.kimiSessionId);
+      try {
+        await rm(sessionDir, { recursive: true, force: true });
+      } catch (err) {
+        logger.warn({ err, sessionId: id, sessionDir }, 'failed to remove kimi session dir');
+      }
+    }
+
+    await db
+      .delete(schema.sessions)
+      .where(and(eq(schema.sessions.id, id), eq(schema.sessions.userId, user.id)));
+
+    auditLog({
+      userId: user.id,
+      action: 'session_delete',
       path: id,
       bytes: 0,
       source: 'rest',

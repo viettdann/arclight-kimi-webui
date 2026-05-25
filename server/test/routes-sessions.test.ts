@@ -42,11 +42,17 @@ interface InsertCall {
   values: unknown;
 }
 
+interface DeleteCall {
+  table?: string;
+  whereCalls: number;
+}
+
 interface RecordingDb {
   db: DB;
   selectCalls: SelectCall[];
   updateCalls: UpdateCall[];
   insertCalls: InsertCall[];
+  deleteCalls: DeleteCall[];
   /** Rows returned by the next select chain to terminate. */
   selectQueue: unknown[][];
   /** Rows returned by the next `update().set().where().returning(...)` chain. */
@@ -57,6 +63,7 @@ function makeRecordingDb(): RecordingDb {
   const selectCalls: SelectCall[] = [];
   const updateCalls: UpdateCall[] = [];
   const insertCalls: InsertCall[] = [];
+  const deleteCalls: DeleteCall[] = [];
   const selectQueue: unknown[][] = [];
   const updateReturningQueue: unknown[][] = [];
 
@@ -128,6 +135,21 @@ function makeRecordingDb(): RecordingDb {
         });
       },
     }),
+    delete: (t: unknown) => {
+      const call: DeleteCall = { table: tableName(t), whereCalls: 0 };
+      deleteCalls.push(call);
+      const whereChain: Record<string, unknown> = {
+        // biome-ignore lint/suspicious/noThenProperty: drizzle-shape thenable test fake.
+        then: (onF: (v: unknown) => unknown, onR: (e: unknown) => unknown) =>
+          Promise.resolve().then(onF, onR),
+      };
+      return {
+        where: () => {
+          call.whereCalls += 1;
+          return whereChain;
+        },
+      };
+    },
   };
 
   return {
@@ -135,6 +157,7 @@ function makeRecordingDb(): RecordingDb {
     selectCalls,
     updateCalls,
     insertCalls,
+    deleteCalls,
     selectQueue,
     updateReturningQueue,
   };
@@ -642,5 +665,114 @@ describe('WS close_session handler', () => {
     // path bails before audit.
     const closeAudits = audit.filter((e) => e.action === 'session_close');
     expect(closeAudits).toHaveLength(1);
+  });
+});
+
+// ─────────────────────────── DELETE /api/sessions/:id ───────────────────────────
+
+describe('DELETE /api/sessions/:id', () => {
+  it('DB-only path: deletes row + audit when session not in memory', async () => {
+    const audit: AuditEvent[] = [];
+    const fake = makeRecordingDb();
+    fake.selectQueue.push([{ workDir: '/tmp/work', kimiSessionId: 'kimi-sess-X' }]);
+    const manager = new KimiSessionManager();
+
+    const app = buildApp({
+      user: { id: 'alice', email: 'alice@example.com' },
+      db: fake.db,
+      manager,
+      audit,
+    });
+
+    const res = await app.request('/api/sessions/sess-X', { method: 'DELETE' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+
+    expect(fake.deleteCalls).toHaveLength(1);
+    expect(fake.deleteCalls[0]?.table).toBe('sessions');
+
+    expect(audit).toContainEqual({
+      userId: 'alice',
+      action: 'session_delete',
+      path: 'sess-X',
+      bytes: 0,
+      source: 'rest',
+    });
+    // No close audit on DB-only path — session wasn't in memory.
+    expect(audit.some((e) => e.action === 'session_close')).toBe(false);
+  });
+
+  it('in-memory path: closes session first, then deletes; 2 audits', async () => {
+    const audit: AuditEvent[] = [];
+    const fake = makeRecordingDb();
+    fake.selectQueue.push([{ workDir: '/tmp/work', kimiSessionId: 'kimi-sess-A' }]);
+    const manager = new KimiSessionManager();
+    const stub = makeStubKimi();
+    registerActive(manager, 'sess-A', 'alice', stub.asSession);
+
+    const app = buildApp({
+      user: { id: 'alice', email: 'alice@example.com' },
+      db: fake.db,
+      manager,
+      audit,
+    });
+
+    const res = await app.request('/api/sessions/sess-A', { method: 'DELETE' });
+    expect(res.status).toBe(200);
+
+    // SDK was closed exactly once (via closeActiveSession).
+    expect(stub.closeCalls).toBe(1);
+    // Manager freed the slot.
+    expect(manager.hasSession('sess-A')).toBe(false);
+    // DB delete fired.
+    expect(fake.deleteCalls).toHaveLength(1);
+
+    // Audit: close + delete, in that order.
+    const actions = audit.map((e) => e.action);
+    expect(actions).toContain('session_close');
+    expect(actions).toContain('session_delete');
+  });
+
+  it('returns 404 when row missing (select empty), no delete, no audit', async () => {
+    const audit: AuditEvent[] = [];
+    const fake = makeRecordingDb();
+    fake.selectQueue.push([]);
+    const manager = new KimiSessionManager();
+
+    const app = buildApp({
+      user: { id: 'alice', email: 'alice@example.com' },
+      db: fake.db,
+      manager,
+      audit,
+    });
+
+    const res = await app.request('/api/sessions/missing', { method: 'DELETE' });
+    expect(res.status).toBe(404);
+    expect(fake.deleteCalls).toHaveLength(0);
+    expect(audit).toEqual([]);
+  });
+
+  it('cross-user 404: alice cannot delete bob session, no teardown, no delete', async () => {
+    const audit: AuditEvent[] = [];
+    const fake = makeRecordingDb();
+    // owner-scoped select filters out bob's row for alice → empty.
+    fake.selectQueue.push([]);
+    const manager = new KimiSessionManager();
+    const stub = makeStubKimi();
+    registerActive(manager, 'sess-B', 'bob', stub.asSession);
+
+    const app = buildApp({
+      user: { id: 'alice', email: 'alice@example.com' },
+      db: fake.db,
+      manager,
+      audit,
+    });
+
+    const res = await app.request('/api/sessions/sess-B', { method: 'DELETE' });
+    expect(res.status).toBe(404);
+    expect(stub.closeCalls).toBe(0);
+    expect(manager.hasSession('sess-B')).toBe(true);
+    expect(fake.deleteCalls).toHaveLength(0);
+    expect(audit).toEqual([]);
   });
 });
