@@ -178,6 +178,10 @@ export interface SnapshotPayload {
   totalTokens: number;
   title: string | null;
   pendingPrompt: { text: string; enqueuedAt: string } | null;
+  live: {
+    turnIdx: number | null;
+    stepIdx: number | null;
+  };
 }
 
 export interface ReplayDonePayload {

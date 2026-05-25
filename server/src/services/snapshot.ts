@@ -50,6 +50,10 @@ export async function buildSnapshot(args: BuildSnapshotArgs): Promise<SnapshotPa
     pendingPrompt: pending
       ? { text: pending.text, enqueuedAt: pending.enqueuedAt.toISOString() }
       : null,
+    live: {
+      turnIdx: active?.liveTurnIdx ?? null,
+      stepIdx: active?.liveStepIdx ?? null,
+    },
   };
 }
 
