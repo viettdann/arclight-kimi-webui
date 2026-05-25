@@ -21,6 +21,7 @@ import { resolveShareDir } from './kimi-config/share-dir';
 import { clearPendingPrompt } from './pending-prompts';
 import type { ActiveSession, KimiSessionManager } from './session-manager';
 import { extractTitle, stateJsonPathFor } from './title';
+import { maybeGenerateTitleBackground } from './title-generate';
 import { ensureWorkDir, resolveWorkDir } from './work-dir';
 
 // Workspace-rooted Kimi sessions live at:
@@ -165,7 +166,9 @@ export async function appendWireDelta(
     .onConflictDoUpdate({
       target: schema.kimiSessionFiles.sessionId,
       set: {
-        wireJsonl: resetWire ? wireChunk : sql`${schema.kimiSessionFiles.wireJsonl} || ${wireChunk}`,
+        wireJsonl: resetWire
+          ? wireChunk
+          : sql`${schema.kimiSessionFiles.wireJsonl} || ${wireChunk}`,
         wireByteOffset: newOffset,
         updatedAt: sql`now()`,
       },
@@ -380,6 +383,12 @@ export async function pumpTurn(active: ActiveSession, turn: Turn, deps: PumpDeps
       broadcastEvent(active, 'title_update', { title: newTitle }, manager);
     }
   }
+
+  // Fire-and-forget AI title generation for sessions still untitled. Guarded
+  // by an in-memory inflight set and a DB skip-if-set check inside the
+  // function, so safe to invoke after every turn — it short-circuits cheaply
+  // for already-titled sessions.
+  void maybeGenerateTitleBackground(active, manager, dbh);
 
   active.translator = createTranslatorState();
   active.toolNameByCallId.clear();
