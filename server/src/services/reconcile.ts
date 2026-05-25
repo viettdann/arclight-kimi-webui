@@ -1,10 +1,10 @@
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import * as path from 'node:path';
-import { KimiPaths } from '@moonshot-ai/kimi-agent-sdk';
 import { and, eq, isNotNull, sql } from 'drizzle-orm';
 import { type DB, schema } from '../db';
 import { logger } from '../lib/logger';
+import { kimiPaths } from './kimi-config/paths';
 import { fileSize, readRange, workDirHash } from './kimi-session';
 
 export async function catchUpWireBackup(args: {
@@ -15,7 +15,7 @@ export async function catchUpWireBackup(args: {
   prevOffset: number;
 }): Promise<void> {
   const dbh = args.db;
-  const dir = KimiPaths.sessionDir(args.workDir, args.kimiSessionId);
+  const dir = kimiPaths().sessionDir(args.workDir, args.kimiSessionId);
   const wirePath = path.join(dir, 'wire.jsonl');
 
   const { prevOffset } = args;
@@ -76,22 +76,41 @@ export async function reconcileOnStartup({ db }: { db: DB }): Promise<void> {
 
   for (const row of activeSessions) {
     if (!row.kimiSessionId) continue;
-    const dir = KimiPaths.sessionDir(row.workDir, row.kimiSessionId);
+    const dir = kimiPaths().sessionDir(row.workDir, row.kimiSessionId);
     const wirePath = path.join(dir, 'wire.jsonl');
-
-    if (!existsSync(wirePath)) {
-      logger.warn({ sessionId: row.id }, 'wire.jsonl path does not exist, skipping catch up');
-      continue;
-    }
-
-    const diskSize = await fileSize(wirePath);
+    const diskExists = existsSync(wirePath);
 
     const [fileRow] = await db
-      .select({ offset: schema.sessionFiles.wireByteOffset })
+      .select({
+        offset: schema.sessionFiles.wireByteOffset,
+        wireLen: sql<number>`length(${schema.sessionFiles.wireJsonl})`,
+        ctxLen: sql<number>`length(${schema.sessionFiles.contextJsonl})`,
+        stateLen: sql<number>`length(${schema.sessionFiles.stateJson})`,
+      })
       .from(schema.sessionFiles)
       .where(eq(schema.sessionFiles.sessionId, row.id))
       .limit(1);
 
+    const dbHasBackup =
+      fileRow != null && (fileRow.wireLen > 0 || fileRow.ctxLen > 0 || fileRow.stateLen > 0);
+
+    if (!diskExists && !dbHasBackup) {
+      // Zombie: row says active but neither disk wire nor DB backup exists.
+      // Close it so listings stop surfacing an unresumable session.
+      await db
+        .update(schema.sessions)
+        .set({ status: 'closed' })
+        .where(eq(schema.sessions.id, row.id));
+      logger.warn({ sessionId: row.id }, 'zombie session pruned (no wire on disk or DB)');
+      continue;
+    }
+
+    if (!diskExists) {
+      // Disk gone but DB has backup — leave it for lazy restoreFromBackup.
+      continue;
+    }
+
+    const diskSize = await fileSize(wirePath);
     const dbOffset = fileRow?.offset ?? 0;
 
     if (diskSize > dbOffset) {

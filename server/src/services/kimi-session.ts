@@ -3,7 +3,6 @@ import { mkdir, open, readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
   createSession,
-  KimiPaths,
   type Session,
   type SessionOptions,
   type StreamEvent,
@@ -17,13 +16,15 @@ import { logger } from '../lib/logger';
 import { SERVICE_NAME, SERVICE_VERSION } from '../version';
 import { createTranslatorState, translateStreamEvent } from '../ws/events';
 import { loadEnvForInjection } from './kimi-config/env-injection';
+import { kimiPaths } from './kimi-config/paths';
+import { resolveShareDir } from './kimi-config/share-dir';
 import { clearPendingPrompt } from './pending-prompts';
 import type { ActiveSession, KimiSessionManager } from './session-manager';
 import { extractTitle, stateJsonPathFor } from './title';
 
 // Workspace-rooted Kimi sessions live at:
-//   ~/.kimi/sessions/{md5(workDirAbs)}/{sessionId}/{state.json,wire.jsonl,context.jsonl}
-// `KimiPaths.sessionDir(workDir, sessionId)` returns that path; the SDK reads
+//   <KIMI_SHARE_DIR>/sessions/{md5(workDirAbs)}/{sessionId}/{state.json,wire.jsonl,context.jsonl}
+// `kimiPaths().sessionDir(workDir, sessionId)` returns that path; the SDK reads
 // from it on `createSession({ sessionId })`. We mirror the three files into
 // session_files after every turn, and rehydrate them before resume.
 
@@ -45,7 +46,7 @@ export interface CreateKimiArgs {
   sessionId?: string;
   /** Forwarded as SDK env (e.g. HOME for non-root processes). */
   env?: Record<string, string>;
-  /** Override KIMI_SHARE_DIR to put `~/.kimi` somewhere else. */
+  /** Absolute KIMI_SHARE_DIR. Defaults to `resolveShareDir()`. */
   shareDir?: string;
 }
 
@@ -58,7 +59,7 @@ export function createKimi(args: CreateKimiArgs): Session {
     ...(args.thinking != null ? { thinking: args.thinking } : {}),
     ...(args.yoloMode != null ? { yoloMode: args.yoloMode } : {}),
     ...(args.env ? { env: args.env } : {}),
-    ...(args.shareDir ? { shareDir: args.shareDir } : {}),
+    shareDir: args.shareDir ?? resolveShareDir(),
   };
   return createSession(opts);
 }
@@ -66,7 +67,7 @@ export function createKimi(args: CreateKimiArgs): Session {
 /** True iff the on-disk Kimi session directory still exists. */
 export async function kimiSessionDirExists(workDir: string, sessionId: string): Promise<boolean> {
   try {
-    const dir = KimiPaths.sessionDir(workDir, sessionId);
+    const dir = kimiPaths().sessionDir(workDir, sessionId);
     const s = await stat(dir);
     return s.isDirectory();
   } catch {
@@ -87,7 +88,7 @@ export async function restoreKimiFiles(
   sessionId: string,
   files: { wireJsonl: string; contextJsonl: string; stateJson: string },
 ): Promise<void> {
-  const dir = KimiPaths.sessionDir(workDir, sessionId);
+  const dir = kimiPaths().sessionDir(workDir, sessionId);
   await mkdir(dir, { recursive: true, mode: 0o700 });
   await Promise.all([
     writeFile(path.join(dir, 'wire.jsonl'), files.wireJsonl, { mode: 0o600 }),
@@ -123,7 +124,7 @@ export async function appendWireDelta(
   dbConn?: DB,
 ): Promise<void> {
   const dbh = dbConn ?? db;
-  const dir = KimiPaths.sessionDir(active.workDir, active.kimiSessionId);
+  const dir = kimiPaths().sessionDir(active.workDir, active.kimiSessionId);
   const wirePath = path.join(dir, 'wire.jsonl');
 
   const [row] = await dbh
@@ -183,7 +184,7 @@ export async function maybeAppendWireDelta(active: ActiveSession, dbConn?: DB): 
 
 export async function flushContextAndState(active: ActiveSession, dbConn?: DB): Promise<void> {
   const dbh = dbConn ?? db;
-  const dir = KimiPaths.sessionDir(active.workDir, active.kimiSessionId);
+  const dir = kimiPaths().sessionDir(active.workDir, active.kimiSessionId);
   const ctxPath = path.join(dir, 'context.jsonl');
   const statePath = path.join(dir, 'state.json');
 
@@ -453,7 +454,7 @@ export async function restoreFromBackup(args: RestoreFromBackupArgs): Promise<Ac
     thinking: sessRow.thinking,
     yoloMode: sessRow.yoloMode,
     env: envVars,
-    ...(args.shareDir ? { shareDir: args.shareDir } : {}),
+    shareDir: args.shareDir ?? resolveShareDir(),
   });
 
   return args.manager.register({

@@ -1,9 +1,9 @@
 import { readFile } from 'node:fs/promises';
 import * as path from 'node:path';
-import { KimiPaths } from '@moonshot-ai/kimi-agent-sdk';
 import { eq } from 'drizzle-orm';
 import type { QuestionItemDTO, SessionStatus, SnapshotPayload } from 'shared/types';
 import { type DB, db, schema } from '../db';
+import { kimiPaths } from './kimi-config/paths';
 import { peekPendingPrompt } from './pending-prompts';
 import type { ActiveSession, KimiSessionManager } from './session-manager';
 import { type LiveOverlay, parseWireFromBytes, wireEventsToBlocks } from './wire-events';
@@ -55,7 +55,7 @@ export async function buildSnapshot(args: BuildSnapshotArgs): Promise<SnapshotPa
 
 async function readWireBytesPreferringDisk(sessRow: any, dbh: DB): Promise<string> {
   if (sessRow.kimiSessionId) {
-    const dir = KimiPaths.sessionDir(sessRow.workDir, sessRow.kimiSessionId);
+    const dir = kimiPaths().sessionDir(sessRow.workDir, sessRow.kimiSessionId);
     const wirePath = path.join(dir, 'wire.jsonl');
     try {
       return await readFile(wirePath, 'utf8');

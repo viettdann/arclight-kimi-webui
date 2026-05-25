@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { KimiPaths } from '@moonshot-ai/kimi-agent-sdk';
+import { kimiPaths } from './kimi-config/paths';
 
 // Defensive title extraction. `state.json` is an internal Kimi CLI artifact,
 // not a published SDK contract — the field name, presence, or shape may change
@@ -33,5 +33,5 @@ export async function extractTitle(stateJsonPath: string): Promise<string | null
 
 /** Convenience: locate `state.json` for a given Kimi session. */
 export function stateJsonPathFor(workDir: string, kimiSessionId: string): string {
-  return path.join(KimiPaths.sessionDir(workDir, kimiSessionId), 'state.json');
+  return path.join(kimiPaths().sessionDir(workDir, kimiSessionId), 'state.json');
 }

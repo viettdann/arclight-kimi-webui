@@ -22,7 +22,12 @@ import { env } from '../env';
 import { auditLog as defaultAuditLog, logger } from '../lib/logger';
 import { broadcastEvent, sendDirect } from '../lib/ws-broadcast';
 import { loadEnvForInjection } from '../services/kimi-config/env-injection';
-import { createKimi, pumpTurn, restoreFromBackup } from '../services/kimi-session';
+import {
+  createKimi,
+  flushContextAndState,
+  pumpTurn,
+  restoreFromBackup,
+} from '../services/kimi-session';
 import { clearPendingPrompt, enqueuePendingPrompt } from '../services/pending-prompts';
 import { closeActiveSession } from '../services/session-lifecycle';
 import {
@@ -291,6 +296,15 @@ async function handleCreateSession(
     kimiSession: kimi,
   });
   deps.manager.attachWS(active, ws);
+
+  // Seed session_files immediately so a server restart before any turn
+  // doesn't leave this row as a zombie (active in `sessions` but no backup row).
+  // restoreFromBackup keys off the existence of this row.
+  try {
+    await flushContextAndState(active, deps.db);
+  } catch (err) {
+    logger.warn({ err, sessionId: sessionRowId }, 'initial session_files seed failed');
+  }
 
   broadcastEvent<SessionStatePayload>(active, 'session_state', { state: 'active' }, deps.manager);
   broadcastEvent(

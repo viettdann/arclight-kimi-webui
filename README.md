@@ -80,7 +80,7 @@ bun --filter server test   # bun:test (placeholder it.todo specs at bootstrap)
 Server scripts read env from project root via `bun --env-file=../.env`.
 Client/Vite reads its own `.env` (only `VITE_*` keys exposed to the browser).
 
-`KIMI_SHARE_DIR` (default `./.runtime/kimi`) isolates the webui's Kimi state — `config.toml`, `oauth/`, `sessions/`, `logs/` — from your host `~/.kimi`. Running `kimi` in a terminal still uses `~/.kimi` as before.
+`KIMI_SHARE_DIR` isolates the webui's Kimi state — `config.toml`, `oauth/`, `sessions/`, `logs/` — from your host `~/.kimi`. Default when unset: dev → `<project_root>/.kimi` (sibling of `workspace/`), prod (`NODE_ENV=production`) → `/app/.kimi`. Relative values resolve against the project root; absolute values are used as-is. Running `kimi` in a terminal still uses `~/.kimi` as before.
 
 ## Out of scope (MVP build order, see `docs/plans/2026-04-30-kimi-webui-design.md`)
 
