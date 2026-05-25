@@ -29,7 +29,33 @@ export interface LiveOverlay {
   liveThinkingDelta: string;
   liveTurnIdx: number | null;
   liveStepIdx: number | null;
+  liveThinkPartIdx: number;
+  liveTextPartIdx: number;
   partialToolCallArgs: Map<string, string>;
+}
+
+/**
+ * Cheaply count `TurnBegin` events in a wire-log byte string without
+ * full schema validation. Used at session-restore time to seed
+ * `liveTurnIdx` so the next turn's blocks don't collide with completed turns'
+ * ids after a server restart or in-memory cache miss.
+ */
+export function countTurnBeginsInWireBytes(bytes: string): number {
+  if (!bytes) return 0;
+  let count = 0;
+  const lines = bytes.split('\n');
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    if (!trimmed.includes('"TurnBegin"')) continue;
+    try {
+      const rec = JSON.parse(trimmed);
+      if (rec?.message?.type === 'TurnBegin') count++;
+    } catch {
+      // Skip malformed lines — same tolerance as parseWireFromBytes.
+    }
+  }
+  return count;
 }
 
 export function parseWireFromBytes(bytes: string): (WireEvent & { timestamp: string })[] {
@@ -85,6 +111,11 @@ export function wireEventsToBlocks(
   let thinkBuf = '';
   let thinkEncrypted = false;
   let steerCount = 0;
+  // partIdx counters disambiguate multiple think/text segments within a single
+  // (turn, step) — e.g. two `think` ContentParts separated by a tool_call.
+  // Reset on TurnBegin / StepBegin. Incremented after each block push.
+  let thinkPartIdx = 0;
+  let textPartIdx = 0;
 
   const toolCallsInTurn = new Map<
     string,
@@ -101,9 +132,10 @@ export function wireEventsToBlocks(
     if (thinkBuf) {
       blocks.push({
         kind: 'thinking',
-        id: `thinking:${turnIdx}:${stepIdx}`,
+        id: `thinking:${turnIdx}:${stepIdx}:${thinkPartIdx}`,
         turnIdx,
         stepIdx,
+        partIdx: thinkPartIdx,
         content: thinkBuf,
         encrypted: thinkEncrypted,
         isStreaming,
@@ -111,18 +143,21 @@ export function wireEventsToBlocks(
       });
       thinkBuf = '';
       thinkEncrypted = false;
+      thinkPartIdx++;
     }
     if (textBuf) {
       blocks.push({
         kind: 'text',
-        id: `text:${turnIdx}:${stepIdx}`,
+        id: `text:${turnIdx}:${stepIdx}:${textPartIdx}`,
         turnIdx,
         stepIdx,
+        partIdx: textPartIdx,
         content: textBuf,
         isStreaming,
         createdAt: timestamp,
       });
       textBuf = '';
+      textPartIdx++;
     }
   };
 
@@ -134,6 +169,8 @@ export function wireEventsToBlocks(
         flush(timestamp);
         turnIdx++;
         stepIdx = 0;
+        thinkPartIdx = 0;
+        textPartIdx = 0;
         toolCallsInTurn.clear();
 
         const content = contentPartsToText(ev.payload.user_input);
@@ -150,6 +187,8 @@ export function wireEventsToBlocks(
       case 'StepBegin': {
         flush(timestamp);
         stepIdx = ev.payload.n;
+        thinkPartIdx = 0;
+        textPartIdx = 0;
         break;
       }
 
@@ -311,6 +350,7 @@ export function wireEventsToBlocks(
             kind: 'question_request',
             id: `question:${payload.id}`,
             requestId: payload.id,
+            toolCallId: payload.tool_call_id,
             questions,
             createdAt: timestamp,
           });
@@ -387,7 +427,7 @@ export function wireEventsToBlocks(
     const overlay = opts.overlay;
     if (overlay.liveTurnIdx !== null && overlay.liveStepIdx !== null) {
       if (overlay.liveThinkingDelta) {
-        const thinkId = `thinking:${overlay.liveTurnIdx}:${overlay.liveStepIdx}`;
+        const thinkId = `thinking:${overlay.liveTurnIdx}:${overlay.liveStepIdx}:${overlay.liveThinkPartIdx}`;
         const thinkBlock = blocks.find((b) => b.kind === 'thinking' && b.id === thinkId);
         if (thinkBlock && thinkBlock.kind === 'thinking') {
           thinkBlock.content = overlay.liveThinkingDelta;
@@ -398,6 +438,7 @@ export function wireEventsToBlocks(
             id: thinkId,
             turnIdx: overlay.liveTurnIdx,
             stepIdx: overlay.liveStepIdx,
+            partIdx: overlay.liveThinkPartIdx,
             content: overlay.liveThinkingDelta,
             encrypted: false,
             isStreaming: true,
@@ -406,7 +447,7 @@ export function wireEventsToBlocks(
         }
       }
       if (overlay.liveTextDelta) {
-        const textId = `text:${overlay.liveTurnIdx}:${overlay.liveStepIdx}`;
+        const textId = `text:${overlay.liveTurnIdx}:${overlay.liveStepIdx}:${overlay.liveTextPartIdx}`;
         const textBlock = blocks.find((b) => b.kind === 'text' && b.id === textId);
         if (textBlock && textBlock.kind === 'text') {
           textBlock.content = overlay.liveTextDelta;
@@ -417,6 +458,7 @@ export function wireEventsToBlocks(
             id: textId,
             turnIdx: overlay.liveTurnIdx,
             stepIdx: overlay.liveStepIdx,
+            partIdx: overlay.liveTextPartIdx,
             content: overlay.liveTextDelta,
             isStreaming: true,
             createdAt: new Date().toISOString(),
@@ -453,10 +495,35 @@ export function wireEventsToBlocks(
           kind: 'question_request',
           id: `question:${qReq.requestId}`,
           requestId: qReq.requestId,
+          toolCallId: qReq.id,
           questions: qReq.questions,
           createdAt: new Date().toISOString(),
         });
       }
+    }
+  }
+
+  // Mark `question_request` blocks as resolved when their AskUserQuestion
+  // tool_call has produced a non-synthetic tool_result. The wire format has
+  // no explicit QuestionResponse event, so the matching tool_result is our
+  // resolved signal. Synthetic interrupted results don't count — they mean
+  // the question was abandoned, not answered.
+  const resolvedToolCallIds = new Set<string>();
+  for (const b of blocks) {
+    if (b.kind === 'tool_result' && b.synthetic !== 'interrupted') {
+      resolvedToolCallIds.add(b.toolCallId);
+    }
+  }
+  if (opts?.overlay) {
+    // Live pending questions are by definition unresolved — don't mark them
+    // even if a stale matching tool_result somehow surfaced.
+    for (const qReq of opts.overlay.pendingQuestions.values()) {
+      resolvedToolCallIds.delete(qReq.id);
+    }
+  }
+  for (const b of blocks) {
+    if (b.kind === 'question_request' && b.toolCallId && resolvedToolCallIds.has(b.toolCallId)) {
+      b.resolved = true;
     }
   }
 

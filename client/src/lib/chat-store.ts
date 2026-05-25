@@ -104,8 +104,16 @@ function applyEventToBlocks(
       const turn = context.liveTurnIdx ?? 0;
       const step = context.liveStepIdx ?? 0;
       const text = typeof payload === 'string' ? payload : (payload.text ?? '');
+      // partIdx disambiguates multiple text segments within (turn, step) so a
+      // second text section (after a tool call) does not append to the first.
+      const partIdx =
+        typeof payload === 'object' && typeof payload.partIdx === 'number' ? payload.partIdx : 0;
       const existingIdx = updatedBlocks.findIndex(
-        (b) => b.kind === 'text' && b.turnIdx === turn && b.stepIdx === step,
+        (b) =>
+          b.kind === 'text' &&
+          b.turnIdx === turn &&
+          b.stepIdx === step &&
+          b.partIdx === partIdx,
       );
       if (existingIdx >= 0) {
         const existing = updatedBlocks[existingIdx] as Extract<Block, { kind: 'text' }>;
@@ -117,9 +125,10 @@ function applyEventToBlocks(
       } else {
         const newBlock: Block = {
           kind: 'text',
-          id: `text:${turn}:${step}`,
+          id: `text:${turn}:${step}:${partIdx}`,
           turnIdx: turn,
           stepIdx: step,
+          partIdx,
           content: text,
           isStreaming: true,
           createdAt: new Date().toISOString(),
@@ -133,8 +142,14 @@ function applyEventToBlocks(
       const step = context.liveStepIdx ?? 0;
       const thinking = typeof payload === 'string' ? payload : (payload.thinking ?? '');
       const encrypted = typeof payload === 'object' ? !!payload.encrypted : false;
+      const partIdx =
+        typeof payload === 'object' && typeof payload.partIdx === 'number' ? payload.partIdx : 0;
       const existingIdx = updatedBlocks.findIndex(
-        (b) => b.kind === 'thinking' && b.turnIdx === turn && b.stepIdx === step,
+        (b) =>
+          b.kind === 'thinking' &&
+          b.turnIdx === turn &&
+          b.stepIdx === step &&
+          b.partIdx === partIdx,
       );
       if (existingIdx >= 0) {
         const existing = updatedBlocks[existingIdx] as Extract<Block, { kind: 'thinking' }>;
@@ -146,9 +161,10 @@ function applyEventToBlocks(
       } else {
         const newBlock: Block = {
           kind: 'thinking',
-          id: `thinking:${turn}:${step}`,
+          id: `thinking:${turn}:${step}:${partIdx}`,
           turnIdx: turn,
           stepIdx: step,
+          partIdx,
           content: thinking,
           encrypted,
           isStreaming: true,
@@ -235,6 +251,8 @@ function applyEventToBlocks(
         kind: 'question_request',
         id: `question:${payload.requestId}`,
         requestId: payload.requestId,
+        // QuestionRequestPayload.id carries the SDK tool_call_id (see ws/events.ts).
+        toolCallId: payload.id,
         questions: payload.questions,
         createdAt: new Date().toISOString(),
       };

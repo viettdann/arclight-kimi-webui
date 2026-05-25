@@ -38,6 +38,18 @@ export interface TranslatedEvent<T = unknown> {
   payload: T;
 }
 
+/**
+ * Per-(turn,step) partIdx values supplied by the caller. Stamped into
+ * `text_delta` / `thinking_delta` payloads so the client can disambiguate
+ * multiple think/text segments separated by tool calls within a single step.
+ * Caller is responsible for resetting on TurnBegin/StepBegin and bumping on
+ * ToolCall after a non-empty segment — see `updateLiveOverlay`.
+ */
+export interface PartIdxCtx {
+  thinkPartIdx: number;
+  textPartIdx: number;
+}
+
 // SDK's `ContentPart` infers as `unknown` here (its bundled zod types and our
 // installed zod major differ). Restate the discriminated union locally — it
 // matches the wire schema verbatim.
@@ -59,6 +71,7 @@ type ContentPart =
 export function translateStreamEvent(
   ev: StreamEvent,
   state: TranslatorState,
+  partIdx?: PartIdxCtx,
 ): TranslatedEvent | null {
   switch (ev.type) {
     case 'TurnBegin': {
@@ -86,7 +99,7 @@ export function translateStreamEvent(
     }
 
     case 'ContentPart':
-      return mapContentPart(ev.payload as ContentPart);
+      return mapContentPart(ev.payload as ContentPart, partIdx);
 
     case 'ToolCall': {
       state.lastToolCallId = ev.payload.id;
@@ -205,13 +218,18 @@ export function translateStreamEvent(
 
 function mapContentPart(
   part: ContentPart,
+  partIdx?: PartIdxCtx,
 ): TranslatedEvent<TextDeltaPayload | ThinkingDeltaPayload> | null {
   if (part.type === 'text') {
-    return { type: 'text_delta', payload: { text: part.text } };
+    return {
+      type: 'text_delta',
+      payload: { text: part.text, partIdx: partIdx?.textPartIdx ?? 0 },
+    };
   }
   if (part.type === 'think') {
     const payload: ThinkingDeltaPayload = {
       thinking: part.think,
+      partIdx: partIdx?.thinkPartIdx ?? 0,
       ...(part.encrypted ? { encrypted: true } : {}),
     };
     return { type: 'thinking_delta', payload };

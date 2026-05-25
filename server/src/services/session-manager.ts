@@ -71,6 +71,10 @@ export interface ActiveSession {
   liveThinkingDelta: string;
   liveTurnIdx: number | null;
   liveStepIdx: number | null;
+  /** part counter for the in-flight thinking section within (turn, step). */
+  liveThinkPartIdx: number;
+  /** part counter for the in-flight text section within (turn, step). */
+  liveTextPartIdx: number;
   partialToolCallArgs: Map<string, string>;
 }
 
@@ -81,6 +85,12 @@ export interface RegisterArgs {
   kimiSessionId: string;
   kimiSession: Session;
   bufferCapacity?: number;
+  /**
+   * Seed for `liveTurnIdx` so it doesn't collide with completed turns' block ids
+   * across server restarts. Pass `count(TurnBegin) - 1` from the wire log; the
+   * next `TurnBegin` will increment from this. `null` for brand-new sessions.
+   */
+  initialLiveTurnIdx?: number | null;
 }
 
 export type RestoreFn = (sessionId: string) => Promise<ActiveSession>;
@@ -116,8 +126,10 @@ export class KimiSessionManager {
       closing: false,
       liveTextDelta: '',
       liveThinkingDelta: '',
-      liveTurnIdx: null,
+      liveTurnIdx: args.initialLiveTurnIdx ?? null,
       liveStepIdx: null,
+      liveThinkPartIdx: 0,
+      liveTextPartIdx: 0,
       partialToolCallArgs: new Map(),
     };
     this.sessions.set(args.sessionId, active);

@@ -53,6 +53,8 @@ export async function buildSnapshot(args: BuildSnapshotArgs): Promise<SnapshotPa
     live: {
       turnIdx: active?.liveTurnIdx ?? null,
       stepIdx: active?.liveStepIdx ?? null,
+      thinkPartIdx: active?.liveThinkPartIdx ?? 0,
+      textPartIdx: active?.liveTextPartIdx ?? 0,
     },
   };
 }
@@ -112,6 +114,8 @@ function buildLiveOverlay(active: ActiveSession): LiveOverlay {
     liveThinkingDelta: active.liveThinkingDelta,
     liveTurnIdx: active.liveTurnIdx,
     liveStepIdx: active.liveStepIdx,
+    liveThinkPartIdx: active.liveThinkPartIdx,
+    liveTextPartIdx: active.liveTextPartIdx,
     partialToolCallArgs: active.partialToolCallArgs,
   };
 }

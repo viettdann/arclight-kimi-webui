@@ -84,7 +84,11 @@ describe('updateLiveOverlay', () => {
     expect(active.partialToolCallArgs.get('tc-1')).toBe('{"arg":"val"}');
   });
 
-  it('clears live state on TurnEnd', () => {
+  it('clears live deltas on TurnEnd but preserves liveTurnIdx', () => {
+    // liveTurnIdx is intentionally PRESERVED across TurnEnd so that the next
+    // TurnBegin increments to the right slot. Resetting to null caused the
+    // cross-turn block-id collision bug (next turn would land back on
+    // turnIdx=0 and stream into the previous turn's thinking/text block).
     const manager = new KimiSessionManager();
     const active = manager.register({
       sessionId: 'sess-1',
@@ -95,7 +99,9 @@ describe('updateLiveOverlay', () => {
     });
 
     active.liveTextDelta = 'some text';
+    active.liveThinkingDelta = 'some think';
     active.liveTurnIdx = 5;
+    active.liveStepIdx = 2;
 
     updateLiveOverlay(active, {
       type: 'TurnEnd',
@@ -103,7 +109,9 @@ describe('updateLiveOverlay', () => {
     } as any);
 
     expect(active.liveTextDelta).toBe('');
-    expect(active.liveTurnIdx).toBeNull();
-    expect(active.liveStepIdx).toBeNull();
+    expect(active.liveThinkingDelta).toBe('');
+    // Preserved so the next TurnBegin increments from 5 → 6.
+    expect(active.liveTurnIdx).toBe(5);
+    expect(active.liveStepIdx).toBe(2);
   });
 });

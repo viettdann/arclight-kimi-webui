@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
-import { wireEventsToBlocks } from '../../src/services/wire-events';
 import type { StreamEvent } from '@moonshot-ai/kimi-agent-sdk';
 import type { Block } from 'shared/types';
+import { wireEventsToBlocks } from '../../src/services/wire-events';
 
 type WireEvent = StreamEvent;
 type BlockOfKind<K extends Block['kind']> = Extract<Block, { kind: K }>;
@@ -221,5 +221,70 @@ describe('wireEventsToBlocks folding', () => {
     expect(toolResultBlock).toBeDefined();
     expect(toolResultBlock?.synthetic).toBe('interrupted');
     expect(toolResultBlock?.isError).toBe(true);
+  });
+
+  it('marks question_request resolved when matching tool_result exists', () => {
+    const timestamp = new Date().toISOString();
+    const events: (WireEvent & { timestamp: string })[] = [
+      { type: 'TurnBegin', payload: { id: 't1', user_slug: 'u' }, timestamp },
+      {
+        type: 'ToolCall',
+        payload: { id: 'tc-ask-1', function: { name: 'AskUserQuestion', arguments: '{}' } },
+        timestamp,
+      },
+      {
+        type: 'QuestionRequest',
+        payload: {
+          id: 'q-rpc-1',
+          tool_call_id: 'tc-ask-1',
+          questions: [{ question: 'Yes?', options: [] }],
+        },
+        timestamp,
+      } as unknown as WireEvent & { timestamp: string },
+      {
+        type: 'ToolResult',
+        payload: {
+          tool_call_id: 'tc-ask-1',
+          return_value: { is_error: false, output: 'Yes', display: [], message: null },
+        },
+        timestamp,
+      },
+    ];
+
+    const blocks = wireEventsToBlocks(events);
+    const qBlock = blocks.find(
+      (b): b is BlockOfKind<'question_request'> => b.kind === 'question_request',
+    );
+    expect(qBlock).toBeDefined();
+    expect(qBlock?.toolCallId).toBe('tc-ask-1');
+    expect(qBlock?.resolved).toBe(true);
+  });
+
+  it('leaves question_request unresolved when no tool_result has arrived', () => {
+    const timestamp = new Date().toISOString();
+    const events: (WireEvent & { timestamp: string })[] = [
+      { type: 'TurnBegin', payload: { id: 't1', user_slug: 'u' }, timestamp },
+      {
+        type: 'ToolCall',
+        payload: { id: 'tc-ask-2', function: { name: 'AskUserQuestion', arguments: '{}' } },
+        timestamp,
+      },
+      {
+        type: 'QuestionRequest',
+        payload: {
+          id: 'q-rpc-2',
+          tool_call_id: 'tc-ask-2',
+          questions: [{ question: 'Yes?', options: [] }],
+        },
+        timestamp,
+      } as unknown as WireEvent & { timestamp: string },
+    ];
+
+    const blocks = wireEventsToBlocks(events);
+    const qBlock = blocks.find(
+      (b): b is BlockOfKind<'question_request'> => b.kind === 'question_request',
+    );
+    expect(qBlock).toBeDefined();
+    expect(qBlock?.resolved).toBeUndefined();
   });
 });

@@ -22,6 +22,7 @@ import { clearPendingPrompt } from './pending-prompts';
 import type { ActiveSession, KimiSessionManager } from './session-manager';
 import { extractTitle, stateJsonPathFor } from './title';
 import { maybeGenerateTitleBackground } from './title-generate';
+import { countTurnBeginsInWireBytes } from './wire-events';
 import { ensureWorkDir, resolveWorkDir } from './work-dir';
 
 // Workspace-rooted Kimi sessions live at:
@@ -217,6 +218,8 @@ export function updateLiveOverlay(active: ActiveSession, ev: StreamEvent): void 
       active.liveStepIdx = 0;
       active.liveTextDelta = '';
       active.liveThinkingDelta = '';
+      active.liveThinkPartIdx = 0;
+      active.liveTextPartIdx = 0;
       active.partialToolCallArgs.clear();
       break;
     }
@@ -224,6 +227,8 @@ export function updateLiveOverlay(active: ActiveSession, ev: StreamEvent): void 
       active.liveStepIdx = (ev.payload as any).n;
       active.liveTextDelta = '';
       active.liveThinkingDelta = '';
+      active.liveThinkPartIdx = 0;
+      active.liveTextPartIdx = 0;
       break;
     }
     case 'ContentPart': {
@@ -245,6 +250,17 @@ export function updateLiveOverlay(active: ActiveSession, ev: StreamEvent): void 
       break;
     }
     case 'ToolCall': {
+      // A `ToolCall` ends any in-flight think/text segment within this step.
+      // Bump partIdx so the *next* think/text segment gets a fresh id and
+      // doesn't merge with the just-finalized block on the client.
+      if (active.liveThinkingDelta) {
+        active.liveThinkingDelta = '';
+        active.liveThinkPartIdx++;
+      }
+      if (active.liveTextDelta) {
+        active.liveTextDelta = '';
+        active.liveTextPartIdx++;
+      }
       const p = ev.payload as any;
       active.partialToolCallArgs.delete(p.id);
       break;
@@ -255,11 +271,14 @@ export function updateLiveOverlay(active: ActiveSession, ev: StreamEvent): void 
       break;
     }
     case 'TurnEnd': {
+      // Clear in-flight deltas but PRESERVE liveTurnIdx / liveStepIdx so the
+      // next `TurnBegin` increments from the right value. Resetting to null
+      // here caused the cross-turn collision bug: after `(null ?? -1) + 1`
+      // the next turn would land back on turnIdx=0 and stream into the
+      // previous turn's block.
       active.liveTextDelta = '';
       active.liveThinkingDelta = '';
       active.partialToolCallArgs.clear();
-      active.liveTurnIdx = null;
-      active.liveStepIdx = null;
       break;
     }
   }
@@ -285,7 +304,13 @@ export async function pumpTurn(active: ActiveSession, turn: Turn, deps: PumpDeps
 
   try {
     for await (const ev of turn) {
-      const translated = translateStreamEvent(ev, active.translator);
+      // Pass the current think/text partIdx so `text_delta` and
+      // `thinking_delta` payloads carry the partIdx the client needs to
+      // disambiguate multiple segments within a (turn, step).
+      const translated = translateStreamEvent(ev, active.translator, {
+        thinkPartIdx: active.liveThinkPartIdx,
+        textPartIdx: active.liveTextPartIdx,
+      });
       if (translated) {
         if (translated.type === 'turn_begin') {
           await clearPendingPrompt(active.sessionId, dbh);
@@ -321,8 +346,11 @@ export async function pumpTurn(active: ActiveSession, turn: Turn, deps: PumpDeps
     active.partialToolCallArgs.clear();
     active.liveTextDelta = '';
     active.liveThinkingDelta = '';
-    active.liveTurnIdx = null;
+    // Keep liveTurnIdx so the next TurnBegin increments from the right value.
+    // Reset partIdx so a fresh attempt starts at 0 within the same turn slot.
     active.liveStepIdx = null;
+    active.liveThinkPartIdx = 0;
+    active.liveTextPartIdx = 0;
 
     try {
       await appendWireDelta(active, true, dbh);
@@ -489,11 +517,18 @@ export async function restoreFromBackup(args: RestoreFromBackupArgs): Promise<Ac
     shareDir: args.shareDir ?? resolveShareDir(),
   });
 
+  // Count completed turns from the restored wire log so the next TurnBegin
+  // increments liveTurnIdx from the right slot — otherwise it'd start back at
+  // 0 and collide with completed turns' block ids.
+  const turnCount = filesRow?.wireJsonl ? countTurnBeginsInWireBytes(filesRow.wireJsonl) : 0;
+  const initialLiveTurnIdx = turnCount > 0 ? turnCount - 1 : null;
+
   return args.manager.register({
     sessionId: sessRow.id,
     userId: sessRow.userId,
     workDir: localWorkDir,
     kimiSessionId,
     kimiSession: kimi,
+    initialLiveTurnIdx,
   });
 }

@@ -61,7 +61,13 @@ export function BlockRegistry({ block }: BlockRegistryProps) {
         />
       );
     case 'question_request':
-      return <QuestionCard requestId={block.requestId} questions={block.questions} />;
+      return (
+        <QuestionCard
+          requestId={block.requestId}
+          questions={block.questions}
+          resolved={block.resolved}
+        />
+      );
     case 'steer':
       return <SteerBlock content={block.content} createdAt={block.createdAt} />;
     case 'error':

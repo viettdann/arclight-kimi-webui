@@ -66,6 +66,7 @@ export type Block =
       id: string;
       turnIdx: number;
       stepIdx: number;
+      partIdx: number;
       content: string;
       isStreaming: boolean;
       createdAt: string;
@@ -75,6 +76,7 @@ export type Block =
       id: string;
       turnIdx: number;
       stepIdx: number;
+      partIdx: number;
       content: string;
       encrypted: boolean;
       isStreaming: boolean;
@@ -124,7 +126,11 @@ export type Block =
       kind: 'question_request';
       id: string;
       requestId: string;
+      /** SDK `QuestionRequest.tool_call_id` — used to detect "answered" via matching tool_result. */
+      toolCallId: string;
       questions: QuestionItemDTO[];
+      /** True once the question's tool_call has resolved (user has answered). */
+      resolved?: boolean;
       createdAt: string;
     }
   | { kind: 'steer'; id: string; content: string; createdAt: string }
@@ -181,6 +187,10 @@ export interface SnapshotPayload {
   live: {
     turnIdx: number | null;
     stepIdx: number | null;
+    /** Current part index of the in-flight thinking section (per turn+step). */
+    thinkPartIdx: number;
+    /** Current part index of the in-flight text section (per turn+step). */
+    textPartIdx: number;
   };
 }
 
@@ -198,11 +208,15 @@ export interface StepBeginPayload {
 
 export interface TextDeltaPayload {
   text: string;
+  /** Disambiguates multiple text segments within the same (turnIdx, stepIdx). */
+  partIdx: number;
 }
 
 export interface ThinkingDeltaPayload {
   thinking: string;
   encrypted?: boolean;
+  /** Disambiguates multiple thinking segments within the same (turnIdx, stepIdx). */
+  partIdx: number;
 }
 
 export interface ToolCallPayload {

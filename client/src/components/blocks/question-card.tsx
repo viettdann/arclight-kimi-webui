@@ -8,13 +8,18 @@ import { sendWS } from '../../lib/ws-send';
 interface QuestionCardProps {
   requestId: string;
   questions: QuestionItemDTO[];
+  /** True when the matching tool_result has been seen — question already answered. */
+  resolved?: boolean;
 }
 
-export function QuestionCard({ requestId, questions }: QuestionCardProps) {
+export function QuestionCard({ requestId, questions, resolved }: QuestionCardProps) {
   const { id: sessionId } = useParams<{ id: string }>();
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [activeIdx, setActiveIdx] = useState(0);
-  const [isSubmitted, setIsSubmitted] = useState(false);
+  const [submittedLocal, setSubmittedLocal] = useState(false);
+  // Server-side `resolved` (matching tool_result has fired) OR locally-submitted.
+  // Both flow into the same UI state — once true, stays true.
+  const isSubmitted = !!resolved || submittedLocal;
 
   const total = questions.length;
   const safeIdx = Math.min(activeIdx, total - 1);
@@ -65,7 +70,7 @@ export function QuestionCard({ requestId, questions }: QuestionCardProps) {
     if (!sessionId || isSubmitted) return;
     if (Object.keys(answers).length === 0) return;
     sendWS('answer_question', { requestId, answers }, sessionId);
-    setIsSubmitted(true);
+    setSubmittedLocal(true);
   };
 
   const answeredCount = questions.reduce(
