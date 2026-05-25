@@ -10,8 +10,8 @@ import {
 } from 'drizzle-orm/pg-core';
 import { user } from './auth';
 
-export const sessions = pgTable(
-  'sessions',
+export const kimiSessions = pgTable(
+  'kimi_sessions',
   {
     id: uuid('id').primaryKey().defaultRandom(),
     userId: text('user_id')
@@ -31,13 +31,13 @@ export const sessions = pgTable(
     pendingPrompt: text('pendingPrompt'),
     pendingEnqueuedAt: timestamp('pendingEnqueuedAt', { mode: 'date' }),
   },
-  (t) => [index('sessions_user_idx').on(t.userId, t.status, t.lastActiveAt.desc())],
+  (t) => [index('kimi_sessions_user_idx').on(t.userId, t.status, t.lastActiveAt.desc())],
 );
 
-export const sessionFiles = pgTable('session_files', {
+export const kimiSessionFiles = pgTable('kimi_session_files', {
   sessionId: uuid('sessionId')
     .primaryKey()
-    .references(() => sessions.id, { onDelete: 'cascade' }),
+    .references(() => kimiSessions.id, { onDelete: 'cascade' }),
   wireJsonl: text('wireJsonl').notNull().default(''),
   contextJsonl: text('contextJsonl').notNull().default(''),
   stateJson: text('stateJson').notNull().default(''),
@@ -45,7 +45,7 @@ export const sessionFiles = pgTable('session_files', {
   updatedAt: timestamp('updatedAt', { mode: 'date' }).notNull().defaultNow(),
 });
 
-export type Session = typeof sessions.$inferSelect;
-export type NewSession = typeof sessions.$inferInsert;
-export type SessionFile = typeof sessionFiles.$inferSelect;
-export type NewSessionFile = typeof sessionFiles.$inferInsert;
+export type KimiSession = typeof kimiSessions.$inferSelect;
+export type NewKimiSession = typeof kimiSessions.$inferInsert;
+export type KimiSessionFile = typeof kimiSessionFiles.$inferSelect;
+export type NewKimiSessionFile = typeof kimiSessionFiles.$inferInsert;

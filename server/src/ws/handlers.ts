@@ -283,7 +283,7 @@ async function handleCreateSession(
   const sessionRowId = randomUUID();
 
   // Insert AFTER createSession succeeded — no orphan rows on SDK throw.
-  await deps.db.insert(schema.sessions).values({
+  await deps.db.insert(schema.kimiSessions).values({
     id: sessionRowId,
     userId: ws.data.userId,
     workDir,

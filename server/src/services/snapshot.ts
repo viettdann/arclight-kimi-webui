@@ -19,8 +19,8 @@ export async function buildSnapshot(args: BuildSnapshotArgs): Promise<SnapshotPa
 
   const [sessRow] = await dbh
     .select()
-    .from(schema.sessions)
-    .where(eq(schema.sessions.id, args.sessionId))
+    .from(schema.kimiSessions)
+    .where(eq(schema.kimiSessions.id, args.sessionId))
     .limit(1);
   if (!sessRow) return null;
 
@@ -67,9 +67,9 @@ async function readWireBytesPreferringDisk(sessRow: any, dbh: DB): Promise<strin
   }
 
   const [row] = await dbh
-    .select({ wireJsonl: schema.sessionFiles.wireJsonl })
-    .from(schema.sessionFiles)
-    .where(eq(schema.sessionFiles.sessionId, sessRow.id))
+    .select({ wireJsonl: schema.kimiSessionFiles.wireJsonl })
+    .from(schema.kimiSessionFiles)
+    .where(eq(schema.kimiSessionFiles.sessionId, sessRow.id))
     .limit(1);
 
   return row?.wireJsonl ?? '';

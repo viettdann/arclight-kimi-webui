@@ -273,10 +273,10 @@ describe('GET /api/sessions', () => {
     const body = (await res.json()) as { sessions: SessionListItem[] };
     expect(body.sessions.map((s) => s.id)).toEqual(['s1', 's2']);
 
-    // Recorded chain shape: select sessions + 1 where + 1 orderBy + LIMIT 200.
+    // Recorded chain shape: select kimi_sessions + 1 where + 1 orderBy + LIMIT 200.
     expect(fake.selectCalls).toHaveLength(1);
     const sel = fake.selectCalls[0];
-    expect(sel?.table).toBe('sessions');
+    expect(sel?.table).toBe('kimi_sessions');
     expect(sel?.whereCalls).toBe(1);
     expect(sel?.orderByCalls).toBe(1);
     expect(sel?.limit).toBe(200);
@@ -433,10 +433,11 @@ describe('POST /api/sessions/:id/close — in-memory path', () => {
     // SDK close called exactly once.
     expect(stub.closeCalls).toBe(1);
 
-    // DB durable update happened on the sessions table.
+    // DB durable update happened on the kimi_sessions table.
     expect(
       fake.updateCalls.some(
-        (u) => u.table === 'sessions' && (u.set as Record<string, unknown>).status === 'closed',
+        (u) =>
+          u.table === 'kimi_sessions' && (u.set as Record<string, unknown>).status === 'closed',
       ),
     ).toBe(true);
 
@@ -538,10 +539,10 @@ describe('POST /api/sessions/:id/close — DB-only path', () => {
     const res = await app.request('/api/sessions/sess-X/close', { method: 'POST' });
     expect(res.status).toBe(200);
 
-    // Single round-trip: one UPDATE on sessions setting status='closed'.
+    // Single round-trip: one UPDATE on kimi_sessions setting status='closed'.
     expect(fake.updateCalls).toHaveLength(1);
     const upd = fake.updateCalls[0];
-    expect(upd?.table).toBe('sessions');
+    expect(upd?.table).toBe('kimi_sessions');
     expect((upd?.set as Record<string, unknown>).status).toBe('closed');
     expect(upd?.returned).toEqual([{ id: 'sess-X' }]);
 
@@ -679,7 +680,7 @@ describe('DELETE /api/sessions/:id', () => {
     expect(await res.json()).toEqual({ ok: true });
 
     expect(fake.deleteCalls).toHaveLength(1);
-    expect(fake.deleteCalls[0]?.table).toBe('sessions');
+    expect(fake.deleteCalls[0]?.table).toBe('kimi_sessions');
 
     expect(audit).toContainEqual({
       userId: 'alice',

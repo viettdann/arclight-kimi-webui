@@ -56,16 +56,16 @@ export function createSessionsRouter(deps: SessionsRouterDeps): Hono<{ Variables
     if (user == null) return c.json({ error: 'unauthorized' }, 401);
 
     const statusQ = c.req.query('status');
-    const conditions = [eq(schema.sessions.userId, user.id)];
+    const conditions = [eq(schema.kimiSessions.userId, user.id)];
     if (isStatus(statusQ)) {
-      conditions.push(eq(schema.sessions.status, statusQ));
+      conditions.push(eq(schema.kimiSessions.status, statusQ));
     }
 
     const rows = await db
       .select()
-      .from(schema.sessions)
+      .from(schema.kimiSessions)
       .where(and(...conditions))
-      .orderBy(desc(schema.sessions.lastActiveAt))
+      .orderBy(desc(schema.kimiSessions.lastActiveAt))
       .limit(SESSIONS_LIST_LIMIT);
 
     // Hoist user root out of the row loop: slug(email) and the WORKSPACE_ROOT
@@ -119,10 +119,10 @@ export function createSessionsRouter(deps: SessionsRouterDeps): Hono<{ Variables
     // matches the WHERE clause and returns the id, so idempotent calls return
     // 200 without requiring an explicit `status != 'closed'` short-circuit.
     const updated = await db
-      .update(schema.sessions)
+      .update(schema.kimiSessions)
       .set({ status: 'closed' })
-      .where(and(eq(schema.sessions.id, id), eq(schema.sessions.userId, user.id)))
-      .returning({ id: schema.sessions.id });
+      .where(and(eq(schema.kimiSessions.id, id), eq(schema.kimiSessions.userId, user.id)))
+      .returning({ id: schema.kimiSessions.id });
 
     if (updated.length === 0) {
       return c.json({ error: 'not_found' }, 404);
@@ -149,9 +149,9 @@ export function createSessionsRouter(deps: SessionsRouterDeps): Hono<{ Variables
     const id = c.req.param('id');
 
     const [row] = await db
-      .select({ workDir: schema.sessions.workDir, kimiSessionId: schema.sessions.kimiSessionId })
-      .from(schema.sessions)
-      .where(and(eq(schema.sessions.id, id), eq(schema.sessions.userId, user.id)))
+      .select({ workDir: schema.kimiSessions.workDir, kimiSessionId: schema.kimiSessions.kimiSessionId })
+      .from(schema.kimiSessions)
+      .where(and(eq(schema.kimiSessions.id, id), eq(schema.kimiSessions.userId, user.id)))
       .limit(1);
     if (!row) {
       return c.json({ error: 'not_found' }, 404);
@@ -172,8 +172,8 @@ export function createSessionsRouter(deps: SessionsRouterDeps): Hono<{ Variables
     }
 
     await db
-      .delete(schema.sessions)
-      .where(and(eq(schema.sessions.id, id), eq(schema.sessions.userId, user.id)));
+      .delete(schema.kimiSessions)
+      .where(and(eq(schema.kimiSessions.id, id), eq(schema.kimiSessions.userId, user.id)));
 
     auditLog({
       userId: user.id,

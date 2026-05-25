@@ -68,7 +68,7 @@ describe('Integration — reconcileOnStartup', () => {
       },
     ]);
 
-    // 2. SELECT query inside catchUpWireBackup (schema.sessionFiles) -> returns offset 50
+    // 2. SELECT query inside catchUpWireBackup (schema.kimiSessionFiles) -> returns offset 50
     fake.selectQueue.push([
       {
         offset: 50,

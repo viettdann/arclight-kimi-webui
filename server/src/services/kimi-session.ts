@@ -125,9 +125,9 @@ export async function appendWireDelta(
   const wirePath = path.join(dir, 'wire.jsonl');
 
   const [row] = await dbh
-    .select({ offset: schema.sessionFiles.wireByteOffset })
-    .from(schema.sessionFiles)
-    .where(eq(schema.sessionFiles.sessionId, active.sessionId))
+    .select({ offset: schema.kimiSessionFiles.wireByteOffset })
+    .from(schema.kimiSessionFiles)
+    .where(eq(schema.kimiSessionFiles.sessionId, active.sessionId))
     .limit(1);
   const prevOffset = row?.offset ?? 0;
 
@@ -153,7 +153,7 @@ export async function appendWireDelta(
   const wireChunk = appendBytes.toString('utf8');
 
   await dbh
-    .insert(schema.sessionFiles)
+    .insert(schema.kimiSessionFiles)
     .values({
       sessionId: active.sessionId,
       wireJsonl: wireChunk,
@@ -163,9 +163,9 @@ export async function appendWireDelta(
       updatedAt: new Date(),
     })
     .onConflictDoUpdate({
-      target: schema.sessionFiles.sessionId,
+      target: schema.kimiSessionFiles.sessionId,
       set: {
-        wireJsonl: resetWire ? wireChunk : sql`${schema.sessionFiles.wireJsonl} || ${wireChunk}`,
+        wireJsonl: resetWire ? wireChunk : sql`${schema.kimiSessionFiles.wireJsonl} || ${wireChunk}`,
         wireByteOffset: newOffset,
         updatedAt: sql`now()`,
       },
@@ -188,7 +188,7 @@ export async function flushContextAndState(active: ActiveSession, dbConn?: DB): 
   ]);
 
   await dbh
-    .insert(schema.sessionFiles)
+    .insert(schema.kimiSessionFiles)
     .values({
       sessionId: active.sessionId,
       wireJsonl: '',
@@ -198,7 +198,7 @@ export async function flushContextAndState(active: ActiveSession, dbConn?: DB): 
       updatedAt: new Date(),
     })
     .onConflictDoUpdate({
-      target: schema.sessionFiles.sessionId,
+      target: schema.kimiSessionFiles.sessionId,
       set: {
         contextJsonl,
         stateJson,
@@ -358,25 +358,25 @@ export async function pumpTurn(active: ActiveSession, turn: Turn, deps: PumpDeps
 
   const tokens = active.lastStatusUpdate?.tokenUsage;
   await dbh
-    .update(schema.sessions)
+    .update(schema.kimiSessions)
     .set({
       ...(tokens != null ? { totalTokens: tokens } : {}),
       lastActiveAt: sql`now()`,
     })
-    .where(eq(schema.sessions.id, active.sessionId));
+    .where(eq(schema.kimiSessions.id, active.sessionId));
 
   const newTitle = await extractTitle(stateJsonPathFor(active.workDir, active.kimiSessionId));
   if (newTitle !== null) {
     const [row] = await dbh
-      .select({ title: schema.sessions.title })
-      .from(schema.sessions)
-      .where(eq(schema.sessions.id, active.sessionId))
+      .select({ title: schema.kimiSessions.title })
+      .from(schema.kimiSessions)
+      .where(eq(schema.kimiSessions.id, active.sessionId))
       .limit(1);
     if (row && row.title !== newTitle) {
       await dbh
-        .update(schema.sessions)
+        .update(schema.kimiSessions)
         .set({ title: newTitle })
-        .where(eq(schema.sessions.id, active.sessionId));
+        .where(eq(schema.kimiSessions.id, active.sessionId));
       broadcastEvent(active, 'title_update', { title: newTitle }, manager);
     }
   }
@@ -413,12 +413,12 @@ export async function restoreFromBackup(args: RestoreFromBackupArgs): Promise<Ac
 
   const [joined] = await dbh
     .select({
-      session: schema.sessions,
+      session: schema.kimiSessions,
       userEmail: schema.user.email,
     })
-    .from(schema.sessions)
-    .innerJoin(schema.user, eq(schema.user.id, schema.sessions.userId))
-    .where(eq(schema.sessions.id, args.sessionId))
+    .from(schema.kimiSessions)
+    .innerJoin(schema.user, eq(schema.user.id, schema.kimiSessions.userId))
+    .where(eq(schema.kimiSessions.id, args.sessionId))
     .limit(1);
   if (!joined || joined.session.status === 'closed') {
     throw new Error('not_found');
@@ -442,8 +442,8 @@ export async function restoreFromBackup(args: RestoreFromBackupArgs): Promise<Ac
     ensureWorkDir(localWorkDir),
     dbh
       .select()
-      .from(schema.sessionFiles)
-      .where(eq(schema.sessionFiles.sessionId, args.sessionId))
+      .from(schema.kimiSessionFiles)
+      .where(eq(schema.kimiSessionFiles.sessionId, args.sessionId))
       .limit(1),
     loadEnvForInjection(dbh),
   ]);
@@ -465,9 +465,9 @@ export async function restoreFromBackup(args: RestoreFromBackupArgs): Promise<Ac
 
   if (sessRow.workDir !== localWorkDir) {
     await dbh
-      .update(schema.sessions)
+      .update(schema.kimiSessions)
       .set({ workDir: localWorkDir })
-      .where(eq(schema.sessions.id, sessRow.id));
+      .where(eq(schema.kimiSessions.id, sessRow.id));
   }
 
   const kimi = factory({

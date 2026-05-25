@@ -89,9 +89,9 @@ export async function closeActiveSession(
   }
 
   await dbh
-    .update(schema.sessions)
+    .update(schema.kimiSessions)
     .set({ status: 'closed' })
-    .where(eq(schema.sessions.id, active.sessionId));
+    .where(eq(schema.kimiSessions.id, active.sessionId));
 
   // Broadcast last so seq is the highest event of this session. Pump is dead
   // (interrupt + iterator drained), so no more events can race past this.

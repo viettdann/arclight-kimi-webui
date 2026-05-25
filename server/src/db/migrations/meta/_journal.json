@@ -15,6 +15,13 @@
       "when": 1779732000000,
       "tag": "0001_session_cross_machine_restore",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1780000000000,
+      "tag": "0002_rename_sessions_to_kimi_sessions",
+      "breakpoints": true
     }
   ]
 }

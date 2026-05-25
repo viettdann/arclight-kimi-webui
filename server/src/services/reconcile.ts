@@ -40,7 +40,7 @@ export async function catchUpWireBackup(args: {
   const wireChunk = appendBytes.toString('utf8');
 
   await dbh
-    .insert(schema.sessionFiles)
+    .insert(schema.kimiSessionFiles)
     .values({
       sessionId: args.sessionRowId,
       wireJsonl: wireChunk,
@@ -50,9 +50,9 @@ export async function catchUpWireBackup(args: {
       updatedAt: new Date(),
     })
     .onConflictDoUpdate({
-      target: schema.sessionFiles.sessionId,
+      target: schema.kimiSessionFiles.sessionId,
       set: {
-        wireJsonl: resetWire ? wireChunk : sql`${schema.sessionFiles.wireJsonl} || ${wireChunk}`,
+        wireJsonl: resetWire ? wireChunk : sql`${schema.kimiSessionFiles.wireJsonl} || ${wireChunk}`,
         wireByteOffset: newOffset,
         updatedAt: sql`now()`,
       },
@@ -64,12 +64,12 @@ export async function reconcileOnStartup({ db }: { db: DB }): Promise<void> {
 
   const activeSessions = await db
     .select({
-      id: schema.sessions.id,
-      workDir: schema.sessions.workDir,
-      kimiSessionId: schema.sessions.kimiSessionId,
+      id: schema.kimiSessions.id,
+      workDir: schema.kimiSessions.workDir,
+      kimiSessionId: schema.kimiSessions.kimiSessionId,
     })
-    .from(schema.sessions)
-    .where(and(eq(schema.sessions.status, 'active'), isNotNull(schema.sessions.kimiSessionId)));
+    .from(schema.kimiSessions)
+    .where(and(eq(schema.kimiSessions.status, 'active'), isNotNull(schema.kimiSessions.kimiSessionId)));
 
   for (const row of activeSessions) {
     if (!row.kimiSessionId) continue;
@@ -79,13 +79,13 @@ export async function reconcileOnStartup({ db }: { db: DB }): Promise<void> {
 
     const [fileRow] = await db
       .select({
-        offset: schema.sessionFiles.wireByteOffset,
-        wireLen: sql<number>`length(${schema.sessionFiles.wireJsonl})`,
-        ctxLen: sql<number>`length(${schema.sessionFiles.contextJsonl})`,
-        stateLen: sql<number>`length(${schema.sessionFiles.stateJson})`,
+        offset: schema.kimiSessionFiles.wireByteOffset,
+        wireLen: sql<number>`length(${schema.kimiSessionFiles.wireJsonl})`,
+        ctxLen: sql<number>`length(${schema.kimiSessionFiles.contextJsonl})`,
+        stateLen: sql<number>`length(${schema.kimiSessionFiles.stateJson})`,
       })
-      .from(schema.sessionFiles)
-      .where(eq(schema.sessionFiles.sessionId, row.id))
+      .from(schema.kimiSessionFiles)
+      .where(eq(schema.kimiSessionFiles.sessionId, row.id))
       .limit(1);
 
     const dbHasBackup =
@@ -95,9 +95,9 @@ export async function reconcileOnStartup({ db }: { db: DB }): Promise<void> {
       // Zombie: row says active but neither disk wire nor DB backup exists.
       // Close it so listings stop surfacing an unresumable session.
       await db
-        .update(schema.sessions)
+        .update(schema.kimiSessions)
         .set({ status: 'closed' })
-        .where(eq(schema.sessions.id, row.id));
+        .where(eq(schema.kimiSessions.id, row.id));
       logger.warn({ sessionId: row.id }, 'zombie session pruned (no wire on disk or DB)');
       continue;
     }
