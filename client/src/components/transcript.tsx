@@ -7,6 +7,8 @@ import { wsClient } from '../lib/ws-client';
 import { sendWS } from '../lib/ws-send';
 import { BlockRegistry } from './blocks/block-registry';
 import { SubagentBundle } from './blocks/subagent-bundle';
+import { ActivityTimeline, isRailEligible } from './blocks/timeline/activity-timeline';
+import type { RailBlock } from './blocks/timeline/types';
 
 type RenderItem =
   | { kind: 'block'; block: Block }
@@ -17,6 +19,11 @@ type RenderItem =
       subagent: Extract<Block, { kind: 'subagent' }> | null;
       toolResult: Extract<Block, { kind: 'tool_result' }> | null;
     };
+
+/** A run of consecutive rail-eligible blocks, or a single standalone item. */
+type Segment =
+  | { kind: 'rail'; id: string; items: RailBlock[] }
+  | { kind: 'standalone'; id: string; item: RenderItem };
 
 function bundleSubagents(blocks: Block[]): RenderItem[] {
   // Index subagents by parentToolCallId so we can attach them to their tool_call.
@@ -34,9 +41,9 @@ function bundleSubagents(blocks: Block[]): RenderItem[] {
     if (b.kind === 'tool_call' && subagentByParent.has(b.toolCallId)) {
       const subagent = subagentByParent.get(b.toolCallId) ?? null;
       const toolResult =
-        (blocks.find(
-          (x) => x.kind === 'tool_result' && x.toolCallId === b.toolCallId,
-        ) as Extract<Block, { kind: 'tool_result' }> | undefined) ?? null;
+        (blocks.find((x) => x.kind === 'tool_result' && x.toolCallId === b.toolCallId) as
+          | Extract<Block, { kind: 'tool_result' }>
+          | undefined) ?? null;
 
       if (subagent) consumed.add(subagent.id);
       if (toolResult) consumed.add(toolResult.id);
@@ -57,6 +64,36 @@ function bundleSubagents(blocks: Block[]): RenderItem[] {
   return items;
 }
 
+/**
+ * Group sequential rail-eligible blocks into ActivityTimeline segments.
+ * Everything else (user, text, steer, approval_request, question_request,
+ * subagent-bundle) renders standalone — preserving the original ordering so
+ * Timeline / bubble / Timeline interleaving works naturally.
+ */
+function groupIntoSegments(items: RenderItem[]): Segment[] {
+  const out: Segment[] = [];
+  let buffer: RailBlock[] = [];
+
+  const flush = () => {
+    const first = buffer[0];
+    if (!first) return;
+    out.push({ kind: 'rail', id: `rail:${first.id}`, items: buffer });
+    buffer = [];
+  };
+
+  for (const it of items) {
+    if (it.kind === 'block' && isRailEligible(it.block)) {
+      buffer.push(it.block);
+      continue;
+    }
+    flush();
+    out.push({ kind: 'standalone', id: it.kind === 'block' ? it.block.id : it.id, item: it });
+  }
+  flush();
+
+  return out;
+}
+
 export function Transcript() {
   const { id: sessionId } = useParams<{ id: string }>();
   const session = useSessionChat(sessionId);
@@ -65,12 +102,9 @@ export function Transcript() {
 
   const blocks = session?.blocks || [];
   const isTurnInProgress = session?.isTurnInProgress || false;
-  const renderItems = useMemo(() => bundleSubagents(blocks), [blocks]);
+  const segments = useMemo(() => groupIntoSegments(bundleSubagents(blocks)), [blocks]);
 
   // Hydrate session from server when we land on /session/:id directly (F5 / deep link).
-  // If the chat-store has no snapshot for this session, send resume_session as soon
-  // as the WebSocket is open. Server replies with a `snapshot` frame that loadSnapshot
-  // installs via ws-subscriber.
   useEffect(() => {
     if (!sessionId) return;
     const hasSnapshot = !!useChatStore.getState().sessions[sessionId];
@@ -139,16 +173,22 @@ export function Transcript() {
             </p>
           </div>
         ) : (
-          renderItems.map((item) =>
-            item.kind === 'subagent-bundle' ? (
+          segments.map((seg) =>
+            seg.kind === 'rail' ? (
+              <ActivityTimeline
+                key={seg.id}
+                items={seg.items}
+                isTurnInProgress={isTurnInProgress}
+              />
+            ) : seg.item.kind === 'subagent-bundle' ? (
               <SubagentBundle
-                key={item.id}
-                toolCall={item.toolCall}
-                subagent={item.subagent}
-                toolResult={item.toolResult}
+                key={seg.id}
+                toolCall={seg.item.toolCall}
+                subagent={seg.item.subagent}
+                toolResult={seg.item.toolResult}
               />
             ) : (
-              <BlockRegistry key={item.block.id} block={item.block} />
+              <BlockRegistry key={seg.id} block={seg.item.block} />
             ),
           )
         )}
