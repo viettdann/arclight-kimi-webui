@@ -28,3 +28,6 @@ certs/*
 !certs/ca.crt
 workspace/*
 !workspace/.gitkeep
+
+# Kimi share dir (config.toml, oauth, sessions, logs) — see KIMI_SHARE_DIR
+.runtime/

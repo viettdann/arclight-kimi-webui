@@ -11,10 +11,17 @@ const mockAuth = createMiddleware(async (c, next) => {
   await next();
 });
 
-function buildApp(fakeDb: ReturnType<typeof makeFakeDb>) {
+function buildApp(
+  fakeDb: ReturnType<typeof makeFakeDb>,
+  fetchFn?: typeof fetch,
+) {
+  const effectiveFetch =
+    fetchFn ??
+    (((async () =>
+      new Response(JSON.stringify({ data: [] }), { status: 200 })) as unknown) as typeof fetch);
   const app = new Hono();
   app.use('*', mockAuth);
-  app.route('/', createKimiConfigRouter({ db: fakeDb.db }));
+  app.route('/', createKimiConfigRouter({ db: fakeDb.db, fetchFn: effectiveFetch }));
   return app;
 }
 
@@ -136,5 +143,18 @@ describe('POST /api/config/test', () => {
     const body = (await res.json()) as { ok: boolean; error?: string };
     expect(body.ok).toBe(false);
     expect(body.error).toContain('provider.apiKey');
+  });
+
+  it('surfaces auth rejection from provider', async () => {
+    const fake = makeFakeDb();
+    fake.selectQueue.push([makeFakeKimiConfigRow('sk-bad')]);
+
+    const stubFetch = (async () => new Response('', { status: 401 })) as unknown as typeof fetch;
+    const app = buildApp(fake, stubFetch);
+    const res = await app.request('/test', { method: 'POST' });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ok: boolean; error?: string };
+    expect(body.ok).toBe(false);
+    expect(body.error).toContain('401');
   });
 });

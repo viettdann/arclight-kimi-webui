@@ -1,3 +1,4 @@
+import { useNavigate } from 'react-router';
 import type { SessionListItem } from 'shared/types';
 import { Button } from '@/components/ui/button';
 import { sendWS } from '../lib/ws-send';
@@ -7,9 +8,11 @@ interface SessionRowProps {
 }
 
 export function SessionRow({ session }: SessionRowProps) {
+  const navigate = useNavigate();
   const title = session.title ?? 'Untitled session';
   const handleClick = () => {
     sendWS('resume_session', { sessionId: session.id });
+    navigate(`/session/${session.id}`);
   };
 
   const statusColor =

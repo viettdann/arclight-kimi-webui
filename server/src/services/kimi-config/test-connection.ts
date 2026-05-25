@@ -1,26 +1,63 @@
 import type { KimiConfigRow } from 'shared/types/kimi-config';
 import { computeConfigStatus } from './status';
 
-// We deliberately do NOT call SDK `parseConfig`/`isLoggedIn` here, despite the
-// SDK exposing them: our `write-toml.ts` redacts the api_key for the kimi
-// provider (the real key is injected to the CLI via KIMI_API_KEY env at
-// session-create time), and our `[models.<name>]` table-of-tables format does
-// not match what the SDK's parser produces (it returns `models: []`,
-// `defaultModel: null` for our TOML). So the SDK functions would always
-// return "not logged in" against our config, which is misleading.
+const TEST_TIMEOUT_MS = 10_000;
+
+export type FetchFn = typeof fetch;
+
+// Issue a real `GET ${baseUrl}/models` against the configured provider with
+// the configured api_key. This is the same endpoint upstream Kimi CLI uses to
+// validate platform access (see kimi_cli/auth/platforms.py:267-282), so a 200
+// response is conclusive proof that base_url + api_key authenticate.
 //
-// A truly conclusive "test" would have to either spawn the kimi-code CLI
-// with full env injection (billable LLM call, requires PATH-reachable binary)
-// or make a direct provider HTTP request (bypasses the SDK entirely). Both
-// are too heavy for a config-page button click; defer to a separate ticket.
-//
-// For now: surface the same readiness signal as GET /api/config/status, so
-// the UI can show actionable "missing X" errors instead of a green check
-// hiding a misconfiguration.
-export async function testConnection(row: KimiConfigRow): Promise<{ ok: boolean; error?: string }> {
+// Not a token cost: /models lists models, no LLM call. Anthropic/Gemini/Vertex
+// don't expose a free probe endpoint via this shape — for those, we fall back
+// to the readiness-only check.
+export async function testConnection(
+  row: KimiConfigRow,
+  fetchFn: FetchFn = fetch,
+): Promise<{ ok: boolean; error?: string }> {
   const status = computeConfigStatus(row);
-  if (status.ready) {
+  if (!status.ready) {
+    return { ok: false, error: `Missing: ${status.missing.join(', ')}` };
+  }
+
+  const { provider } = row;
+  if (
+    provider.type !== 'kimi' &&
+    provider.type !== 'openai_legacy' &&
+    provider.type !== 'openai_responses'
+  ) {
     return { ok: true };
   }
-  return { ok: false, error: `Missing: ${status.missing.join(', ')}` };
+
+  const url = `${provider.baseUrl.replace(/\/+$/, '')}/models`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TEST_TIMEOUT_MS);
+
+  try {
+    const res = await fetchFn(url, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${provider.apiKey}`,
+        ...provider.customHeaders,
+      },
+      signal: controller.signal,
+    });
+    if (res.status === 401 || res.status === 403) {
+      return { ok: false, error: `Auth rejected (HTTP ${res.status})` };
+    }
+    if (!res.ok) {
+      return { ok: false, error: `HTTP ${res.status} from ${url}` };
+    }
+    return { ok: true };
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    if (controller.signal.aborted) {
+      return { ok: false, error: `Timeout after ${TEST_TIMEOUT_MS}ms contacting ${url}` };
+    }
+    return { ok: false, error: `Network error: ${reason}` };
+  } finally {
+    clearTimeout(timer);
+  }
 }

@@ -1,5 +1,6 @@
 import type { WSMessage } from 'shared/types';
 import { useChatStore } from './chat-store';
+import { router } from './router';
 import { wsClient } from './ws-client';
 
 // Singleton module side-effect. Subscribes to the global WebSocket client
@@ -14,6 +15,7 @@ const unsubscribe = wsClient.on('message', (ev: MessageEvent) => {
 
     if (msg.type === 'snapshot') {
       useChatStore.getState().loadSnapshot(msg.sessionId, msg.payload as any);
+      void router.navigate(`/session/${msg.sessionId}`);
     } else {
       useChatStore.getState().applyEvent(msg.sessionId, msg.type, msg.payload);
     }

@@ -23,6 +23,39 @@ function mergeWithDefaults(seed: Partial<KimiConfigRow>): KimiConfigRow {
   };
 }
 
+// Fill in scalar/sub-block fields that DEFAULT_KIMI_CONFIG defines but `row`
+// is missing (older row inserted before the schema gained a field, or with a
+// partial seed). Preserves every key already present on `row` verbatim — we
+// only add, never overwrite. Returns the reconciled row and whether anything
+// was added.
+function reconcileWithDefaults(row: KimiConfigRow): { row: KimiConfigRow; changed: boolean } {
+  let changed = false;
+  function merge<T extends object>(existing: T, defaults: T): T {
+    const existingObj = existing as Record<string, unknown>;
+    const defaultsObj = defaults as Record<string, unknown>;
+    const out: Record<string, unknown> = { ...existingObj };
+    for (const [k, v] of Object.entries(defaultsObj)) {
+      if (!(k in existingObj)) {
+        out[k] = v;
+        changed = true;
+      }
+    }
+    return out as T;
+  }
+
+  const next: KimiConfigRow = {
+    ...row,
+    defaults: merge(row.defaults, DEFAULT_KIMI_CONFIG.defaults),
+    provider: merge(row.provider, DEFAULT_KIMI_CONFIG.provider),
+    services: merge(row.services, DEFAULT_KIMI_CONFIG.services),
+    loopControl: merge(row.loopControl, DEFAULT_KIMI_CONFIG.loopControl),
+    background: merge(row.background, DEFAULT_KIMI_CONFIG.background),
+    notifications: merge(row.notifications, DEFAULT_KIMI_CONFIG.notifications),
+    mcpClient: merge(row.mcpClient, DEFAULT_KIMI_CONFIG.mcpClient),
+  };
+  return { row: next, changed };
+}
+
 function mapRow(row: {
   id: number;
   defaults: unknown;
@@ -59,7 +92,25 @@ export async function loadOrSeed(db: DB): Promise<KimiConfigRow> {
 
   const existingRow = existing[0];
   if (existingRow) {
-    return mapRow(existingRow);
+    const mapped = mapRow(existingRow);
+    const { row: reconciled, changed } = reconcileWithDefaults(mapped);
+    if (changed) {
+      reconciled.updatedAt = new Date().toISOString();
+      await db
+        .update(kimiConfig)
+        .set({
+          defaults: reconciled.defaults,
+          provider: reconciled.provider,
+          services: reconciled.services,
+          loopControl: reconciled.loopControl,
+          background: reconciled.background,
+          notifications: reconciled.notifications,
+          mcpClient: reconciled.mcpClient,
+          updatedAt: new Date(reconciled.updatedAt),
+        })
+        .where(eq(kimiConfig.id, 1));
+    }
+    return reconciled;
   }
 
   const seed = seedFromEnv();

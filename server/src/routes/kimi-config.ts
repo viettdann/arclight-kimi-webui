@@ -13,13 +13,15 @@ import { kimiConfig } from '../db/schema';
 import { loadOrSeed } from '../services/kimi-config/load-or-seed';
 import { maskConfigDTO } from '../services/kimi-config/mask';
 import { computeConfigStatus } from '../services/kimi-config/status';
-import { testConnection } from '../services/kimi-config/test-connection';
+import { type FetchFn, testConnection } from '../services/kimi-config/test-connection';
 import { writeConfigToml } from '../services/kimi-config/write-toml';
 
 export interface KimiConfigRouterDeps {
   db: DB;
   /** Forwarded to write-toml. Defaults to `resolveShareDir()`. */
   shareDir?: string;
+  /** Override the fetch used by POST /test. Defaults to global `fetch`. */
+  fetchFn?: FetchFn;
 }
 
 function isValidProviderType(t: string): t is KimiConfigRow['provider']['type'] {
@@ -79,7 +81,7 @@ export function createKimiConfigRouter(
 
   router.post('/test', async (c) => {
     const row = await loadOrSeed(db);
-    const result = await testConnection(row);
+    const result = await testConnection(row, deps.fetchFn);
     const response: KimiConfigTestResponse = result;
     return c.json(response);
   });
