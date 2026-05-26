@@ -390,44 +390,75 @@ export async function pumpTurn(active: ActiveSession, turn: Turn, deps: PumpDeps
 
   broadcastEvent(active, 'turn_end', { status: result.status, steps: result.steps ?? 0 }, manager);
 
-  // Invariant #1: serialize backups per active.
-  const next = active.backupMutex.then(async () => {
-    await appendWireDelta(active, true, dbh);
-    await flushContextAndState(active, dbh);
-  });
-  active.backupMutex = next.catch(() => undefined);
-  await next;
+  // Post-turn finalisation is best-effort. If the row was deleted between
+  // pump start and pump finish (e.g. user clicked delete while the turn was
+  // wrapping up), every DB write below races with the cascade-delete and may
+  // surface as an FK violation. None of these errors should crash the pump
+  // promise — they're cleanup, not contract.
+  try {
+    // Invariant #1: serialize backups per active.
+    const next = active.backupMutex.then(async () => {
+      await appendWireDelta(active, true, dbh);
+      await flushContextAndState(active, dbh);
+    });
+    active.backupMutex = next.catch(() => undefined);
+    await next;
+  } catch (err) {
+    logger.warn(
+      { err, sessionId: active.sessionId },
+      'pumpTurn: post-turn backup failed (session likely deleted)',
+    );
+  }
 
-  const tokens = active.lastStatusUpdate?.tokenUsage;
-  await dbh
-    .update(schema.kimiSessions)
-    .set({
-      ...(tokens != null ? { totalTokens: tokens } : {}),
-      lastActiveAt: sql`now()`,
-    })
-    .where(eq(schema.kimiSessions.id, active.sessionId));
+  try {
+    const tokens = active.lastStatusUpdate?.tokenUsage;
+    await dbh
+      .update(schema.kimiSessions)
+      .set({
+        ...(tokens != null ? { totalTokens: tokens } : {}),
+        lastActiveAt: sql`now()`,
+      })
+      .where(eq(schema.kimiSessions.id, active.sessionId));
+  } catch (err) {
+    logger.warn(
+      { err, sessionId: active.sessionId },
+      'pumpTurn: lastActive/tokens update failed',
+    );
+  }
 
-  const newTitle = await extractTitle(stateJsonPathFor(active.workDir, active.kimiSessionId));
-  if (newTitle !== null) {
-    const [row] = await dbh
-      .select({ title: schema.kimiSessions.title })
-      .from(schema.kimiSessions)
-      .where(eq(schema.kimiSessions.id, active.sessionId))
-      .limit(1);
-    if (row && row.title !== newTitle) {
-      await dbh
-        .update(schema.kimiSessions)
-        .set({ title: newTitle })
-        .where(eq(schema.kimiSessions.id, active.sessionId));
-      broadcastEvent(active, 'title_update', { title: newTitle }, manager);
+  // Read state.json once for both the custom_title sync (below) and the
+  // background title generator (further down). Avoids a duplicate disk read
+  // per turn.
+  let extracted: Awaited<ReturnType<typeof extractTitle>> = null;
+  try {
+    extracted = await extractTitle(stateJsonPathFor(active.workDir, active.kimiSessionId));
+    // Only adopt state.json's title when the Kimi runtime flagged it as AI-
+    // generated. By default the SDK seeds `custom_title` with the first user
+    // prompt and leaves `title_generated=false`; treating that as authoritative
+    // would clobber DB and block `maybeGenerateTitleBackground` forever.
+    if (extracted !== null && extracted.generated) {
+      const [row] = await dbh
+        .select({ title: schema.kimiSessions.title })
+        .from(schema.kimiSessions)
+        .where(eq(schema.kimiSessions.id, active.sessionId))
+        .limit(1);
+      if (row && row.title !== extracted.title) {
+        await dbh
+          .update(schema.kimiSessions)
+          .set({ title: extracted.title })
+          .where(eq(schema.kimiSessions.id, active.sessionId));
+        broadcastEvent(active, 'title_update', { title: extracted.title }, manager);
+      }
     }
+  } catch (err) {
+    logger.warn({ err, sessionId: active.sessionId }, 'pumpTurn: title sync failed');
   }
 
   // Fire-and-forget AI title generation for sessions still untitled. Guarded
   // by an in-memory inflight set and a DB skip-if-set check inside the
   // function, so safe to invoke after every turn — it short-circuits cheaply
-  // for already-titled sessions.
-  void maybeGenerateTitleBackground(active, manager, dbh);
+  // for already-titled sessions. Reuse the state.json payload we just read.
+  void maybeGenerateTitleBackground(active, manager, dbh, { prefetchedState: extracted });
 
   active.translator = createTranslatorState();
   active.toolNameByCallId.clear();

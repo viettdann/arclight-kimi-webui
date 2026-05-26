@@ -25,6 +25,7 @@ import { broadcastEvent } from '../lib/ws-broadcast';
 import { loadOrSeed } from './kimi-config/load-or-seed';
 import { kimiPaths } from './kimi-config/paths';
 import type { ActiveSession, KimiSessionManager } from './session-manager';
+import { extractTitle, type ExtractedTitle, stateJsonPathFor } from './title';
 
 const TITLE_MAX_CHARS = 50;
 const SYSTEM_PROMPT =
@@ -239,6 +240,16 @@ export interface MaybeGenerateOpts {
   readWire?: (wirePath: string) => Promise<FirstTurn | null>;
   /** Override path resolver (for tests). */
   resolveWirePath?: (workDir: string, kimiSessionId: string) => string;
+  /** Override state.json reader (for tests). */
+  readState?: (stateJsonPath: string) => Promise<ExtractedTitle | null>;
+  /** Override state.json path resolver (for tests). */
+  resolveStatePath?: (workDir: string, kimiSessionId: string) => string;
+  /**
+   * Pre-fetched `state.json` payload. Pump already reads `state.json` to sync
+   * `custom_title` on turn end; passing the parsed result here lets us skip a
+   * duplicate disk read on the placeholder-detection probe.
+   */
+  prefetchedState?: ExtractedTitle | null;
 }
 
 /**
@@ -258,10 +269,16 @@ export async function maybeGenerateTitleBackground(
     return;
   }
 
-  // Skip if a title already exists (set by /title slash, custom_title, or a
-  // previous run of this generator). The check is best-effort — a race with
-  // a concurrent setter is harmless because both writers converge on the
-  // same row and a subsequent broadcast just re-emits the same title.
+  // Skip if a title already exists (set by /title slash, the SDK's own AI
+  // title pass, or a previous run of this generator). The check is best-
+  // effort — a race with a concurrent setter is harmless because both
+  // writers converge on the same row and a subsequent broadcast just re-
+  // emits the same title.
+  //
+  // Recovery path: older builds incorrectly persisted `state.json#custom_title`
+  // (the first user prompt) as the DB title. Detect that footprint —
+  // DB.title equals state.json's seeded custom_title AND title_generated is
+  // still false — and treat it as untitled so this run can replace it.
   const [existing] = await database
     .select({ title: schema.kimiSessions.title })
     .from(schema.kimiSessions)
@@ -271,12 +288,33 @@ export async function maybeGenerateTitleBackground(
     logger.info({ sessionId: active.sessionId }, 'title-generate: skip (session row missing)');
     return;
   }
-  if (existing.title && existing.title.trim().length > 0) {
+  const existingTitle = existing.title?.trim() ?? '';
+  if (existingTitle.length > 0) {
+    const resolveStatePath = opts.resolveStatePath ?? stateJsonPathFor;
+    const readState = opts.readState ?? extractTitle;
+    let isPlaceholder = false;
+    try {
+      const state =
+        opts.prefetchedState !== undefined
+          ? opts.prefetchedState
+          : await readState(resolveStatePath(active.workDir, active.kimiSessionId));
+      if (state !== null && state.generated === false && state.title.trim() === existingTitle) {
+        isPlaceholder = true;
+      }
+    } catch (err) {
+      logger.warn({ err, sessionId: active.sessionId }, 'title-generate: state.json probe failed');
+    }
+    if (!isPlaceholder) {
+      logger.info(
+        { sessionId: active.sessionId, existing: existing.title },
+        'title-generate: skip (already titled)',
+      );
+      return;
+    }
     logger.info(
       { sessionId: active.sessionId, existing: existing.title },
-      'title-generate: skip (already titled)',
+      'title-generate: existing title is SDK placeholder, regenerating',
     );
-    return;
   }
   logger.info({ sessionId: active.sessionId }, 'title-generate: starting');
 

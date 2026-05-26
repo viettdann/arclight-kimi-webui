@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
+import { CliErrorCodes, getErrorCode } from '@moonshot-ai/kimi-agent-sdk';
 import type { ServerWebSocket } from 'bun';
 import type {
   AdoptProjectPayload,
@@ -493,8 +494,26 @@ async function handleInterruptTurn(ws: WS, sessionId: string): Promise<void> {
     sendError(ws, 'not_found', sessionId);
     return;
   }
-  if (active.currentTurn !== null) {
-    await active.currentTurn.interrupt();
+  // Snapshot the turn before the null check so the post-await deref doesn't
+  // depend on `active.currentTurn` still being set by the time we resume —
+  // the pump may have cleared it during the await window.
+  const turn = active.currentTurn;
+  if (turn === null) return;
+  try {
+    await turn.interrupt();
+  } catch (err) {
+    // Race: SDK already finalised the turn while the pump was still wrapping
+    // up (clearing currentTurn, broadcasting turn_end). The user's intent
+    // (stop the turn) is already satisfied — silently no-op instead of
+    // surfacing a confusing `internal` error.
+    if (getErrorCode(err) === CliErrorCodes.INVALID_STATE) {
+      logger.info(
+        { sessionId, err: err instanceof Error ? err.message : String(err) },
+        'interrupt_turn: SDK already idle, treating as no-op',
+      );
+      return;
+    }
+    throw err;
   }
 }
 

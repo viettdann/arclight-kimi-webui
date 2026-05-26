@@ -7,11 +7,22 @@ import { kimiPaths } from './kimi-config/paths';
 // across versions. We tolerate any drift by returning `null` whenever the file
 // is missing, unreadable, malformed, or doesn't carry the expected field.
 //
+// The Kimi runtime seeds `custom_title` with the first user prompt on the
+// opening turn and flips `title_generated` to `true` only after its own AI
+// pass writes a real title. Callers must consult `generated` to avoid treating
+// the seeded placeholder as authoritative.
+//
 // The CI tripwire (`server/test/state-json-shape.test.ts`, gated by
 // RUN_SDK_INTEGRATION) is what alerts maintainers when the upstream shape
 // changes; runtime stays silent and degrades to "no title".
 
-export async function extractTitle(stateJsonPath: string): Promise<string | null> {
+export interface ExtractedTitle {
+  title: string;
+  /** Mirrors `state.json#title_generated`. False ⇒ seeded placeholder. */
+  generated: boolean;
+}
+
+export async function extractTitle(stateJsonPath: string): Promise<ExtractedTitle | null> {
   let raw: string;
   try {
     raw = await readFile(stateJsonPath, 'utf8');
@@ -28,7 +39,8 @@ export async function extractTitle(stateJsonPath: string): Promise<string | null
   const obj = parsed as Record<string, unknown>;
   const t = obj.custom_title;
   if (typeof t !== 'string' || t.length === 0) return null;
-  return t;
+  const generated = obj.title_generated === true;
+  return { title: t, generated };
 }
 
 /** Convenience: locate `state.json` for a given Kimi session. */
