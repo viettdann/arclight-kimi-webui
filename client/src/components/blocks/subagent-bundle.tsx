@@ -1,8 +1,14 @@
 import { Bot, ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Block } from 'shared/types';
 import { stripHarnessTags } from '../../lib/harness-tags';
 import { BlockRegistry } from './block-registry';
+import { ActivityTimeline } from './timeline/activity-timeline';
+import { groupRailSegments } from './timeline/group-rail-segments';
+
+// Stable empty array so the `subagent?.blocks ?? EMPTY_BLOCKS` fallback keeps
+// the same identity across renders and doesn't churn the segments memo.
+const EMPTY_BLOCKS: Block[] = [];
 
 interface SubagentBundleProps {
   toolCall: Extract<Block, { kind: 'tool_call' }>;
@@ -22,8 +28,9 @@ export function SubagentBundle({ toolCall, subagent, toolResult }: SubagentBundl
     }
   }, [isStreaming]);
 
-  const nestedBlocks = subagent?.blocks ?? [];
+  const nestedBlocks = subagent?.blocks ?? EMPTY_BLOCKS;
   const activityCount = nestedBlocks.length;
+  const nestedSegments = useMemo(() => groupRailSegments(nestedBlocks), [nestedBlocks]);
 
   // Args may arrive as a partial JSON string during streaming. Try to parse so
   // we can pull description/prompt/subagent_type out of the object.
@@ -112,9 +119,17 @@ export function SubagentBundle({ toolCall, subagent, toolResult }: SubagentBundl
               </div>
             ) : (
               <div className="border-l-2 border-primary/20 pl-4 space-y-4">
-                {nestedBlocks.map((b) => (
-                  <BlockRegistry key={b.id} block={b} />
-                ))}
+                {nestedSegments.map((seg) =>
+                  seg.kind === 'rail' ? (
+                    <ActivityTimeline
+                      key={seg.id}
+                      items={seg.items}
+                      isTurnInProgress={isStreaming}
+                    />
+                  ) : (
+                    <BlockRegistry key={seg.id} block={seg.item} />
+                  ),
+                )}
               </div>
             )}
           </div>

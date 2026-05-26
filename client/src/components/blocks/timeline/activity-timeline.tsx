@@ -1,5 +1,6 @@
-import { ChevronDown, ChevronRight } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Brain, ChevronDown, ChevronRight } from 'lucide-react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import type { Block } from 'shared/types';
 import { ErrorBlock } from '../error-block';
 import { adapterFor, SUMMARY_VERB } from './adapter-registry';
@@ -19,54 +20,59 @@ interface ActivityTimelineProps {
   isTurnInProgress: boolean;
 }
 
-const AUTO_COLLAPSE_MIN_ITEMS = 3;
-
 /**
  * Renders a vertical activity rail. Pairs tool_call↔tool_result by toolCallId,
  * skipping consumed results. Renders thinking blocks via dedicated card.
  *
- * Auto-collapses after the turn finishes if there are ≥3 items, showing a
- * summary like "Created 1 file, Updated todo".
+ * Auto-collapses after the turn finishes, showing only the summary header
+ * (e.g. "Created 1 file, Ran command 2 commands"). User can re-expand.
  */
 export function ActivityTimeline({ items, isTurnInProgress }: ActivityTimelineProps) {
-  const { rows, summary, terminalActions } = useMemo(() => buildRows(items), [items]);
+  const { rows, summary } = useMemo(() => buildRows(items), [items]);
 
   const [collapsed, setCollapsed] = useState(false);
   const autoCollapsedRef = useRef(false);
 
-  // On turn-end, auto-collapse once if the rail has enough rows. Respect manual
-  // user toggle thereafter.
+  // On turn-end, auto-collapse once. Respect manual user toggle thereafter.
   useEffect(() => {
-    if (
-      !isTurnInProgress &&
-      !autoCollapsedRef.current &&
-      terminalActions >= AUTO_COLLAPSE_MIN_ITEMS
-    ) {
+    if (!isTurnInProgress && !autoCollapsedRef.current && rows.length > 0) {
       autoCollapsedRef.current = true;
       setCollapsed(true);
     }
-  }, [isTurnInProgress, terminalActions]);
+  }, [isTurnInProgress, rows.length]);
 
   if (rows.length === 0) return null;
 
   return (
     <div className="w-full animate-in fade-in duration-200">
-      {/* Collapse header */}
-      {(collapsed || summary) && (
-        <button
-          type="button"
-          onClick={() => setCollapsed((v) => !v)}
-          className="flex items-center gap-1.5 text-xs text-muted-foreground/85 hover:text-foreground transition-colors cursor-pointer mb-2 select-none"
-          aria-expanded={!collapsed}
-        >
-          {collapsed ? (
-            <ChevronRight className="h-3.5 w-3.5" />
+      {/* Collapse header — always available so user can re-toggle. */}
+      <button
+        type="button"
+        onClick={() => setCollapsed((v) => !v)}
+        className="flex items-center gap-1.5 text-xs text-muted-foreground/85 hover:text-foreground transition-colors cursor-pointer mb-2 select-none"
+        aria-expanded={!collapsed}
+      >
+        {collapsed ? (
+          <ChevronRight className="h-3.5 w-3.5" />
+        ) : (
+          <ChevronDown className="h-3.5 w-3.5" />
+        )}
+        <span className="font-medium inline-flex items-center gap-1 flex-wrap">
+          {summary.length === 0 ? (
+            <span>{`${rows.length} activities`}</span>
           ) : (
-            <ChevronDown className="h-3.5 w-3.5" />
+            summary.map((seg, i) => (
+              <Fragment key={seg.key}>
+                {i > 0 && <span className="text-muted-foreground/60">,</span>}
+                <span className="inline-flex items-center gap-1">
+                  {seg.icon}
+                  <span>{seg.label}</span>
+                </span>
+              </Fragment>
+            ))
           )}
-          <span className="font-medium">{summary || `${rows.length} activities`}</span>
-        </button>
-      )}
+        </span>
+      </button>
 
       {!collapsed && (
         <ul className="relative border-l border-border/60 pl-0 ml-2 space-y-4 py-1">
@@ -79,10 +85,18 @@ export function ActivityTimeline({ items, isTurnInProgress }: ActivityTimelinePr
   );
 }
 
+/** One token of the rail summary header (e.g. "Thought", "Ran 2 commands"). */
+interface SummarySegment {
+  /** Stable key for React. */
+  key: string;
+  /** Optional leading icon shown right before the label. */
+  icon?: ReactNode;
+  label: string;
+}
+
 interface BuildResult {
   rows: { key: string; shape: RailRowShape }[];
-  summary: string | null;
-  terminalActions: number;
+  summary: SummarySegment[];
 }
 
 function buildRows(items: RailBlock[]): BuildResult {
@@ -96,7 +110,6 @@ function buildRows(items: RailBlock[]): BuildResult {
   const consumedResultIds = new Set<string>();
   const rows: { key: string; shape: RailRowShape }[] = [];
   const verbCount = new Map<string, number>();
-  let terminal = 0;
 
   for (const b of items) {
     if (b.kind === 'tool_result') {
@@ -114,7 +127,6 @@ function buildRows(items: RailBlock[]): BuildResult {
       const shape = adapterFor(b.toolName)({ call: fake, result: b });
       rows.push({ key: b.id, shape });
       bump(verbCount, b.toolName);
-      if (shape.status !== 'running') terminal++;
       continue;
     }
     if (b.kind === 'tool_call') {
@@ -123,14 +135,12 @@ function buildRows(items: RailBlock[]): BuildResult {
       const shape = adapterFor(b.name)({ call: b, result });
       rows.push({ key: b.id, shape });
       bump(verbCount, b.name);
-      if (shape.status !== 'running') terminal++;
       continue;
     }
     if (b.kind === 'thinking') {
       const tb = b as ThinkingB;
       rows.push({ key: b.id, shape: thinkingBlockToRow(tb) });
       bump(verbCount, 'Think');
-      if (!tb.isStreaming) terminal++;
       continue;
     }
     if (b.kind === 'error') {
@@ -144,11 +154,10 @@ function buildRows(items: RailBlock[]): BuildResult {
           status: 'error',
         },
       });
-      terminal++;
     }
   }
 
-  return { rows, summary: summarize(verbCount), terminalActions: terminal };
+  return { rows, summary: summarize(verbCount) };
 }
 
 function bump(m: Map<string, number>, key: string) {
@@ -173,21 +182,29 @@ const SUMMARY_PRIORITY = [
   'Think',
 ];
 
+/** Tools whose summary token deserves a leading glyph. */
+const SUMMARY_ICON: Record<string, ReactNode> = {
+  Think: <Brain className="h-3.5 w-3.5 text-primary/70" />,
+};
+
 /**
- * Compose a short human summary like "Created 1 file, Updated todo".
- * Uses the priority above so prominent actions surface first. Returns null
- * when the activity is too sparse to be worth summarizing.
+ * Compose a short human summary like "Created file, Ran 2 commands". When
+ * n===1 the count is dropped so headers stay tight ("Thought", not "Thought
+ * 1"). Each segment may carry an icon — e.g. the brain badge on "Thought".
  */
-function summarize(verbCount: Map<string, number>): string | null {
-  const parts: string[] = [];
+function summarize(verbCount: Map<string, number>): SummarySegment[] {
+  const parts: SummarySegment[] = [];
   for (const tool of SUMMARY_PRIORITY) {
     const n = verbCount.get(tool);
     if (!n) continue;
     const verb = SUMMARY_VERB[tool] ?? tool;
-    parts.push(verbCount.size === 1 ? `${verb} ${n}` : countLabel(verb, n, tool));
+    parts.push({
+      key: tool,
+      icon: SUMMARY_ICON[tool],
+      label: countLabel(verb, n, tool),
+    });
   }
-  if (parts.length === 0) return null;
-  return parts.slice(0, 3).join(', ');
+  return parts.slice(0, 3);
 }
 
 function countLabel(verb: string, n: number, tool: string): string {
@@ -202,7 +219,9 @@ function countLabel(verb: string, n: number, tool: string): string {
     FetchURL: n === 1 ? 'URL' : 'URLs',
     ReadFile: n === 1 ? 'file' : 'files',
     ReadMediaFile: 'media',
-    Think: n === 1 ? 'thought' : 'thoughts',
+    // Verb "Thought" is already a complete phrase for n===1 — only add the
+    // noun for plural counts to avoid "Thought thought".
+    Think: n === 1 ? '' : 'thoughts',
     SetTodoList: 'todo',
     TaskList: '',
     TaskOutput: '',
@@ -211,6 +230,7 @@ function countLabel(verb: string, n: number, tool: string): string {
   };
   const suffix = noun[tool];
   if (suffix == null || suffix === '') return verb;
+  if (n === 1) return `${verb} ${suffix}`;
   return `${verb} ${n} ${suffix}`;
 }
 

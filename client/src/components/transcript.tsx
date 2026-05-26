@@ -8,7 +8,7 @@ import { sendWS } from '../lib/ws-send';
 import { BlockRegistry } from './blocks/block-registry';
 import { SubagentBundle } from './blocks/subagent-bundle';
 import { ActivityTimeline, isRailEligible } from './blocks/timeline/activity-timeline';
-import type { RailBlock } from './blocks/timeline/types';
+import { groupRail } from './blocks/timeline/group-rail-segments';
 
 type RenderItem =
   | { kind: 'block'; block: Block }
@@ -19,11 +19,6 @@ type RenderItem =
       subagent: Extract<Block, { kind: 'subagent' }> | null;
       toolResult: Extract<Block, { kind: 'tool_result' }> | null;
     };
-
-/** A run of consecutive rail-eligible blocks, or a single standalone item. */
-type Segment =
-  | { kind: 'rail'; id: string; items: RailBlock[] }
-  | { kind: 'standalone'; id: string; item: RenderItem };
 
 function bundleSubagents(blocks: Block[]): RenderItem[] {
   // Index subagents by parentToolCallId so we can attach them to their tool_call.
@@ -70,28 +65,12 @@ function bundleSubagents(blocks: Block[]): RenderItem[] {
  * subagent-bundle) renders standalone — preserving the original ordering so
  * Timeline / bubble / Timeline interleaving works naturally.
  */
-function groupIntoSegments(items: RenderItem[]): Segment[] {
-  const out: Segment[] = [];
-  let buffer: RailBlock[] = [];
-
-  const flush = () => {
-    const first = buffer[0];
-    if (!first) return;
-    out.push({ kind: 'rail', id: `rail:${first.id}`, items: buffer });
-    buffer = [];
-  };
-
-  for (const it of items) {
-    if (it.kind === 'block' && isRailEligible(it.block)) {
-      buffer.push(it.block);
-      continue;
-    }
-    flush();
-    out.push({ kind: 'standalone', id: it.kind === 'block' ? it.block.id : it.id, item: it });
-  }
-  flush();
-
-  return out;
+function groupIntoSegments(items: RenderItem[]) {
+  return groupRail<RenderItem>(
+    items,
+    (it) => (it.kind === 'block' && isRailEligible(it.block) ? it.block : null),
+    (it) => (it.kind === 'block' ? it.block.id : it.id),
+  );
 }
 
 export function Transcript() {
@@ -173,24 +152,28 @@ export function Transcript() {
             </p>
           </div>
         ) : (
-          segments.map((seg) =>
-            seg.kind === 'rail' ? (
-              <ActivityTimeline
-                key={seg.id}
-                items={seg.items}
-                isTurnInProgress={isTurnInProgress}
-              />
-            ) : seg.item.kind === 'subagent-bundle' ? (
-              <SubagentBundle
-                key={seg.id}
-                toolCall={seg.item.toolCall}
-                subagent={seg.item.subagent}
-                toolResult={seg.item.toolResult}
-              />
-            ) : (
-              <BlockRegistry key={seg.id} block={seg.item.block} />
-            ),
-          )
+          segments.map((seg) => {
+            if (seg.kind === 'rail') {
+              return (
+                <ActivityTimeline
+                  key={seg.id}
+                  items={seg.items}
+                  isTurnInProgress={isTurnInProgress}
+                />
+              );
+            }
+            if (seg.item.kind === 'subagent-bundle') {
+              return (
+                <SubagentBundle
+                  key={seg.id}
+                  toolCall={seg.item.toolCall}
+                  subagent={seg.item.subagent}
+                  toolResult={seg.item.toolResult}
+                />
+              );
+            }
+            return <BlockRegistry key={seg.id} block={seg.item.block} />;
+          })
         )}
         <div ref={bottomAnchorRef} />
       </div>

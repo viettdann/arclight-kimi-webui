@@ -13,6 +13,7 @@ import type {
   ResumeSessionPayload,
   SendMessagePayload,
   SessionStatePayload,
+  SnapshotPayload,
   SteerInputPayload,
   SubscribePayload,
   WSMessage,
@@ -39,7 +40,7 @@ import {
   sessionManager as defaultManager,
   type KimiSessionManager,
 } from '../services/session-manager';
-import { buildSnapshot } from '../services/snapshot';
+import { buildSnapshot, emptySnapshot } from '../services/snapshot';
 import { deriveProjectName } from '../services/work-dir';
 import { closeAuthExpired } from './close-codes';
 import { WS_HEARTBEAT_MS } from './heartbeat';
@@ -326,12 +327,7 @@ async function handleCreateSession(
   }
 
   broadcastEvent<SessionStatePayload>(active, 'session_state', { state: 'active' }, deps.manager);
-  broadcastEvent(
-    active,
-    'snapshot',
-    { blocks: [], status: 'active', totalTokens: 0, title: null, pendingPrompt: null },
-    deps.manager,
-  );
+  broadcastEvent<SnapshotPayload>(active, 'snapshot', emptySnapshot('active'), deps.manager);
   sendDirect(
     ws,
     envelope<ReplayDonePayload>('replay_done', { lastSeq: active.lastSeq }, active.sessionId),

@@ -265,6 +265,15 @@ export function updateLiveOverlay(active: ActiveSession, ev: StreamEvent): void 
       active.partialToolCallArgs.delete(p.id);
       break;
     }
+    case 'ToolResult': {
+      // Drop any partial-args overlay for the finished tool_call. Without this
+      // a tool that streamed args and then completed mid-turn would still get
+      // its block stamped `isStreaming=true` in resume snapshots, leaving the
+      // row spinning even though tool_result is already present.
+      const p = ev.payload as any;
+      active.partialToolCallArgs.delete(p.tool_call_id);
+      break;
+    }
     case 'StepInterrupted': {
       active.liveTextDelta = '';
       active.liveThinkingDelta = '';

@@ -88,6 +88,9 @@ describe('buildSnapshot', () => {
     expect(snapshot?.title).toBe('Mock Session Title');
     expect(snapshot?.totalTokens).toBe(50);
     expect(snapshot?.status).toBe('active');
+    // No `currentTurn` was attached to the active session in this test, so
+    // resume should report no in-flight turn.
+    expect(snapshot?.live.turnInProgress).toBe(false);
 
     // Should fold the TurnBegin from wire.jsonl + the live text delta overlay!
     expect(snapshot?.blocks.length).toBe(2);
@@ -96,6 +99,40 @@ describe('buildSnapshot', () => {
     const textBlock = assertKind(snapshot?.blocks[1], 'text');
     expect(textBlock.content).toBe('Streaming live text');
     expect(textBlock.isStreaming).toBe(true);
+  });
+
+  it('reports live.turnInProgress=true when active session holds an in-flight Turn', async () => {
+    const fake = makeFakeDb();
+    fake.selectQueue.push([
+      {
+        id: 'sess-live',
+        userId: 'alice',
+        workDir: '/tmp/work',
+        model: null,
+        thinking: false,
+        yoloMode: false,
+        status: 'active',
+        kimiSessionId: 'kimi-x',
+        title: null,
+        totalTokens: 0,
+      },
+    ]);
+    fake.selectQueue.push([]);
+
+    const manager = new KimiSessionManager();
+    const active = manager.register({
+      sessionId: 'sess-live',
+      userId: 'alice',
+      workDir: '/tmp/work',
+      kimiSessionId: 'kimi-x',
+      kimiSession: stubSession(),
+    });
+    // Pretend a Turn is in flight. buildSnapshot only checks for non-null,
+    // not the shape, so a minimal stub is enough.
+    active.currentTurn = {} as unknown as typeof active.currentTurn;
+
+    const snapshot = await buildSnapshot({ sessionId: 'sess-live', manager, db: fake.db });
+    expect(snapshot?.live.turnInProgress).toBe(true);
   });
 
   it('includes enqueued pending prompts at the tail of the block array', async () => {

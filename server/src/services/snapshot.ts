@@ -51,10 +51,34 @@ export async function buildSnapshot(args: BuildSnapshotArgs): Promise<SnapshotPa
       ? { text: pending.text, enqueuedAt: pending.enqueuedAt.toISOString() }
       : null,
     live: {
+      turnInProgress: active?.currentTurn != null,
       turnIdx: active?.liveTurnIdx ?? null,
       stepIdx: active?.liveStepIdx ?? null,
       thinkPartIdx: active?.liveThinkPartIdx ?? 0,
       textPartIdx: active?.liveTextPartIdx ?? 0,
+    },
+  };
+}
+
+/**
+ * Canonical zero-state snapshot for a freshly-created session that has no wire
+ * events, no pending prompts, no live overlay. Keeping this in one place means
+ * any future addition to `SnapshotPayload` only needs to update the type and
+ * `buildSnapshot` — broadcast callers stay correct automatically.
+ */
+export function emptySnapshot(status: SessionStatus): SnapshotPayload {
+  return {
+    blocks: [],
+    status,
+    totalTokens: 0,
+    title: null,
+    pendingPrompt: null,
+    live: {
+      turnInProgress: false,
+      turnIdx: null,
+      stepIdx: null,
+      thinkPartIdx: 0,
+      textPartIdx: 0,
     },
   };
 }

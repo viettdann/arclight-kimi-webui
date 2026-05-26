@@ -333,9 +333,9 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         contextUsage: null,
         title: payload.title,
         pendingPrompt: payload.pendingPrompt,
-        isTurnInProgress: false,
-        liveTurnIdx: payload.live?.turnIdx ?? null,
-        liveStepIdx: payload.live?.stepIdx ?? null,
+        isTurnInProgress: payload.live.turnInProgress,
+        liveTurnIdx: payload.live.turnIdx,
+        liveStepIdx: payload.live.stepIdx,
         subagentStates: {},
       };
       return { sessions };

@@ -84,6 +84,31 @@ describe('updateLiveOverlay', () => {
     expect(active.partialToolCallArgs.get('tc-1')).toBe('{"arg":"val"}');
   });
 
+  it('drops partialToolCallArgs entry on ToolResult so resume snapshot does not re-stream finished tools', () => {
+    const manager = new KimiSessionManager();
+    const active = manager.register({
+      sessionId: 'sess-1',
+      userId: 'alice',
+      workDir: '/tmp/work',
+      kimiSessionId: 'kimi-x',
+      kimiSession: stubSession(),
+    });
+
+    active.partialToolCallArgs.set('tc-9vw', '{"path":"/a/b"');
+    active.partialToolCallArgs.set('tc-other', '{"x":1');
+
+    updateLiveOverlay(active, {
+      type: 'ToolResult',
+      payload: {
+        tool_call_id: 'tc-9vw',
+        return_value: { is_error: false, output: 'ok', message: null, display: [] },
+      },
+    } as any);
+
+    expect(active.partialToolCallArgs.has('tc-9vw')).toBe(false);
+    expect(active.partialToolCallArgs.get('tc-other')).toBe('{"x":1');
+  });
+
   it('clears live deltas on TurnEnd but preserves liveTurnIdx', () => {
     // liveTurnIdx is intentionally PRESERVED across TurnEnd so that the next
     // TurnBegin increments to the right slot. Resetting to null caused the

@@ -1,7 +1,11 @@
-import { Brain } from 'lucide-react';
 import { ThoughtCard } from '../thought-card';
 import type { Adapter, RailRowShape, ThinkingBlock } from '../types';
 import { readArgString, statusOf } from '../types';
+
+// Thought rows intentionally skip a verb-icon — the brain icon now lives in
+// the rail's collapse header instead, and the row's status dot is enough to
+// anchor it on the rail line.
+const THOUGHT_DOT = <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/60" />;
 
 /** ToolCall named "Think" — args.thought carries the content. */
 export const ThinkToolAdapter: Adapter = (ctx) => {
@@ -10,7 +14,7 @@ export const ThinkToolAdapter: Adapter = (ctx) => {
     readArgString(ctx.call, 'reasoning') ||
     readArgString(ctx.call, 'content');
   return {
-    icon: <Brain className="h-3.5 w-3.5" />,
+    icon: THOUGHT_DOT,
     verb: 'Thought',
     detail: thought ? (
       <ThoughtCard content={thought} isStreaming={ctx.call.isStreaming} />
@@ -22,7 +26,7 @@ export const ThinkToolAdapter: Adapter = (ctx) => {
 /** Helper: build a RailRowShape directly from a transparent thinking Block. */
 export function thinkingBlockToRow(b: ThinkingBlock): RailRowShape {
   return {
-    icon: <Brain className="h-3.5 w-3.5" />,
+    icon: THOUGHT_DOT,
     verb: 'Thought',
     detail: <ThoughtCard content={b.content} encrypted={b.encrypted} isStreaming={b.isStreaming} />,
     status: b.isStreaming ? 'running' : 'ok',

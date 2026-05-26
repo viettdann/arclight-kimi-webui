@@ -187,6 +187,8 @@ export interface SnapshotPayload {
   title: string | null;
   pendingPrompt: { text: string; enqueuedAt: string } | null;
   live: {
+    /** True iff the server still has an in-flight Turn for this session. */
+    turnInProgress: boolean;
     turnIdx: number | null;
     stepIdx: number | null;
     /** Current part index of the in-flight thinking section (per turn+step). */

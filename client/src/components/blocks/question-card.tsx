@@ -73,28 +73,56 @@ export function QuestionCard({ requestId, questions, resolved }: QuestionCardPro
     setSubmittedLocal(true);
   };
 
+  if (isSubmitted) {
+    return (
+      <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 shadow-sm overflow-hidden backdrop-blur-sm animate-in fade-in duration-200">
+        <div className="flex items-center justify-between gap-2 px-4 py-2 select-none border-b border-border/20">
+          <div className="flex items-center gap-2 text-xs font-semibold">
+            <HelpCircle className="h-4.5 w-4.5 text-emerald-500" />
+            <span className="text-emerald-500">Response Submitted</span>
+          </div>
+          <div className="flex items-center gap-1.5 text-xs text-emerald-500 font-bold select-none font-sans">
+            <Check className="h-3.5 w-3.5 stroke-[3]" />
+            <span>Answers Recorded</span>
+          </div>
+        </div>
+        <ul className="px-4 py-3 space-y-2">
+          {questions.map((qi, i) => {
+            const ans = (answers[`q_${i}`] || '').trim();
+            return (
+              <li key={i} className="text-xs leading-relaxed">
+                {qi.header && (
+                  <span className="block text-[10px] uppercase font-bold tracking-wider text-muted-foreground">
+                    {qi.header}
+                  </span>
+                )}
+                <span className="font-semibold text-foreground/85">{qi.question}</span>
+                <span className="mx-1.5 text-muted-foreground/60">→</span>
+                <span className="font-medium text-emerald-600 dark:text-emerald-400">
+                  {ans || <em className="text-muted-foreground/70">no answer</em>}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+    );
+  }
+
   const answeredCount = questions.reduce(
     (acc, _, i) => acc + ((answers[`q_${i}`] || '').trim() ? 1 : 0),
     0,
   );
 
   return (
-    <div
-      className={`rounded-xl border shadow-sm overflow-hidden backdrop-blur-sm animate-in fade-in duration-200 ${
-        isSubmitted ? 'border-emerald-500/20 bg-emerald-500/5' : 'border-primary/20 bg-primary/5'
-      }`}
-    >
+    <div className="rounded-xl border border-primary/20 bg-primary/5 shadow-sm overflow-hidden backdrop-blur-sm animate-in fade-in duration-200">
       {/* Header */}
       <div className="flex items-center justify-between gap-2 px-4 py-2 select-none border-b border-border/20">
         <div className="flex items-center gap-2 text-xs font-semibold">
-          <HelpCircle
-            className={`h-4.5 w-4.5 ${isSubmitted ? 'text-emerald-500' : 'text-primary'}`}
-          />
-          <span className={isSubmitted ? 'text-emerald-500' : 'text-primary'}>
-            {isSubmitted ? 'Response Submitted' : 'Question from Assistant'}
-          </span>
+          <HelpCircle className="h-4.5 w-4.5 text-primary" />
+          <span className="text-primary">Question from Assistant</span>
         </div>
-        {!isSubmitted && total > 1 && (
+        {total > 1 && (
           <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
             {safeIdx + 1} / {total}
           </span>
@@ -102,7 +130,7 @@ export function QuestionCard({ requestId, questions, resolved }: QuestionCardPro
       </div>
 
       {/* Progress dots */}
-      {!isSubmitted && total > 1 && (
+      {total > 1 && (
         <div className="flex items-center gap-1.5 px-4 pt-3">
           {questions.map((_, i) => {
             const hasAns = !!(answers[`q_${i}`] || '').trim();
@@ -150,7 +178,6 @@ export function QuestionCard({ requestId, questions, resolved }: QuestionCardPro
                 <button
                   type="button"
                   key={optIdx}
-                  disabled={isSubmitted}
                   onClick={() => handleSelectOption(opt.label)}
                   className={`flex flex-col items-start text-left p-3 rounded-xl border transition-all text-xs font-medium cursor-pointer ${
                     isSelected
@@ -181,7 +208,6 @@ export function QuestionCard({ requestId, questions, resolved }: QuestionCardPro
           </div>
         ) : (
           <textarea
-            disabled={isSubmitted}
             value={currentAnswer}
             onChange={(e) => handleTextChange(e.target.value)}
             placeholder="Type your response..."
@@ -196,19 +222,14 @@ export function QuestionCard({ requestId, questions, resolved }: QuestionCardPro
             variant="ghost"
             size="sm"
             onClick={goBack}
-            disabled={isSubmitted || safeIdx === 0}
+            disabled={safeIdx === 0}
             className="flex items-center gap-1.5"
           >
             <ArrowLeft className="h-4 w-4" />
             <span>Back</span>
           </Button>
 
-          {isSubmitted ? (
-            <div className="flex items-center gap-1.5 text-xs text-emerald-500 font-bold select-none font-sans">
-              <Check className="h-4 w-4 stroke-[3]" />
-              <span>Answers Recorded</span>
-            </div>
-          ) : isLast ? (
+          {isLast ? (
             <Button
               type="button"
               onClick={submit}
