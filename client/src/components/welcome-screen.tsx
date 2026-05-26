@@ -25,7 +25,7 @@ const features = [
 
 export function WelcomeScreen() {
   return (
-    <div className="flex flex-col items-center justify-center px-6 py-12">
+    <div className="flex flex-col items-center justify-center px-6 py-6 md:py-12">
       <div className="max-w-3xl text-center">
         <div className="flex items-center justify-center gap-3">
           <h1 className="text-4xl font-bold tracking-tight gradient-text">More Than Coding</h1>

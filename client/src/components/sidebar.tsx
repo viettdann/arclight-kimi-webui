@@ -15,6 +15,8 @@ import { SkillsModal } from './skills-modal';
 import { showToast } from './toast-provider';
 
 interface SidebarProps {
+  isOpen: boolean;
+  onClose: () => void;
   onLoginClick: () => void;
 }
 
@@ -91,7 +93,7 @@ const REFRESH_RAW_HINTS = [
   '"project_adopted"',
 ];
 
-export function Sidebar({ onLoginClick }: SidebarProps) {
+export function Sidebar({ isOpen, onClose, onLoginClick }: SidebarProps) {
   const navigate = useNavigate();
   const status = useAuthStore((s) => s.status);
   const projects = useProjectsStore((s) => s.projects);
@@ -168,6 +170,7 @@ export function Sidebar({ onLoginClick }: SidebarProps) {
   }, [status]);
 
   const triggerNewTask = useCallback(() => {
+    onClose?.(); // Đóng sidebar drawer
     const list = useProjectsStore.getState().projects;
     const locals = list.filter((p) => p.origin === 'local');
     const hasForeign = list.some((p) => p.origin === 'foreign');
@@ -185,7 +188,7 @@ export function Sidebar({ onLoginClick }: SidebarProps) {
       return;
     }
     setPickerOpen(true);
-  }, []);
+  }, [onClose]);
 
   // ⌘N / Ctrl+N hotkey → new task.
   useEffect(() => {
@@ -218,7 +221,11 @@ export function Sidebar({ onLoginClick }: SidebarProps) {
 
   return (
     <>
-      <aside className="fixed left-0 top-0 flex h-screen w-64 flex-col border-r border-border bg-sidebar">
+      <aside
+        className={`fixed left-0 top-0 z-40 flex h-screen w-64 flex-col border-r border-border bg-sidebar transition-transform duration-300 ease-in-out md:translate-x-0 ${
+          isOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
         {/* Logo */}
         <div className="flex items-center gap-2 px-4 py-3">
           <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground font-bold text-sm">
@@ -246,7 +253,10 @@ export function Sidebar({ onLoginClick }: SidebarProps) {
           <Button
             type="button"
             variant="ghost"
-            onClick={() => setSkillsOpen(true)}
+            onClick={() => {
+              onClose?.();
+              setSkillsOpen(true);
+            }}
             className="w-full justify-start gap-2 px-3 py-2 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground"
           >
             <Zap />
@@ -255,7 +265,10 @@ export function Sidebar({ onLoginClick }: SidebarProps) {
           <Button
             type="button"
             variant="ghost"
-            onClick={() => navigate('/settings')}
+            onClick={() => {
+              onClose?.();
+              navigate('/settings');
+            }}
             className="w-full justify-start gap-2 px-3 py-2 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground"
           >
             <Settings />
@@ -273,7 +286,10 @@ export function Sidebar({ onLoginClick }: SidebarProps) {
               type="button"
               variant="ghost"
               size="icon-xs"
-              onClick={() => setNewProjectOpen(true)}
+              onClick={() => {
+                onClose?.();
+                setNewProjectOpen(true);
+              }}
               aria-label="Add project"
             >
               <Plus />
@@ -350,6 +366,13 @@ export function Sidebar({ onLoginClick }: SidebarProps) {
           <AuthSection onLoginClick={onLoginClick} />
         </div>
       </aside>
+
+      {isOpen && (
+        <div
+          className="fixed inset-0 z-30 bg-background/80 backdrop-blur-sm md:hidden animate-in fade-in duration-200"
+          onClick={onClose}
+        />
+      )}
 
       <NewProjectModal isOpen={newProjectOpen} onClose={() => setNewProjectOpen(false)} />
       <SkillsModal isOpen={skillsOpen} onClose={() => setSkillsOpen(false)} />

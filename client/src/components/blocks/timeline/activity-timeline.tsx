@@ -190,7 +190,9 @@ const SUMMARY_ICON: Record<string, ReactNode> = {
 /**
  * Compose a short human summary like "Created file, Ran 2 commands". When
  * n===1 the count is dropped so headers stay tight ("Thought", not "Thought
- * 1"). Each segment may carry an icon — e.g. the brain badge on "Thought".
+ * 1"). Verb glyphs (e.g. the brain badge on "Thought") only appear when the
+ * segment is alone — once mixed with other verbs the icon becomes visual
+ * noise next to the chevron and plain verbs.
  */
 function summarize(verbCount: Map<string, number>): SummarySegment[] {
   const parts: SummarySegment[] = [];
@@ -204,7 +206,11 @@ function summarize(verbCount: Map<string, number>): SummarySegment[] {
       label: countLabel(verb, n, tool),
     });
   }
-  return parts.slice(0, 3);
+  const trimmed = parts.slice(0, 3);
+  if (trimmed.length > 1) {
+    return trimmed.map(({ icon: _icon, ...rest }) => rest);
+  }
+  return trimmed;
 }
 
 function countLabel(verb: string, n: number, tool: string): string {

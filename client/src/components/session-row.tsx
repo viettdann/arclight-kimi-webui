@@ -72,7 +72,7 @@ export function SessionRow({ session }: SessionRowProps) {
 
   return (
     <>
-      <div className="group/session-row relative">
+      <div className="group/session-row relative flex items-center">
         <Button
           type="button"
           variant="ghost"
@@ -89,7 +89,7 @@ export function SessionRow({ session }: SessionRowProps) {
           size="icon-xs"
           onClick={handleDeleteClick}
           aria-label={`Delete session ${title}`}
-          className="absolute right-1.5 top-1/2 -translate-y-1/2 opacity-0 transition-opacity group-hover/session-row:opacity-100 focus-visible:opacity-100 hover:bg-destructive/15 hover:text-destructive"
+          className="absolute right-1.5 opacity-0 transition-opacity group-hover/session-row:opacity-100 focus-visible:opacity-100 hover:bg-destructive/15 hover:text-destructive"
         >
           <Trash2 />
         </Button>

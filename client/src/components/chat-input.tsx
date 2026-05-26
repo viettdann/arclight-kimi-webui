@@ -63,7 +63,7 @@ export function ChatInput() {
       : 'Ask anything...';
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-4 pb-6">
+    <div className="mx-auto w-full max-w-3xl px-3 pb-4 md:px-4 md:pb-6 shrink-0">
       <div
         className={`relative rounded-2xl border bg-card shadow-sm transition-all focus-within:ring-1 focus-within:ring-ring ${
           isTurnInProgress ? 'border-primary/30' : 'border-border'
@@ -89,17 +89,17 @@ export function ChatInput() {
               type="button"
               variant="ghost"
               size="xs"
-              className="text-muted-foreground"
+              className="text-muted-foreground cursor-pointer"
               disabled={!sessionId}
             >
-              Create project
-              <ChevronDown />
+              <span className="hidden sm:inline">Create project</span>
+              <ChevronDown className="h-3.5 w-3.5" />
             </Button>
             <Button
               type="button"
               variant="ghost"
               size="icon-sm"
-              className="text-muted-foreground"
+              className="text-muted-foreground cursor-pointer"
               aria-label="Quick action"
               disabled={!sessionId}
             >
@@ -109,7 +109,7 @@ export function ChatInput() {
               type="button"
               variant="ghost"
               size="icon-sm"
-              className="text-muted-foreground"
+              className="text-muted-foreground cursor-pointer"
               aria-label="Attach file"
               disabled={!sessionId}
             >
@@ -118,7 +118,9 @@ export function ChatInput() {
           </div>
 
           <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground select-none">SOLO Auto Model</span>
+            <span className="text-xs text-muted-foreground select-none hidden sm:inline">
+              SOLO Auto Model
+            </span>
             {isTurnInProgress ? (
               <Button
                 type="button"
@@ -128,6 +130,7 @@ export function ChatInput() {
                 disabled={!sessionId}
                 aria-label="Stop turn"
                 title="Dừng phiên agent đang chạy"
+                className="cursor-pointer"
               >
                 <Square />
               </Button>
@@ -138,6 +141,7 @@ export function ChatInput() {
                 onClick={handlePrimaryAction}
                 disabled={!text.trim() || !sessionId}
                 aria-label="Send message"
+                className="cursor-pointer"
               >
                 <Send />
               </Button>
