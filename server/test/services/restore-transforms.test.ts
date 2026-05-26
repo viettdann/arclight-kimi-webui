@@ -64,9 +64,13 @@ describe('sanitizeStateJson', () => {
     expect(sanitizeStateJson('')).toBe('');
   });
 
-  it('returns malformed JSON unchanged', () => {
-    const input = '{not valid';
-    expect(sanitizeStateJson(input)).toBe(input);
+  it('returns stub {} for malformed JSON so foreign additional_dirs cannot leak', () => {
+    expect(sanitizeStateJson('{not valid')).toBe('{}');
+  });
+
+  it('returns stub {} for non-object JSON (array/scalar)', () => {
+    expect(sanitizeStateJson('[1,2,3]')).toBe('{}');
+    expect(sanitizeStateJson('"raw"')).toBe('{}');
   });
 
   it('inserts additional_dirs=[] when field is missing', () => {

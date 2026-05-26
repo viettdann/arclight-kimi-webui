@@ -499,6 +499,21 @@ export async function restoreFromBackup(args: RestoreFromBackupArgs): Promise<Ac
   ]);
   const filesRow = filesRows[0];
 
+  // Cascade-rewrite every sibling row under `(userId, projectName)` so all
+  // sessions in this project flip to local atomically. Sibling rows already
+  // at `localWorkDir` are no-ops at the row level; the statement still
+  // touches them, which is acceptable.
+  const cascadeWorkDir = () =>
+    dbh
+      .update(schema.kimiSessions)
+      .set({ workDir: localWorkDir })
+      .where(
+        and(
+          eq(schema.kimiSessions.userId, sessRow.userId),
+          eq(schema.kimiSessions.projectName, sessRow.projectName),
+        ),
+      );
+
   if (filesRow != null) {
     await restoreKimiFiles(
       localWorkDir,
@@ -512,32 +527,23 @@ export async function restoreFromBackup(args: RestoreFromBackupArgs): Promise<Ac
     );
     // Wire blob just replaced disk; reset the byte-offset cursor to the
     // restored blob's length so the next `appendWireDelta` computes its
-    // delta from the right baseline.
+    // delta from the right baseline. Run alongside the cascade — different
+    // tables, no ordering dependency.
     const newOffset = Buffer.byteLength(filesRow.wireJsonl, 'utf8');
-    await dbh
-      .update(schema.kimiSessionFiles)
-      .set({ wireByteOffset: newOffset })
-      .where(eq(schema.kimiSessionFiles.sessionId, args.sessionId));
+    await Promise.all([
+      dbh
+        .update(schema.kimiSessionFiles)
+        .set({ wireByteOffset: newOffset })
+        .where(eq(schema.kimiSessionFiles.sessionId, args.sessionId)),
+      cascadeWorkDir(),
+    ]);
   } else {
     logger.error(
       { sessionId: args.sessionId, kimiSessionId, workDir: localWorkDir },
       'restoreFromBackup: session_files row missing; skipping materialise',
     );
+    await cascadeWorkDir();
   }
-
-  // Cascade-rewrite every sibling row under `(userId, projectName)` so all
-  // sessions in this project flip to local atomically. Sibling rows already
-  // at `localWorkDir` are no-ops at the row level; the statement still
-  // touches them, which is acceptable.
-  await dbh
-    .update(schema.kimiSessions)
-    .set({ workDir: localWorkDir })
-    .where(
-      and(
-        eq(schema.kimiSessions.userId, sessRow.userId),
-        eq(schema.kimiSessions.projectName, sessRow.projectName),
-      ),
-    );
 
   const kimi = factory({
     workDir: localWorkDir,

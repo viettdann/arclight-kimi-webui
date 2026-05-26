@@ -66,20 +66,22 @@ export function stripSystemPromptHead(contextJsonl: string): string {
 /**
  * Sanitize a `state.json` blob before restoring to disk.
  *
- * - Empty input or parse failure: return unchanged.
- * - Otherwise set `data.additional_dirs = []` (foreign machine paths must
- *   not leak across an adopt) and serialize back with 2-space indent.
+ * - Empty input: return unchanged.
+ * - Object input: set `additional_dirs = []` and serialize back with 2-space indent.
+ * - Unparseable or non-object (array/scalar): return a stub `{}` so a foreign
+ *   machine's `additional_dirs` cannot pass through inside an opaque blob.
  */
 export function sanitizeStateJson(stateJson: string): string {
   if (stateJson.length === 0) return stateJson;
-  let data: Record<string, unknown>;
   try {
     const parsed = JSON.parse(stateJson);
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return stateJson;
-    data = parsed as Record<string, unknown>;
+    if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+      const data = parsed as Record<string, unknown>;
+      data.additional_dirs = [];
+      return JSON.stringify(data, null, 2);
+    }
   } catch {
-    return stateJson;
+    // fall through to stub
   }
-  data.additional_dirs = [];
-  return JSON.stringify(data, null, 2);
+  return '{}';
 }
