@@ -1,18 +1,13 @@
 import { getFileIcon } from '../../../lib/file-icons';
+import { cn } from '../../../lib/utils';
 
 interface FileBadgeProps {
   path: string;
   className?: string;
 }
 
-/** Two-to-four letter badge next to a filename (TS, MD, JSON, …). */
-export function FileBadge({ path, className = '' }: FileBadgeProps) {
-  const spec = getFileIcon(path);
-  return (
-    <span
-      className={`inline-flex items-center justify-center px-1 min-w-[1.75rem] h-4 rounded-sm font-mono text-[9px] font-bold uppercase tracking-tight tabular-nums leading-none select-none ${spec.className} ${className}`}
-    >
-      {spec.label}
-    </span>
-  );
+/** Generic lucide file icon next to a filename in the tool-call timeline. */
+export function FileBadge({ path, className }: FileBadgeProps) {
+  const { Icon, className: color, label } = getFileIcon(path);
+  return <Icon aria-label={label} className={cn('h-3.5 w-3.5 shrink-0', color, className)} />;
 }

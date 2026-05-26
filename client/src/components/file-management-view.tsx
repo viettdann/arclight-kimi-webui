@@ -1,10 +1,10 @@
 import { ArrowLeft, Download, FolderTree, MoreHorizontal, RefreshCw, Upload } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import type { FileEntry, FileListResponse } from 'shared/types';
-import { FileBadge } from '@/components/blocks/timeline/file-badge';
 import { Button } from '@/components/ui/button';
 import { DropdownItem, DropdownMenu } from '@/components/ui/dropdown-menu';
 import { authFetch } from '../lib/auth-fetch';
+import { FolderBrand, getFileIcon } from '../lib/file-icons';
 import { useSidebarViewStore } from '../lib/sidebar-view-store';
 
 interface FileManagementViewProps {
@@ -137,25 +137,20 @@ export function FileManagementView({ projectName }: FileManagementViewProps) {
           </div>
         ) : (
           <ul className="flex flex-col gap-0.5">
-            {state.entries.map((entry) => (
-              <li
-                key={entry.name}
-                className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-sidebar-foreground hover:bg-sidebar-accent"
-                title={entry.name}
-              >
-                <span className="text-muted-foreground/70" aria-hidden>
-                  ·
-                </span>
-                {entry.type === 'dir' ? (
-                  <span className="inline-flex h-4 min-w-[1.75rem] items-center justify-center rounded-sm bg-muted px-1 font-mono text-[9px] font-bold uppercase tracking-tight text-muted-foreground">
-                    DIR
-                  </span>
-                ) : (
-                  <FileBadge path={entry.name} />
-                )}
-                <span className="truncate flex-1">{entry.name}</span>
-              </li>
-            ))}
+            {state.entries.map((entry) => {
+              const Brand =
+                entry.type === 'dir' ? FolderBrand : getFileIcon(entry.name).Brand;
+              return (
+                <li
+                  key={entry.name}
+                  className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-sidebar-foreground hover:bg-sidebar-accent"
+                  title={entry.name}
+                >
+                  <Brand aria-hidden className="h-4 w-4 shrink-0" />
+                  <span className="truncate flex-1">{entry.name}</span>
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>

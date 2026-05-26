@@ -1,201 +1,323 @@
-// Extension → short label + Tailwind text color class.
-// Letter-badge style (defers simple-icons; bundle stays light).
-//
-// `label` is rendered inside a small monospaced badge next to a filename.
-// Unknown extensions fall back to a neutral "·" with muted color.
+import type { ComponentType, SVGProps } from 'react';
+import {
+  Database,
+  File,
+  FileArchive,
+  FileAudio,
+  FileCode,
+  FileImage,
+  FileJson,
+  FileLock,
+  FileSpreadsheet,
+  FileText,
+  FileType,
+  FileVideo,
+  Lock,
+  type LucideIcon,
+  Package,
+  Settings,
+  Terminal,
+} from 'lucide-react';
+
+// Material Icon Theme — brand-correct icons for file manager.
+// unplugin-icons compiles each `~icons/<set>/<name>` import to a React component;
+// only the names imported below ship to the bundle.
+import IconAngular from '~icons/material-icon-theme/angular';
+import IconAstro from '~icons/material-icon-theme/astro';
+import IconAudio from '~icons/material-icon-theme/audio';
+import IconBiome from '~icons/material-icon-theme/biome';
+import IconC from '~icons/material-icon-theme/c';
+import IconChangelog from '~icons/material-icon-theme/changelog';
+import IconClojure from '~icons/material-icon-theme/clojure';
+import IconCmake from '~icons/material-icon-theme/cmake';
+import IconConsole from '~icons/material-icon-theme/console';
+import IconCpp from '~icons/material-icon-theme/cpp';
+import IconCsharp from '~icons/material-icon-theme/csharp';
+import IconCss from '~icons/material-icon-theme/css';
+import IconDart from '~icons/material-icon-theme/dart';
+import IconDatabase from '~icons/material-icon-theme/database';
+import IconDiff from '~icons/material-icon-theme/diff';
+import IconDocker from '~icons/material-icon-theme/docker';
+import IconDocument from '~icons/material-icon-theme/document';
+import IconEditorconfig from '~icons/material-icon-theme/editorconfig';
+import IconElixir from '~icons/material-icon-theme/elixir';
+import IconElm from '~icons/material-icon-theme/elm';
+import IconErlang from '~icons/material-icon-theme/erlang';
+import IconEslint from '~icons/material-icon-theme/eslint';
+import IconExe from '~icons/material-icon-theme/exe';
+import IconFolderBase from '~icons/material-icon-theme/folder-base';
+import IconGit from '~icons/material-icon-theme/git';
+import IconGo from '~icons/material-icon-theme/go';
+import IconGoMod from '~icons/material-icon-theme/go-mod';
+import IconGradle from '~icons/material-icon-theme/gradle';
+import IconGraphql from '~icons/material-icon-theme/graphql';
+import IconH from '~icons/material-icon-theme/h';
+import IconHaskell from '~icons/material-icon-theme/haskell';
+import IconHtml from '~icons/material-icon-theme/html';
+import IconImage from '~icons/material-icon-theme/image';
+import IconJava from '~icons/material-icon-theme/java';
+import IconJavascript from '~icons/material-icon-theme/javascript';
+import IconJson from '~icons/material-icon-theme/json';
+import IconKotlin from '~icons/material-icon-theme/kotlin';
+import IconLess from '~icons/material-icon-theme/less';
+import IconLicense from '~icons/material-icon-theme/license';
+import IconLockMit from '~icons/material-icon-theme/lock';
+import IconLog from '~icons/material-icon-theme/log';
+import IconLua from '~icons/material-icon-theme/lua';
+import IconMakefile from '~icons/material-icon-theme/makefile';
+import IconMarkdown from '~icons/material-icon-theme/markdown';
+import IconMdx from '~icons/material-icon-theme/mdx';
+import IconNim from '~icons/material-icon-theme/nim';
+import IconNodejs from '~icons/material-icon-theme/nodejs';
+import IconNpm from '~icons/material-icon-theme/npm';
+import IconPdf from '~icons/material-icon-theme/pdf';
+import IconPerl from '~icons/material-icon-theme/perl';
+import IconPhp from '~icons/material-icon-theme/php';
+import IconPowerpoint from '~icons/material-icon-theme/powerpoint';
+import IconPowershell from '~icons/material-icon-theme/powershell';
+import IconPrettier from '~icons/material-icon-theme/prettier';
+import IconPython from '~icons/material-icon-theme/python';
+import IconR from '~icons/material-icon-theme/r';
+import IconReact from '~icons/material-icon-theme/react';
+import IconReadme from '~icons/material-icon-theme/readme';
+import IconRuby from '~icons/material-icon-theme/ruby';
+import IconRust from '~icons/material-icon-theme/rust';
+import IconSass from '~icons/material-icon-theme/sass';
+import IconScala from '~icons/material-icon-theme/scala';
+import IconSettings from '~icons/material-icon-theme/settings';
+import IconSvelte from '~icons/material-icon-theme/svelte';
+import IconSvg from '~icons/material-icon-theme/svg';
+import IconSwift from '~icons/material-icon-theme/swift';
+import IconTable from '~icons/material-icon-theme/table';
+import IconTailwindcss from '~icons/material-icon-theme/tailwindcss';
+import IconToml from '~icons/material-icon-theme/toml';
+import IconTsconfig from '~icons/material-icon-theme/tsconfig';
+import IconTune from '~icons/material-icon-theme/tune';
+import IconTurborepo from '~icons/material-icon-theme/turborepo';
+import IconTypescript from '~icons/material-icon-theme/typescript';
+import IconTypescriptDef from '~icons/material-icon-theme/typescript-def';
+import IconVideo from '~icons/material-icon-theme/video';
+import IconVim from '~icons/material-icon-theme/vim';
+import IconVue from '~icons/material-icon-theme/vue';
+import IconWebassembly from '~icons/material-icon-theme/webassembly';
+import IconWord from '~icons/material-icon-theme/word';
+import IconXml from '~icons/material-icon-theme/xml';
+import IconYaml from '~icons/material-icon-theme/yaml';
+import IconZig from '~icons/material-icon-theme/zig';
+import IconZip from '~icons/material-icon-theme/zip';
+
+export type BrandIcon = ComponentType<SVGProps<SVGSVGElement>>;
 
 export interface FileIconSpec {
-  label: string;
-  /** Tailwind text-color class (avoid bg — caller paints background). */
+  /** Generic lucide icon for the timeline (paints in Tailwind color). */
+  Icon: LucideIcon;
+  /** Tailwind text-color class applied to the lucide icon. */
   className: string;
+  /** Brand-accurate material-icon-theme icon for the file manager. */
+  Brand: BrandIcon;
+  /** Short label kept for aria/tooltip use. */
+  label: string;
 }
+
+export const FolderBrand: BrandIcon = IconFolderBase;
 
 const TABLE: Record<string, FileIconSpec> = {
   // TypeScript / JavaScript
-  ts: { label: 'TS', className: 'text-sky-500' },
-  tsx: { label: 'TSX', className: 'text-sky-400' },
-  js: { label: 'JS', className: 'text-yellow-500' },
-  jsx: { label: 'JSX', className: 'text-yellow-400' },
-  mjs: { label: 'JS', className: 'text-yellow-500' },
-  cjs: { label: 'JS', className: 'text-yellow-500' },
+  ts: { Icon: FileCode, className: 'text-sky-500', Brand: IconTypescript, label: 'TS' },
+  tsx: { Icon: FileCode, className: 'text-sky-400', Brand: IconReact, label: 'TSX' },
+  'd.ts': { Icon: FileCode, className: 'text-sky-500', Brand: IconTypescriptDef, label: 'DTS' },
+  js: { Icon: FileCode, className: 'text-yellow-500', Brand: IconJavascript, label: 'JS' },
+  jsx: { Icon: FileCode, className: 'text-yellow-400', Brand: IconReact, label: 'JSX' },
+  mjs: { Icon: FileCode, className: 'text-yellow-500', Brand: IconJavascript, label: 'MJS' },
+  cjs: { Icon: FileCode, className: 'text-yellow-500', Brand: IconJavascript, label: 'CJS' },
   // Web frameworks
-  vue: { label: 'VUE', className: 'text-emerald-500' },
-  svelte: { label: 'SVTE', className: 'text-orange-500' },
-  astro: { label: 'ASTR', className: 'text-orange-400' },
+  vue: { Icon: FileCode, className: 'text-emerald-500', Brand: IconVue, label: 'VUE' },
+  svelte: { Icon: FileCode, className: 'text-orange-500', Brand: IconSvelte, label: 'SVTE' },
+  astro: { Icon: FileCode, className: 'text-orange-400', Brand: IconAstro, label: 'ASTR' },
   // Markup / data
-  md: { label: 'MD', className: 'text-blue-400' },
-  mdx: { label: 'MDX', className: 'text-blue-400' },
-  json: { label: 'JSON', className: 'text-amber-500' },
-  jsonl: { label: 'JSONL', className: 'text-amber-500' },
-  json5: { label: 'JSON5', className: 'text-amber-500' },
-  toml: { label: 'TOML', className: 'text-orange-500' },
-  yaml: { label: 'YML', className: 'text-rose-400' },
-  yml: { label: 'YML', className: 'text-rose-400' },
-  xml: { label: 'XML', className: 'text-orange-400' },
-  html: { label: 'HTML', className: 'text-orange-500' },
-  htm: { label: 'HTML', className: 'text-orange-500' },
-  css: { label: 'CSS', className: 'text-blue-500' },
-  scss: { label: 'SCSS', className: 'text-pink-500' },
-  sass: { label: 'SASS', className: 'text-pink-500' },
-  less: { label: 'LESS', className: 'text-indigo-500' },
+  md: { Icon: FileText, className: 'text-blue-400', Brand: IconMarkdown, label: 'MD' },
+  mdx: { Icon: FileText, className: 'text-blue-400', Brand: IconMdx, label: 'MDX' },
+  json: { Icon: FileJson, className: 'text-amber-500', Brand: IconJson, label: 'JSON' },
+  jsonl: { Icon: FileJson, className: 'text-amber-500', Brand: IconJson, label: 'JSONL' },
+  json5: { Icon: FileJson, className: 'text-amber-500', Brand: IconJson, label: 'JSON5' },
+  toml: { Icon: FileJson, className: 'text-orange-500', Brand: IconToml, label: 'TOML' },
+  yaml: { Icon: FileJson, className: 'text-rose-400', Brand: IconYaml, label: 'YML' },
+  yml: { Icon: FileJson, className: 'text-rose-400', Brand: IconYaml, label: 'YML' },
+  xml: { Icon: FileCode, className: 'text-orange-400', Brand: IconXml, label: 'XML' },
+  html: { Icon: FileCode, className: 'text-orange-500', Brand: IconHtml, label: 'HTML' },
+  htm: { Icon: FileCode, className: 'text-orange-500', Brand: IconHtml, label: 'HTML' },
+  css: { Icon: FileCode, className: 'text-blue-500', Brand: IconCss, label: 'CSS' },
+  scss: { Icon: FileCode, className: 'text-pink-500', Brand: IconSass, label: 'SCSS' },
+  sass: { Icon: FileCode, className: 'text-pink-500', Brand: IconSass, label: 'SASS' },
+  less: { Icon: FileCode, className: 'text-indigo-500', Brand: IconLess, label: 'LESS' },
   // Lang
-  py: { label: 'PY', className: 'text-emerald-500' },
-  pyi: { label: 'PYI', className: 'text-emerald-500' },
-  ipynb: { label: 'IPYN', className: 'text-orange-400' },
-  rs: { label: 'RS', className: 'text-orange-500' },
-  go: { label: 'GO', className: 'text-cyan-500' },
-  java: { label: 'JAVA', className: 'text-red-500' },
-  kt: { label: 'KT', className: 'text-purple-500' },
-  kts: { label: 'KTS', className: 'text-purple-500' },
-  scala: { label: 'SCAL', className: 'text-red-500' },
-  c: { label: 'C', className: 'text-blue-400' },
-  h: { label: 'H', className: 'text-blue-400' },
-  cpp: { label: 'C++', className: 'text-blue-500' },
-  cc: { label: 'C++', className: 'text-blue-500' },
-  hpp: { label: 'H++', className: 'text-blue-500' },
-  cs: { label: 'C#', className: 'text-purple-500' },
-  rb: { label: 'RB', className: 'text-red-500' },
-  php: { label: 'PHP', className: 'text-indigo-400' },
-  swift: { label: 'SWIFT', className: 'text-orange-500' },
-  dart: { label: 'DART', className: 'text-sky-500' },
-  lua: { label: 'LUA', className: 'text-blue-500' },
-  r: { label: 'R', className: 'text-blue-400' },
-  pl: { label: 'PL', className: 'text-indigo-400' },
-  ex: { label: 'EX', className: 'text-purple-400' },
-  exs: { label: 'EXS', className: 'text-purple-400' },
-  erl: { label: 'ERL', className: 'text-red-400' },
-  hs: { label: 'HS', className: 'text-purple-500' },
-  clj: { label: 'CLJ', className: 'text-emerald-500' },
-  elm: { label: 'ELM', className: 'text-sky-500' },
-  zig: { label: 'ZIG', className: 'text-orange-500' },
-  nim: { label: 'NIM', className: 'text-yellow-500' },
+  py: { Icon: FileCode, className: 'text-emerald-500', Brand: IconPython, label: 'PY' },
+  pyi: { Icon: FileCode, className: 'text-emerald-500', Brand: IconPython, label: 'PYI' },
+  ipynb: { Icon: FileCode, className: 'text-orange-400', Brand: IconPython, label: 'IPYN' },
+  rs: { Icon: FileCode, className: 'text-orange-500', Brand: IconRust, label: 'RS' },
+  go: { Icon: FileCode, className: 'text-cyan-500', Brand: IconGo, label: 'GO' },
+  java: { Icon: FileCode, className: 'text-red-500', Brand: IconJava, label: 'JAVA' },
+  kt: { Icon: FileCode, className: 'text-purple-500', Brand: IconKotlin, label: 'KT' },
+  kts: { Icon: FileCode, className: 'text-purple-500', Brand: IconKotlin, label: 'KTS' },
+  scala: { Icon: FileCode, className: 'text-red-500', Brand: IconScala, label: 'SCAL' },
+  c: { Icon: FileCode, className: 'text-blue-400', Brand: IconC, label: 'C' },
+  h: { Icon: FileCode, className: 'text-blue-400', Brand: IconH, label: 'H' },
+  cpp: { Icon: FileCode, className: 'text-blue-500', Brand: IconCpp, label: 'C++' },
+  cc: { Icon: FileCode, className: 'text-blue-500', Brand: IconCpp, label: 'C++' },
+  hpp: { Icon: FileCode, className: 'text-blue-500', Brand: IconH, label: 'H++' },
+  cs: { Icon: FileCode, className: 'text-purple-500', Brand: IconCsharp, label: 'C#' },
+  rb: { Icon: FileCode, className: 'text-red-500', Brand: IconRuby, label: 'RB' },
+  php: { Icon: FileCode, className: 'text-indigo-400', Brand: IconPhp, label: 'PHP' },
+  swift: { Icon: FileCode, className: 'text-orange-500', Brand: IconSwift, label: 'SWIFT' },
+  dart: { Icon: FileCode, className: 'text-sky-500', Brand: IconDart, label: 'DART' },
+  lua: { Icon: FileCode, className: 'text-blue-500', Brand: IconLua, label: 'LUA' },
+  r: { Icon: FileCode, className: 'text-blue-400', Brand: IconR, label: 'R' },
+  pl: { Icon: FileCode, className: 'text-indigo-400', Brand: IconPerl, label: 'PL' },
+  ex: { Icon: FileCode, className: 'text-purple-400', Brand: IconElixir, label: 'EX' },
+  exs: { Icon: FileCode, className: 'text-purple-400', Brand: IconElixir, label: 'EXS' },
+  erl: { Icon: FileCode, className: 'text-red-400', Brand: IconErlang, label: 'ERL' },
+  hs: { Icon: FileCode, className: 'text-purple-500', Brand: IconHaskell, label: 'HS' },
+  clj: { Icon: FileCode, className: 'text-emerald-500', Brand: IconClojure, label: 'CLJ' },
+  elm: { Icon: FileCode, className: 'text-sky-500', Brand: IconElm, label: 'ELM' },
+  zig: { Icon: FileCode, className: 'text-orange-500', Brand: IconZig, label: 'ZIG' },
+  nim: { Icon: FileCode, className: 'text-yellow-500', Brand: IconNim, label: 'NIM' },
   // Shell / config
-  sh: { label: 'SH', className: 'text-emerald-400' },
-  bash: { label: 'SH', className: 'text-emerald-400' },
-  zsh: { label: 'SH', className: 'text-emerald-400' },
-  fish: { label: 'FISH', className: 'text-emerald-400' },
-  ps1: { label: 'PS1', className: 'text-blue-400' },
-  bat: { label: 'BAT', className: 'text-muted-foreground' },
-  cmd: { label: 'CMD', className: 'text-muted-foreground' },
-  env: { label: 'ENV', className: 'text-yellow-600' },
-  ini: { label: 'INI', className: 'text-muted-foreground' },
-  conf: { label: 'CONF', className: 'text-muted-foreground' },
-  cfg: { label: 'CFG', className: 'text-muted-foreground' },
-  properties: { label: 'PROP', className: 'text-muted-foreground' },
-  editorconfig: { label: 'EDIT', className: 'text-muted-foreground' },
+  sh: { Icon: Terminal, className: 'text-emerald-400', Brand: IconConsole, label: 'SH' },
+  bash: { Icon: Terminal, className: 'text-emerald-400', Brand: IconConsole, label: 'SH' },
+  zsh: { Icon: Terminal, className: 'text-emerald-400', Brand: IconConsole, label: 'SH' },
+  fish: { Icon: Terminal, className: 'text-emerald-400', Brand: IconConsole, label: 'FISH' },
+  ps1: { Icon: Terminal, className: 'text-blue-400', Brand: IconPowershell, label: 'PS1' },
+  bat: { Icon: Terminal, className: 'text-muted-foreground', Brand: IconExe, label: 'BAT' },
+  cmd: { Icon: Terminal, className: 'text-muted-foreground', Brand: IconExe, label: 'CMD' },
+  env: { Icon: Settings, className: 'text-yellow-600', Brand: IconTune, label: 'ENV' },
+  ini: { Icon: Settings, className: 'text-muted-foreground', Brand: IconSettings, label: 'INI' },
+  conf: { Icon: Settings, className: 'text-muted-foreground', Brand: IconSettings, label: 'CONF' },
+  cfg: { Icon: Settings, className: 'text-muted-foreground', Brand: IconSettings, label: 'CFG' },
+  properties: { Icon: Settings, className: 'text-muted-foreground', Brand: IconSettings, label: 'PROP' },
+  editorconfig: { Icon: Settings, className: 'text-muted-foreground', Brand: IconEditorconfig, label: 'EDIT' },
   // SQL / DB
-  sql: { label: 'SQL', className: 'text-fuchsia-400' },
-  db: { label: 'DB', className: 'text-fuchsia-400' },
-  sqlite: { label: 'SQLT', className: 'text-fuchsia-400' },
+  sql: { Icon: Database, className: 'text-fuchsia-400', Brand: IconDatabase, label: 'SQL' },
+  db: { Icon: Database, className: 'text-fuchsia-400', Brand: IconDatabase, label: 'DB' },
+  sqlite: { Icon: Database, className: 'text-fuchsia-400', Brand: IconDatabase, label: 'SQLT' },
   // Schema / API
-  proto: { label: 'PROTO', className: 'text-cyan-500' },
-  graphql: { label: 'GQL', className: 'text-pink-500' },
-  gql: { label: 'GQL', className: 'text-pink-500' },
+  proto: { Icon: FileCode, className: 'text-cyan-500', Brand: IconDocument, label: 'PROTO' },
+  graphql: { Icon: FileCode, className: 'text-pink-500', Brand: IconGraphql, label: 'GQL' },
+  gql: { Icon: FileCode, className: 'text-pink-500', Brand: IconGraphql, label: 'GQL' },
   // Build
-  gradle: { label: 'GRDL', className: 'text-emerald-500' },
-  cmake: { label: 'CMK', className: 'text-zinc-400' },
+  gradle: { Icon: FileCode, className: 'text-emerald-500', Brand: IconGradle, label: 'GRDL' },
+  cmake: { Icon: FileCode, className: 'text-zinc-400', Brand: IconCmake, label: 'CMK' },
   // Text
-  txt: { label: 'TXT', className: 'text-muted-foreground' },
-  log: { label: 'LOG', className: 'text-muted-foreground' },
+  txt: { Icon: FileText, className: 'text-muted-foreground', Brand: IconDocument, label: 'TXT' },
+  log: { Icon: FileText, className: 'text-muted-foreground', Brand: IconLog, label: 'LOG' },
   // Docs / tabular
-  pdf: { label: 'PDF', className: 'text-red-500' },
-  csv: { label: 'CSV', className: 'text-emerald-500' },
-  tsv: { label: 'TSV', className: 'text-emerald-500' },
-  doc: { label: 'DOC', className: 'text-blue-500' },
-  docx: { label: 'DOCX', className: 'text-blue-500' },
-  xls: { label: 'XLS', className: 'text-emerald-600' },
-  xlsx: { label: 'XLSX', className: 'text-emerald-600' },
-  ppt: { label: 'PPT', className: 'text-orange-500' },
-  pptx: { label: 'PPTX', className: 'text-orange-500' },
-  rtf: { label: 'RTF', className: 'text-blue-400' },
+  pdf: { Icon: FileText, className: 'text-red-500', Brand: IconPdf, label: 'PDF' },
+  csv: { Icon: FileSpreadsheet, className: 'text-emerald-500', Brand: IconTable, label: 'CSV' },
+  tsv: { Icon: FileSpreadsheet, className: 'text-emerald-500', Brand: IconTable, label: 'TSV' },
+  doc: { Icon: FileText, className: 'text-blue-500', Brand: IconWord, label: 'DOC' },
+  docx: { Icon: FileText, className: 'text-blue-500', Brand: IconWord, label: 'DOCX' },
+  xls: { Icon: FileSpreadsheet, className: 'text-emerald-600', Brand: IconTable, label: 'XLS' },
+  xlsx: { Icon: FileSpreadsheet, className: 'text-emerald-600', Brand: IconTable, label: 'XLSX' },
+  ppt: { Icon: FileText, className: 'text-orange-500', Brand: IconPowerpoint, label: 'PPT' },
+  pptx: { Icon: FileText, className: 'text-orange-500', Brand: IconPowerpoint, label: 'PPTX' },
+  rtf: { Icon: FileText, className: 'text-blue-400', Brand: IconDocument, label: 'RTF' },
   // Images
-  png: { label: 'IMG', className: 'text-violet-400' },
-  jpg: { label: 'IMG', className: 'text-violet-400' },
-  jpeg: { label: 'IMG', className: 'text-violet-400' },
-  gif: { label: 'IMG', className: 'text-violet-400' },
-  svg: { label: 'SVG', className: 'text-violet-400' },
-  webp: { label: 'IMG', className: 'text-violet-400' },
-  ico: { label: 'ICO', className: 'text-violet-400' },
-  bmp: { label: 'IMG', className: 'text-violet-400' },
-  avif: { label: 'IMG', className: 'text-violet-400' },
-  heic: { label: 'IMG', className: 'text-violet-400' },
-  tiff: { label: 'IMG', className: 'text-violet-400' },
+  png: { Icon: FileImage, className: 'text-violet-400', Brand: IconImage, label: 'IMG' },
+  jpg: { Icon: FileImage, className: 'text-violet-400', Brand: IconImage, label: 'IMG' },
+  jpeg: { Icon: FileImage, className: 'text-violet-400', Brand: IconImage, label: 'IMG' },
+  gif: { Icon: FileImage, className: 'text-violet-400', Brand: IconImage, label: 'IMG' },
+  svg: { Icon: FileImage, className: 'text-violet-400', Brand: IconSvg, label: 'SVG' },
+  webp: { Icon: FileImage, className: 'text-violet-400', Brand: IconImage, label: 'IMG' },
+  ico: { Icon: FileImage, className: 'text-violet-400', Brand: IconImage, label: 'ICO' },
+  bmp: { Icon: FileImage, className: 'text-violet-400', Brand: IconImage, label: 'IMG' },
+  avif: { Icon: FileImage, className: 'text-violet-400', Brand: IconImage, label: 'IMG' },
+  heic: { Icon: FileImage, className: 'text-violet-400', Brand: IconImage, label: 'IMG' },
+  tiff: { Icon: FileImage, className: 'text-violet-400', Brand: IconImage, label: 'IMG' },
   // Audio / video
-  mp3: { label: 'MP3', className: 'text-pink-400' },
-  wav: { label: 'WAV', className: 'text-pink-400' },
-  flac: { label: 'FLAC', className: 'text-pink-400' },
-  mp4: { label: 'MP4', className: 'text-fuchsia-400' },
-  mov: { label: 'MOV', className: 'text-fuchsia-400' },
-  webm: { label: 'WEBM', className: 'text-fuchsia-400' },
-  mkv: { label: 'MKV', className: 'text-fuchsia-400' },
+  mp3: { Icon: FileAudio, className: 'text-pink-400', Brand: IconAudio, label: 'MP3' },
+  wav: { Icon: FileAudio, className: 'text-pink-400', Brand: IconAudio, label: 'WAV' },
+  flac: { Icon: FileAudio, className: 'text-pink-400', Brand: IconAudio, label: 'FLAC' },
+  mp4: { Icon: FileVideo, className: 'text-fuchsia-400', Brand: IconVideo, label: 'MP4' },
+  mov: { Icon: FileVideo, className: 'text-fuchsia-400', Brand: IconVideo, label: 'MOV' },
+  webm: { Icon: FileVideo, className: 'text-fuchsia-400', Brand: IconVideo, label: 'WEBM' },
+  mkv: { Icon: FileVideo, className: 'text-fuchsia-400', Brand: IconVideo, label: 'MKV' },
   // Archive
-  zip: { label: 'ZIP', className: 'text-amber-500' },
-  tar: { label: 'TAR', className: 'text-amber-500' },
-  gz: { label: 'GZ', className: 'text-amber-500' },
-  tgz: { label: 'TGZ', className: 'text-amber-500' },
-  bz2: { label: 'BZ2', className: 'text-amber-500' },
-  xz: { label: 'XZ', className: 'text-amber-500' },
-  '7z': { label: '7Z', className: 'text-amber-500' },
-  rar: { label: 'RAR', className: 'text-amber-500' },
+  zip: { Icon: FileArchive, className: 'text-amber-500', Brand: IconZip, label: 'ZIP' },
+  tar: { Icon: FileArchive, className: 'text-amber-500', Brand: IconZip, label: 'TAR' },
+  gz: { Icon: FileArchive, className: 'text-amber-500', Brand: IconZip, label: 'GZ' },
+  tgz: { Icon: FileArchive, className: 'text-amber-500', Brand: IconZip, label: 'TGZ' },
+  bz2: { Icon: FileArchive, className: 'text-amber-500', Brand: IconZip, label: 'BZ2' },
+  xz: { Icon: FileArchive, className: 'text-amber-500', Brand: IconZip, label: 'XZ' },
+  '7z': { Icon: FileArchive, className: 'text-amber-500', Brand: IconZip, label: '7Z' },
+  rar: { Icon: FileArchive, className: 'text-amber-500', Brand: IconZip, label: 'RAR' },
   // Patch / vcs
-  patch: { label: 'PTCH', className: 'text-muted-foreground' },
-  diff: { label: 'DIFF', className: 'text-muted-foreground' },
+  patch: { Icon: FileText, className: 'text-muted-foreground', Brand: IconDiff, label: 'PTCH' },
+  diff: { Icon: FileText, className: 'text-muted-foreground', Brand: IconDiff, label: 'DIFF' },
   // Editor
-  vim: { label: 'VIM', className: 'text-emerald-500' },
+  vim: { Icon: FileCode, className: 'text-emerald-500', Brand: IconVim, label: 'VIM' },
   // Other
-  lock: { label: 'LOCK', className: 'text-muted-foreground' },
-  wasm: { label: 'WASM', className: 'text-indigo-500' },
+  lock: { Icon: FileLock, className: 'text-muted-foreground', Brand: IconLockMit, label: 'LOCK' },
+  wasm: { Icon: FileCode, className: 'text-indigo-500', Brand: IconWebassembly, label: 'WASM' },
 };
 
 const SPECIAL_BY_BASENAME: Record<string, FileIconSpec> = {
-  dockerfile: { label: 'DOCK', className: 'text-sky-500' },
-  '.dockerignore': { label: 'DOCK', className: 'text-sky-500' },
-  makefile: { label: 'MAKE', className: 'text-zinc-400' },
-  'package.json': { label: 'PKG', className: 'text-red-500' },
-  'package-lock.json': { label: 'LOCK', className: 'text-muted-foreground' },
-  'bun.lock': { label: 'LOCK', className: 'text-muted-foreground' },
-  'bun.lockb': { label: 'LOCK', className: 'text-muted-foreground' },
-  'pnpm-lock.yaml': { label: 'LOCK', className: 'text-muted-foreground' },
-  'yarn.lock': { label: 'LOCK', className: 'text-muted-foreground' },
-  'tsconfig.json': { label: 'TSC', className: 'text-sky-500' },
-  'biome.json': { label: 'BIOM', className: 'text-emerald-500' },
-  'turbo.json': { label: 'TURB', className: 'text-rose-500' },
-  'cargo.toml': { label: 'CRGO', className: 'text-orange-500' },
-  'cargo.lock': { label: 'LOCK', className: 'text-muted-foreground' },
-  'go.mod': { label: 'GO', className: 'text-cyan-500' },
-  'go.sum': { label: 'GO', className: 'text-cyan-500' },
-  'requirements.txt': { label: 'REQ', className: 'text-emerald-500' },
-  'pyproject.toml': { label: 'PYPR', className: 'text-emerald-500' },
-  'readme.md': { label: 'README', className: 'text-blue-400' },
-  license: { label: 'LIC', className: 'text-muted-foreground' },
-  'license.md': { label: 'LIC', className: 'text-muted-foreground' },
-  'changelog.md': { label: 'CHLG', className: 'text-blue-400' },
-  '.env': { label: 'ENV', className: 'text-yellow-600' },
-  '.env.local': { label: 'ENV', className: 'text-yellow-600' },
-  '.env.example': { label: 'ENV', className: 'text-yellow-600' },
-  '.gitignore': { label: 'GIT', className: 'text-orange-500' },
-  '.gitattributes': { label: 'GIT', className: 'text-orange-500' },
-  '.npmrc': { label: 'NPMRC', className: 'text-red-500' },
-  '.prettierrc': { label: 'PRET', className: 'text-blue-400' },
-  '.prettierrc.json': { label: 'PRET', className: 'text-blue-400' },
-  '.eslintrc': { label: 'ESL', className: 'text-indigo-500' },
-  '.eslintrc.json': { label: 'ESL', className: 'text-indigo-500' },
+  dockerfile: { Icon: FileCode, className: 'text-sky-500', Brand: IconDocker, label: 'DOCK' },
+  '.dockerignore': { Icon: FileCode, className: 'text-sky-500', Brand: IconDocker, label: 'DOCK' },
+  makefile: { Icon: FileCode, className: 'text-zinc-400', Brand: IconMakefile, label: 'MAKE' },
+  'package.json': { Icon: Package, className: 'text-red-500', Brand: IconNodejs, label: 'PKG' },
+  'package-lock.json': { Icon: Lock, className: 'text-muted-foreground', Brand: IconNpm, label: 'LOCK' },
+  'bun.lock': { Icon: Lock, className: 'text-muted-foreground', Brand: IconLockMit, label: 'LOCK' },
+  'bun.lockb': { Icon: Lock, className: 'text-muted-foreground', Brand: IconLockMit, label: 'LOCK' },
+  'pnpm-lock.yaml': { Icon: Lock, className: 'text-muted-foreground', Brand: IconLockMit, label: 'LOCK' },
+  'yarn.lock': { Icon: Lock, className: 'text-muted-foreground', Brand: IconLockMit, label: 'LOCK' },
+  'tsconfig.json': { Icon: FileJson, className: 'text-sky-500', Brand: IconTsconfig, label: 'TSC' },
+  'biome.json': { Icon: FileJson, className: 'text-emerald-500', Brand: IconBiome, label: 'BIOM' },
+  'turbo.json': { Icon: FileJson, className: 'text-rose-500', Brand: IconTurborepo, label: 'TURB' },
+  'cargo.toml': { Icon: Package, className: 'text-orange-500', Brand: IconRust, label: 'CRGO' },
+  'cargo.lock': { Icon: Lock, className: 'text-muted-foreground', Brand: IconRust, label: 'LOCK' },
+  'go.mod': { Icon: Package, className: 'text-cyan-500', Brand: IconGoMod, label: 'GO' },
+  'go.sum': { Icon: Lock, className: 'text-cyan-500', Brand: IconGoMod, label: 'GO' },
+  'requirements.txt': { Icon: Package, className: 'text-emerald-500', Brand: IconPython, label: 'REQ' },
+  'pyproject.toml': { Icon: Package, className: 'text-emerald-500', Brand: IconPython, label: 'PYPR' },
+  'readme.md': { Icon: FileText, className: 'text-blue-400', Brand: IconReadme, label: 'README' },
+  license: { Icon: FileText, className: 'text-muted-foreground', Brand: IconLicense, label: 'LIC' },
+  'license.md': { Icon: FileText, className: 'text-muted-foreground', Brand: IconLicense, label: 'LIC' },
+  'changelog.md': { Icon: FileText, className: 'text-blue-400', Brand: IconChangelog, label: 'CHLG' },
+  '.env': { Icon: Settings, className: 'text-yellow-600', Brand: IconTune, label: 'ENV' },
+  '.env.local': { Icon: Settings, className: 'text-yellow-600', Brand: IconTune, label: 'ENV' },
+  '.env.example': { Icon: Settings, className: 'text-yellow-600', Brand: IconTune, label: 'ENV' },
+  '.gitignore': { Icon: Settings, className: 'text-orange-500', Brand: IconGit, label: 'GIT' },
+  '.gitattributes': { Icon: Settings, className: 'text-orange-500', Brand: IconGit, label: 'GIT' },
+  '.npmrc': { Icon: Settings, className: 'text-red-500', Brand: IconNpm, label: 'NPMRC' },
+  '.prettierrc': { Icon: Settings, className: 'text-blue-400', Brand: IconPrettier, label: 'PRET' },
+  '.prettierrc.json': { Icon: Settings, className: 'text-blue-400', Brand: IconPrettier, label: 'PRET' },
+  '.eslintrc': { Icon: Settings, className: 'text-indigo-500', Brand: IconEslint, label: 'ESL' },
+  '.eslintrc.json': { Icon: Settings, className: 'text-indigo-500', Brand: IconEslint, label: 'ESL' },
+  'tailwind.config.ts': { Icon: FileCode, className: 'text-cyan-400', Brand: IconTailwindcss, label: 'TW' },
+  'tailwind.config.js': { Icon: FileCode, className: 'text-cyan-400', Brand: IconTailwindcss, label: 'TW' },
+  'angular.json': { Icon: FileJson, className: 'text-red-500', Brand: IconAngular, label: 'NG' },
 };
 
-const FALLBACK: FileIconSpec = { label: '·', className: 'text-muted-foreground/70' };
-
-export function getFileIcon(path: string): FileIconSpec {
-  if (!path) return FALLBACK;
-  const basename = path.split(/[\\/]/).pop() ?? path;
-  const lc = basename.toLowerCase();
-  if (SPECIAL_BY_BASENAME[lc]) return SPECIAL_BY_BASENAME[lc];
-  const dot = lc.lastIndexOf('.');
-  if (dot < 0) return FALLBACK;
-  const ext = lc.slice(dot + 1);
-  return TABLE[ext] ?? FALLBACK;
-}
+const FALLBACK: FileIconSpec = {
+  Icon: File,
+  className: 'text-muted-foreground/70',
+  Brand: IconDocument,
+  label: 'FILE',
+};
 
 export function basename(path: string): string {
   if (!path) return '';
   return path.split(/[\\/]/).pop() ?? path;
+}
+
+export function getFileIcon(path: string): FileIconSpec {
+  if (!path) return FALLBACK;
+  const lc = basename(path).toLowerCase();
+  if (SPECIAL_BY_BASENAME[lc]) return SPECIAL_BY_BASENAME[lc];
+  // Honor compound extensions like `.d.ts` before single-extension lookup.
+  const dts = TABLE['d.ts'];
+  if (dts && lc.endsWith('.d.ts')) return dts;
+  const dot = lc.lastIndexOf('.');
+  if (dot < 0) return FALLBACK;
+  const ext = lc.slice(dot + 1);
+  return TABLE[ext] ?? FALLBACK;
 }
