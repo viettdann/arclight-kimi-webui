@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Hono } from 'hono';
 import { createMiddleware } from 'hono/factory';
@@ -13,6 +14,17 @@ const mockAuth = createMiddleware(async (c, next) => {
   await next();
 });
 
+/**
+ * Allocate a tmp shareDir for a test. PATCH and sync-toml routes call
+ * `writeConfigToml(_, shareDir)`; if `shareDir` were undefined those
+ * routes would fall back to `resolveShareDir()` → the real project
+ * `.kimi/` directory, polluting dev state. Tests must always inject a
+ * tmp dir and clean it up.
+ */
+function makeTmpShareDir(): string {
+  return path.join(tmpdir(), `kimi-config-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+}
+
 function buildApp(
   fakeDb: ReturnType<typeof makeFakeDb>,
   fetchFn?: typeof fetch,
@@ -22,10 +34,14 @@ function buildApp(
     fetchFn ??
     ((async () =>
       new Response(JSON.stringify({ data: [] }), { status: 200 })) as unknown as typeof fetch);
+  const effectiveShareDir = shareDir ?? makeTmpShareDir();
   const app = new Hono();
   app.use('*', mockAuth);
-  app.route('/', createKimiConfigRouter({ db: fakeDb.db, fetchFn: effectiveFetch, shareDir }));
-  return app;
+  app.route(
+    '/',
+    createKimiConfigRouter({ db: fakeDb.db, fetchFn: effectiveFetch, shareDir: effectiveShareDir }),
+  );
+  return { app, shareDir: effectiveShareDir };
 }
 
 function makeFakeKimiConfigRow(apiKey: string) {
@@ -50,11 +66,15 @@ describe('GET /api/config', () => {
     const fake = makeFakeDb();
     fake.selectQueue.push([makeFakeKimiConfigRow('sk-test1234')]);
 
-    const app = buildApp(fake);
-    const res = await app.request('/', { method: 'GET' });
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { provider: { apiKey: string } };
-    expect(body.provider.apiKey).toBe('***1234');
+    const { app, shareDir } = buildApp(fake);
+    try {
+      const res = await app.request('/', { method: 'GET' });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { provider: { apiKey: string } };
+      expect(body.provider.apiKey).toBe('***1234');
+    } finally {
+      rmSync(shareDir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -64,19 +84,23 @@ describe('PATCH /api/config', () => {
     fake.selectQueue.push([makeFakeKimiConfigRow('sk-test1234')]);
     fake.selectQueue.push([makeFakeKimiConfigRow('sk-test1234')]);
 
-    const app = buildApp(fake);
-    const res = await app.request('/', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ provider: { baseUrl: 'https://new.example.com' } }),
-    });
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { provider: { baseUrl: string; apiKey: string } };
-    expect(body.provider.baseUrl).toBe('https://new.example.com');
-    expect(body.provider.apiKey).toBe('***1234');
+    const { app, shareDir } = buildApp(fake);
+    try {
+      const res = await app.request('/', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: { baseUrl: 'https://new.example.com' } }),
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { provider: { baseUrl: string; apiKey: string } };
+      expect(body.provider.baseUrl).toBe('https://new.example.com');
+      expect(body.provider.apiKey).toBe('***1234');
 
-    const updateCall = fake.calls.find((c) => c.op === 'update');
-    expect(updateCall).toBeDefined();
+      const updateCall = fake.calls.find((c) => c.op === 'update');
+      expect(updateCall).toBeDefined();
+    } finally {
+      rmSync(shareDir, { recursive: true, force: true });
+    }
   });
 
   it('leaves apiKey unchanged when null on PATCH', async () => {
@@ -84,29 +108,37 @@ describe('PATCH /api/config', () => {
     fake.selectQueue.push([makeFakeKimiConfigRow('sk-test1234')]);
     fake.selectQueue.push([makeFakeKimiConfigRow('sk-test1234')]);
 
-    const app = buildApp(fake);
-    const res = await app.request('/', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ provider: { apiKey: null, baseUrl: 'https://another.com' } }),
-    });
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { provider: { apiKey: string; baseUrl: string } };
-    expect(body.provider.apiKey).toBe('***1234');
-    expect(body.provider.baseUrl).toBe('https://another.com');
+    const { app, shareDir } = buildApp(fake);
+    try {
+      const res = await app.request('/', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: { apiKey: null, baseUrl: 'https://another.com' } }),
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { provider: { apiKey: string; baseUrl: string } };
+      expect(body.provider.apiKey).toBe('***1234');
+      expect(body.provider.baseUrl).toBe('https://another.com');
+    } finally {
+      rmSync(shareDir, { recursive: true, force: true });
+    }
   });
 
   it('rejects invalid provider type', async () => {
     const fake = makeFakeDb();
     fake.selectQueue.push([makeFakeKimiConfigRow('sk-test')]);
 
-    const app = buildApp(fake);
-    const res = await app.request('/', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ provider: { type: 'invalid' } }),
-    });
-    expect(res.status).toBe(400);
+    const { app, shareDir } = buildApp(fake);
+    try {
+      const res = await app.request('/', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: { type: 'invalid' } }),
+      });
+      expect(res.status).toBe(400);
+    } finally {
+      rmSync(shareDir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -115,12 +147,16 @@ describe('GET /api/config/status', () => {
     const fake = makeFakeDb();
     fake.selectQueue.push([makeFakeKimiConfigRow('sk-test')]);
 
-    const app = buildApp(fake);
-    const res = await app.request('/status', { method: 'GET' });
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { ready: boolean; authMode: string };
-    expect(body.ready).toBe(true);
-    expect(body.authMode).toBe('api_key');
+    const { app, shareDir } = buildApp(fake);
+    try {
+      const res = await app.request('/status', { method: 'GET' });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { ready: boolean; authMode: string };
+      expect(body.ready).toBe(true);
+      expect(body.authMode).toBe('api_key');
+    } finally {
+      rmSync(shareDir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -129,23 +165,31 @@ describe('POST /api/config/test', () => {
     const fake = makeFakeDb();
     fake.selectQueue.push([makeFakeKimiConfigRow('sk-test')]);
 
-    const app = buildApp(fake);
-    const res = await app.request('/test', { method: 'POST' });
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { ok: boolean; error?: string };
-    expect(body).toEqual({ ok: true });
+    const { app, shareDir } = buildApp(fake);
+    try {
+      const res = await app.request('/test', { method: 'POST' });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { ok: boolean; error?: string };
+      expect(body).toEqual({ ok: true });
+    } finally {
+      rmSync(shareDir, { recursive: true, force: true });
+    }
   });
 
   it('returns missing fields when api key is empty', async () => {
     const fake = makeFakeDb();
     fake.selectQueue.push([makeFakeKimiConfigRow('')]);
 
-    const app = buildApp(fake);
-    const res = await app.request('/test', { method: 'POST' });
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { ok: boolean; error?: string };
-    expect(body.ok).toBe(false);
-    expect(body.error).toContain('provider.apiKey');
+    const { app, shareDir } = buildApp(fake);
+    try {
+      const res = await app.request('/test', { method: 'POST' });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { ok: boolean; error?: string };
+      expect(body.ok).toBe(false);
+      expect(body.error).toContain('provider.apiKey');
+    } finally {
+      rmSync(shareDir, { recursive: true, force: true });
+    }
   });
 
   it('surfaces auth rejection from provider', async () => {
@@ -153,34 +197,37 @@ describe('POST /api/config/test', () => {
     fake.selectQueue.push([makeFakeKimiConfigRow('sk-bad')]);
 
     const stubFetch = (async () => new Response('', { status: 401 })) as unknown as typeof fetch;
-    const app = buildApp(fake, stubFetch);
-    const res = await app.request('/test', { method: 'POST' });
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { ok: boolean; error?: string };
-    expect(body.ok).toBe(false);
-    expect(body.error).toContain('401');
+    const { app, shareDir } = buildApp(fake, stubFetch);
+    try {
+      const res = await app.request('/test', { method: 'POST' });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { ok: boolean; error?: string };
+      expect(body.ok).toBe(false);
+      expect(body.error).toContain('401');
+    } finally {
+      rmSync(shareDir, { recursive: true, force: true });
+    }
   });
 });
 
 describe('POST /api/config/sync-toml', () => {
   it('renders config.toml from the current DB row', async () => {
-    const tmp = path.join('/tmp', `kimi-sync-toml-${Date.now()}-${Math.random()}`);
-    try {
-      const fake = makeFakeDb();
-      fake.selectQueue.push([makeFakeKimiConfigRow('sk-sync-test')]);
+    const fake = makeFakeDb();
+    fake.selectQueue.push([makeFakeKimiConfigRow('sk-sync-test')]);
 
-      const app = buildApp(fake, undefined, tmp);
+    const { app, shareDir } = buildApp(fake);
+    try {
       const res = await app.request('/sync-toml', { method: 'POST' });
       expect(res.status).toBe(200);
       const body = (await res.json()) as { ok: boolean };
       expect(body.ok).toBe(true);
 
-      const tomlPath = path.join(tmp, 'config.toml');
+      const tomlPath = path.join(shareDir, 'config.toml');
       expect(existsSync(tomlPath)).toBe(true);
       const content = readFileSync(tomlPath, 'utf8');
       expect(content).toContain('[providers."managed:kimi-code"]');
     } finally {
-      rmSync(tmp, { recursive: true, force: true });
+      rmSync(shareDir, { recursive: true, force: true });
     }
   });
 });
