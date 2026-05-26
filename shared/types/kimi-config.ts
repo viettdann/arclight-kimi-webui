@@ -132,6 +132,13 @@ export interface KimiConfigStatusResponse {
   ready: boolean;
   authMode: 'api_key' | 'unconfigured';
   missing: string[];
+  system?: {
+    workspaceRoot: string;
+    maxUploadBytes: number;
+    nodeEnv: string;
+    logLevel: string;
+    port: number;
+  };
 }
 
 export interface KimiConfigTestResponse {

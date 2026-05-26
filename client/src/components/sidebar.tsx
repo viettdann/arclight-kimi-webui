@@ -1,5 +1,6 @@
-import { LogOut, Plus, SquarePen, Zap } from 'lucide-react';
+import { LogOut, Plus, Settings, SquarePen, Zap } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router';
 import type { WSMessageType } from 'shared/types';
 import { Button } from '@/components/ui/button';
 import { useAuthStore } from '../lib/auth-store';
@@ -81,6 +82,7 @@ const REFRESH_TRIGGER_TYPES = new Set<WSMessageType>(['snapshot', 'session_state
 const REFRESH_RAW_HINTS = ['"snapshot"', '"session_state"', '"title_update"'];
 
 export function Sidebar({ onLoginClick }: SidebarProps) {
+  const navigate = useNavigate();
   const status = useAuthStore((s) => s.status);
   const projects = useProjectsStore((s) => s.projects);
   const projectsStatus = useProjectsStore((s) => s.status);
@@ -220,6 +222,15 @@ export function Sidebar({ onLoginClick }: SidebarProps) {
           >
             <Zap />
             Skills
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => navigate('/settings')}
+            className="w-full justify-start gap-2 px-3 py-2 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground"
+          >
+            <Settings />
+            Settings
           </Button>
         </nav>
 
