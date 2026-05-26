@@ -27,6 +27,7 @@ export function TimelineRow({ shape }: TimelineRowProps) {
       <div className="flex items-baseline gap-2 flex-wrap">
         <span className="text-xs font-medium text-foreground/85">{shape.verb}</span>
         {shape.inline && <span className="text-xs">{shape.inline}</span>}
+        {shape.badge && <span className="text-xs">{shape.badge}</span>}
       </div>
       {shape.detail && <div className="mt-2 mb-1">{shape.detail}</div>}
     </li>

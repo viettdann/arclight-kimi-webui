@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router';
 import { Menu, Plus } from 'lucide-react';
 import { ChatInput } from '../components/chat-input';
 import { LoginModal } from '../components/login-modal';
+import { PendingApprovalDock } from '../components/pending-approval-dock';
 import { Sidebar } from '../components/sidebar';
 import { showToast, ToastProvider } from '../components/toast-provider';
 import { Transcript } from '../components/transcript';
@@ -94,7 +95,10 @@ export function AppShell() {
             <WelcomeScreen />
           </div>
         )}
-        <ChatInput />
+        <div className="relative shrink-0">
+          {sessionId && <PendingApprovalDock />}
+          <ChatInput />
+        </div>
       </main>
       <LoginModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} />
     </div>

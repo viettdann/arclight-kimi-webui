@@ -190,10 +190,14 @@ function applyEventToBlocks(
       );
       if (existingIdx >= 0) {
         const existing = updatedBlocks[existingIdx] as Extract<Block, { kind: 'tool_call' }>;
+        // Don't re-arm isStreaming if the result has already arrived (late delta).
+        const hasResult = updatedBlocks.some(
+          (b) => b.kind === 'tool_result' && b.toolCallId === payload.id,
+        );
         updatedBlocks[existingIdx] = {
           ...existing,
           argsStreaming: (existing.argsStreaming ?? '') + payload.argumentsPart,
-          isStreaming: true,
+          isStreaming: !hasResult,
         };
       }
       break;

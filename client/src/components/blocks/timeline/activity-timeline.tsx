@@ -1,18 +1,26 @@
-import { Brain, ChevronDown, ChevronRight } from 'lucide-react';
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { Brain, ChevronDown, ChevronRight, ShieldAlert } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import type { Block } from 'shared/types';
 import { ErrorBlock } from '../error-block';
 import { adapterFor, SUMMARY_VERB } from './adapter-registry';
+import {
+  ApprovalBadge,
+  approvalBlockToRow,
+  PendingApprovalBadge,
+} from './adapters/approval-adapter';
 import { thinkingBlockToRow } from './adapters/think-adapter';
+import { TerminalOutput } from './terminal-output';
 import { TimelineRow } from './timeline-row';
 import type {
+  ApprovalRailBlock,
   RailBlock,
   RailRowShape,
   ThinkingBlock as ThinkingB,
   ToolCallBlock,
   ToolResultBlock,
 } from './types';
+import { readArgString } from './types';
 
 interface ActivityTimelineProps {
   items: RailBlock[];
@@ -102,9 +110,21 @@ interface BuildResult {
 function buildRows(items: RailBlock[]): BuildResult {
   // Index results by toolCallId. Pair them with their calls; orphan results
   // (no matching call) get rendered as fallback rows so nothing is lost.
+  // Approvals fold into the matching tool_call row: pending → amber heading
+  // + buttons inside detail; resolved → small badge next to the verb.
+  // A pending approval without a matching tool_call (race) falls back to its
+  // own row so the user can still act on it.
   const resultByCallId = new Map<string, ToolResultBlock>();
+  const resolvedApprovalByCallId = new Map<string, ApprovalRailBlock>();
+  const pendingApprovalByCallId = new Map<string, ApprovalRailBlock>();
+  const toolCallIds = new Set<string>();
   for (const b of items) {
     if (b.kind === 'tool_result') resultByCallId.set(b.toolCallId, b);
+    if (b.kind === 'tool_call') toolCallIds.add(b.toolCallId);
+    if (b.kind === 'approval_request') {
+      if (b.resolution != null) resolvedApprovalByCallId.set(b.toolCallId, b);
+      else pendingApprovalByCallId.set(b.toolCallId, b);
+    }
   }
 
   const consumedResultIds = new Set<string>();
@@ -125,6 +145,8 @@ function buildRows(items: RailBlock[]): BuildResult {
         createdAt: b.createdAt,
       };
       const shape = adapterFor(b.toolName)({ call: fake, result: b });
+      const approval = resolvedApprovalByCallId.get(b.toolCallId);
+      if (approval) shape.badge = <ApprovalBadge approval={approval} />;
       rows.push({ key: b.id, shape });
       bump(verbCount, b.toolName);
       continue;
@@ -133,6 +155,30 @@ function buildRows(items: RailBlock[]): BuildResult {
       const result = resultByCallId.get(b.toolCallId) ?? null;
       if (result) consumedResultIds.add(result.id);
       const shape = adapterFor(b.name)({ call: b, result });
+      const pending = pendingApprovalByCallId.get(b.toolCallId);
+      const resolved = resolvedApprovalByCallId.get(b.toolCallId);
+      if (pending) {
+        // No spinner while we wait on the user. The amber shield + pill on
+        // this row anchor the request in chronological context; the actual
+        // decision UI (Approve/Deny) lives in the bottom dock so the user
+        // can act without scrolling. A thin amber left-strip on the command
+        // preview echoes the dock's accent.
+        shape.icon = <ShieldAlert className="h-3.5 w-3.5 text-amber-500" />;
+        shape.status = 'ok';
+        shape.badge = <PendingApprovalBadge />;
+        if (b.name === 'Shell') {
+          const command = readArgString(b, 'command');
+          shape.detail = (
+            <div className="rounded-md border border-border/70 border-l-2 border-l-amber-500/60 overflow-hidden">
+              <TerminalOutput command={command} borderless />
+            </div>
+          );
+        }
+        // Non-Shell tools keep their adapter's existing detail unchanged —
+        // the dock is the only decision surface.
+      } else if (resolved) {
+        shape.badge = <ApprovalBadge approval={resolved} />;
+      }
       rows.push({ key: b.id, shape });
       bump(verbCount, b.name);
       continue;
@@ -141,6 +187,17 @@ function buildRows(items: RailBlock[]): BuildResult {
       const tb = b as ThinkingB;
       rows.push({ key: b.id, shape: thinkingBlockToRow(tb) });
       bump(verbCount, 'Think');
+      continue;
+    }
+    if (b.kind === 'approval_request') {
+      const ab = b as ApprovalRailBlock;
+      // Resolved or merged-into-tool_call cases were handled when their
+      // matching tool_call row rendered. Only orphan pending approvals
+      // (no tool_call yet) fall through to a standalone row.
+      if (ab.resolution != null) continue;
+      if (toolCallIds.has(ab.toolCallId)) continue;
+      rows.push({ key: b.id, shape: approvalBlockToRow(ab) });
+      // Don't count approvals in the summary — they're not an action verb.
       continue;
     }
     if (b.kind === 'error') {
@@ -245,6 +302,7 @@ export function isRailEligible(b: Block): b is RailBlock {
     b.kind === 'thinking' ||
     b.kind === 'tool_call' ||
     b.kind === 'tool_result' ||
-    b.kind === 'error'
+    b.kind === 'error' ||
+    b.kind === 'approval_request'
   );
 }

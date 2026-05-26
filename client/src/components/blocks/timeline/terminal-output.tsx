@@ -5,6 +5,8 @@ interface TerminalOutputProps {
   command?: string;
   output?: string;
   isError?: boolean;
+  /** Skip outer border/background so the caller can wrap with their own. */
+  borderless?: boolean;
 }
 
 const MAX_LINES_COLLAPSED = 24;
@@ -13,7 +15,7 @@ const MAX_LINES_COLLAPSED = 24;
  * Compact terminal block: `$ command` then stdout/stderr.
  * Truncates to 24 lines with show-more button.
  */
-export function TerminalOutput({ command, output, isError }: TerminalOutputProps) {
+export function TerminalOutput({ command, output, isError, borderless }: TerminalOutputProps) {
   const [copied, setCopied] = useState(false);
   const [expanded, setExpanded] = useState(false);
 
@@ -30,7 +32,13 @@ export function TerminalOutput({ command, output, isError }: TerminalOutputProps
   const hidden = outLines.length - MAX_LINES_COLLAPSED;
 
   return (
-    <div className="rounded-md border border-border/70 bg-muted/15 overflow-hidden">
+    <div
+      className={
+        borderless
+          ? 'bg-muted/15'
+          : 'rounded-md border border-border/70 bg-muted/15 overflow-hidden'
+      }
+    >
       {command && (
         <div className="px-3 py-2 border-b border-border/40 font-mono text-xs flex items-start gap-2 group">
           <span className="text-amber-500 font-bold select-none shrink-0">$</span>
@@ -58,13 +66,13 @@ export function TerminalOutput({ command, output, isError }: TerminalOutputProps
           }`}
         >
           {shown}
-          {truncated && (
+          {outLines.length > MAX_LINES_COLLAPSED && (
             <button
               type="button"
-              onClick={() => setExpanded(true)}
+              onClick={() => setExpanded((v) => !v)}
               className="block mt-2 text-[10px] uppercase font-bold tracking-wider text-muted-foreground hover:text-foreground cursor-pointer"
             >
-              Show {hidden} more {hidden === 1 ? 'line' : 'lines'}
+              {expanded ? 'Show less' : `Show ${hidden} more ${hidden === 1 ? 'line' : 'lines'}`}
             </button>
           )}
         </div>

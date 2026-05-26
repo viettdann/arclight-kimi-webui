@@ -5,8 +5,14 @@ export type ToolCallBlock = Extract<Block, { kind: 'tool_call' }>;
 export type ToolResultBlock = Extract<Block, { kind: 'tool_result' }>;
 export type ThinkingBlock = Extract<Block, { kind: 'thinking' }>;
 export type ErrorRailBlock = Extract<Block, { kind: 'error' }>;
+export type ApprovalRailBlock = Extract<Block, { kind: 'approval_request' }>;
 
-export type RailBlock = ThinkingBlock | ToolCallBlock | ToolResultBlock | ErrorRailBlock;
+export type RailBlock =
+  | ThinkingBlock
+  | ToolCallBlock
+  | ToolResultBlock
+  | ErrorRailBlock
+  | ApprovalRailBlock;
 
 /** Status of a single rail row. Drives icon color + tail badge. */
 export type RailRowStatus = 'running' | 'ok' | 'error' | 'interrupted';
@@ -18,6 +24,8 @@ export interface RailRowShape {
   verb: string;
   /** Muted subject inline next to the verb (filename, command, glob, …). */
   inline?: ReactNode;
+  /** Inline marker rendered after `inline` on the same row (e.g. approval badge). */
+  badge?: ReactNode;
   /** Optional indented detail under the row. */
   detail?: ReactNode;
   status: RailRowStatus;
@@ -101,10 +109,14 @@ function completePartialJson(s: string): string {
   return `${s.slice(0, lastSafe)}}`;
 }
 
-/** Status derived from call/result pair. */
+/**
+ * Status derived from call/result pair. Result presence wins over
+ * `call.isStreaming` so a late `tool_call_delta` can't re-arm the spinner
+ * after the result has already arrived.
+ */
 export function statusOf(ctx: AdapterContext): RailRowStatus {
   if (ctx.result?.synthetic === 'interrupted') return 'interrupted';
   if (ctx.result?.isError) return 'error';
-  if (ctx.call.isStreaming || ctx.result == null) return 'running';
-  return 'ok';
+  if (ctx.result != null) return 'ok';
+  return 'running';
 }

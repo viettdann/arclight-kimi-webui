@@ -142,7 +142,10 @@ export function Transcript() {
       ref={scrollContainerRef}
       className="flex-1 overflow-y-auto px-4 md:px-8 py-6 space-y-6 scrollbar-thin select-none"
     >
-      <div className="mx-auto max-w-3xl space-y-6 pb-24">
+      <div
+        className="mx-auto max-w-3xl space-y-6"
+        style={{ paddingBottom: 'max(6rem, calc(var(--approval-dock-h, 0px) + 1.5rem))' }}
+      >
         {blocks.length === 0 ? (
           <div className="flex flex-col items-center justify-center text-center pt-24 pb-8 select-none">
             <h3 className="text-sm font-semibold text-foreground/90">Session ready</h3>
