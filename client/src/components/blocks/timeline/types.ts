@@ -47,17 +47,58 @@ export function parseArgs(call: ToolCallBlock): Record<string, unknown> | null {
   if (args && typeof args === 'object' && !Array.isArray(args)) {
     return args as Record<string, unknown>;
   }
-  const raw = typeof args === 'string' ? args : call.argsStreaming || '';
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      return parsed as Record<string, unknown>;
+  // SDK streams tool args as head (ToolCall.arguments) + tail
+  // (ToolCallPart.arguments_part stored in argsStreaming). Either piece alone
+  // is rarely valid JSON — concatenate before parsing, then fall back to
+  // best-effort completion of a still-streaming head.
+  const head = typeof args === 'string' ? args : '';
+  const tail = call.argsStreaming || '';
+  const candidates: string[] = [];
+  if (head || tail) candidates.push(head + tail);
+  if (head && !tail) candidates.push(completePartialJson(head));
+  for (const raw of candidates) {
+    if (!raw) continue;
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      // try next candidate
     }
-  } catch {
-    // still streaming
   }
   return null;
+}
+
+/**
+ * Best-effort close of a JSON object that was cut mid-stream. Keeps the
+ * last complete string property so adapters can still show e.g. the file
+ * path while later chunks are in flight. Does not attempt to recover
+ * partially-typed string values.
+ */
+function completePartialJson(s: string): string {
+  let depth = 0;
+  let inStr = false;
+  let escape = false;
+  let lastSafe = -1;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    if (inStr) {
+      if (c === '\\') escape = true;
+      else if (c === '"') inStr = false;
+      continue;
+    }
+    if (c === '"') inStr = true;
+    else if (c === '{') depth++;
+    else if (c === '}') depth--;
+    else if (c === ',' && depth === 1) lastSafe = i;
+  }
+  if (inStr || depth !== 1 || lastSafe === -1) return '';
+  return `${s.slice(0, lastSafe)}}`;
 }
 
 /** Status derived from call/result pair. */

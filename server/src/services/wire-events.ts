@@ -121,6 +121,9 @@ export function wireEventsToBlocks(
     string,
     { name: string; hasResult: boolean; createdAt: string }
   >();
+  // SDK omits the id on ToolCallPart; it implicitly targets the most recent
+  // ToolCall on the wire.
+  let lastToolCallId: string | null = null;
 
   interface SubagentState {
     block: any;
@@ -172,6 +175,7 @@ export function wireEventsToBlocks(
         thinkPartIdx = 0;
         textPartIdx = 0;
         toolCallsInTurn.clear();
+        lastToolCallId = null;
 
         const content = contentPartsToText(ev.payload.user_input);
         blocks.push({
@@ -213,6 +217,7 @@ export function wireEventsToBlocks(
       case 'ToolCall': {
         flush(timestamp);
         const tc = ev.payload as any;
+        lastToolCallId = tc.id;
         blocks.push({
           kind: 'tool_call',
           id: `tool_call:${tc.id}`,
@@ -227,6 +232,27 @@ export function wireEventsToBlocks(
           hasResult: false,
           createdAt: timestamp,
         });
+        break;
+      }
+
+      case 'ToolCallPart': {
+        // SDK streams long tool-call arguments as ToolCall (head) + a series
+        // of ToolCallPart (tails). The implicit id is the most recent
+        // ToolCall. Append into args so post-reload blocks contain the full
+        // JSON — otherwise adapters parse a truncated head and lose path /
+        // command / etc.
+        const partPayload = ev.payload as any;
+        const tcId = partPayload.id ?? lastToolCallId;
+        if (!tcId) break;
+        const part = partPayload.arguments_part ?? '';
+        if (!part) break;
+        const tcBlock = blocks.find(
+          (b) => b.kind === 'tool_call' && b.toolCallId === tcId,
+        ) as Extract<Block, { kind: 'tool_call' }> | undefined;
+        if (tcBlock) {
+          const head = typeof tcBlock.args === 'string' ? tcBlock.args : '';
+          tcBlock.args = head + part;
+        }
         break;
       }
 
@@ -467,10 +493,31 @@ export function wireEventsToBlocks(
       }
     }
 
-    for (const [tcId, argsPart] of overlay.partialToolCallArgs.entries()) {
+    for (const [tcId, overlayPart] of overlay.partialToolCallArgs.entries()) {
       const tcBlock = blocks.find((b) => b.kind === 'tool_call' && b.toolCallId === tcId);
       if (tcBlock && tcBlock.kind === 'tool_call') {
-        tcBlock.argsStreaming = argsPart;
+        // Overlay tracks the running concat of ToolCallPart.arguments_part for
+        // the in-flight tool call. The ToolCall case above already merged any
+        // ToolCallPart events that made it into wire bytes into `args`. The
+        // overlay may legitimately hold *more* than wire (events flushed in
+        // memory but not yet appended to wire.jsonl) — in that case extend
+        // `args` with the unseen suffix. Setting `argsStreaming` here would
+        // double-append on the client since parseArgs concatenates head+tail.
+        if (typeof tcBlock.args === 'string' && overlayPart) {
+          const head = tcBlock.args;
+          // Try to find the longest suffix of head that is a prefix of
+          // overlayPart — that's the overlap. Anything past it is new.
+          const maxOverlap = Math.min(head.length, overlayPart.length);
+          let overlap = 0;
+          for (let len = maxOverlap; len > 0; len--) {
+            if (head.endsWith(overlayPart.slice(0, len))) {
+              overlap = len;
+              break;
+            }
+          }
+          const suffix = overlayPart.slice(overlap);
+          if (suffix) tcBlock.args = head + suffix;
+        }
         tcBlock.isStreaming = true;
       }
     }

@@ -5,6 +5,7 @@ import { stripHarnessTags } from '../../lib/harness-tags';
 import { BlockRegistry } from './block-registry';
 import { ActivityTimeline } from './timeline/activity-timeline';
 import { groupRailSegments } from './timeline/group-rail-segments';
+import { parseArgs } from './timeline/types';
 
 // Stable empty array so the `subagent?.blocks ?? EMPTY_BLOCKS` fallback keeps
 // the same identity across renders and doesn't churn the segments memo.
@@ -32,25 +33,10 @@ export function SubagentBundle({ toolCall, subagent, toolResult }: SubagentBundl
   const activityCount = nestedBlocks.length;
   const nestedSegments = useMemo(() => groupRailSegments(nestedBlocks), [nestedBlocks]);
 
-  // Args may arrive as a partial JSON string during streaming. Try to parse so
-  // we can pull description/prompt/subagent_type out of the object.
-  const args = toolCall.args;
-  const argsObj: Record<string, unknown> | null = (() => {
-    if (args && typeof args === 'object' && !Array.isArray(args)) {
-      return args as Record<string, unknown>;
-    }
-    const raw = typeof args === 'string' ? args : toolCall.argsStreaming || '';
-    if (!raw) return null;
-    try {
-      const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        return parsed as Record<string, unknown>;
-      }
-    } catch {
-      /* still streaming / not valid JSON yet */
-    }
-    return null;
-  })();
+  // Args may arrive as a partial JSON string during streaming. parseArgs
+  // concatenates head (args) + tail (argsStreaming) before JSON.parse so
+  // description/prompt/subagent_type resolve even when chunked.
+  const argsObj = parseArgs(toolCall);
   const description = argsObj && 'description' in argsObj ? String(argsObj.description ?? '') : '';
   const promptRaw = argsObj && 'prompt' in argsObj ? String(argsObj.prompt ?? '') : '';
   const promptPreview = promptRaw ? stripHarnessTags(promptRaw).slice(0, 240) : '';
