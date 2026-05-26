@@ -1,4 +1,4 @@
-import { Globe, Trash2 } from 'lucide-react';
+import { Trash2 } from 'lucide-react';
 import { type MouseEvent, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import type { SessionListItem } from 'shared/types';
@@ -82,12 +82,6 @@ export function SessionRow({ session }: SessionRowProps) {
         >
           <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusColor}`} aria-hidden />
           <span className="truncate">{title}</span>
-          {isForeign && (
-            <Globe
-              className="h-3 w-3 shrink-0 text-muted-foreground"
-              aria-label="foreign session"
-            />
-          )}
         </Button>
         <Button
           type="button"

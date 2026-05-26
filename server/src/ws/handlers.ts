@@ -2,11 +2,13 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import type { ServerWebSocket } from 'bun';
 import type {
+  AdoptProjectPayload,
   AnswerQuestionPayload,
   ApprovalResponse,
   ApproveToolPayload,
   CreateSessionPayload,
   ErrorPayload,
+  ProjectAdoptedPayload,
   ReplayDonePayload,
   ResumeSessionPayload,
   SendMessagePayload,
@@ -21,6 +23,7 @@ import { type DB, db, schema } from '../db';
 import { env } from '../env';
 import { auditLog as defaultAuditLog, logger } from '../lib/logger';
 import { broadcastEvent, sendDirect } from '../lib/ws-broadcast';
+import { slugifyProjectName } from '../lib/slug';
 import { loadEnvForInjection } from '../services/kimi-config/env-injection';
 import {
   createKimi,
@@ -28,6 +31,7 @@ import {
   pumpTurn,
   restoreFromBackup,
 } from '../services/kimi-session';
+import { adoptProjectForUser, ProjectNotFoundError } from '../services/projects';
 import { clearPendingPrompt, enqueuePendingPrompt } from '../services/pending-prompts';
 import { closeActiveSession } from '../services/session-lifecycle';
 import {
@@ -231,6 +235,9 @@ export async function handleMessage(ws: WS, raw: string | Buffer): Promise<void>
       case 'close_session':
         await handleCloseSession(ws, sessionId);
         return;
+      case 'adopt_project':
+        await handleAdoptProject(ws, parsed.payload as AdoptProjectPayload | undefined);
+        return;
       default:
         sendError(ws, 'bad_message', sessionId, `unknown type: ${String(parsed.type)}`);
     }
@@ -258,6 +265,10 @@ async function handleCreateSession(
   const userRoot = path.resolve(env.WORKSPACE_ROOT, ws.data.userSlug);
   const projectName = deriveProjectName(userRoot, workDir);
   if (projectName === null) {
+    sendError(ws, 'bad_request');
+    return;
+  }
+  if (projectName !== slugifyProjectName(projectName)) {
     sendError(ws, 'bad_request');
     return;
   }
@@ -580,4 +591,48 @@ async function handleResumeSession(
     return;
   }
   await reconnect(ws, payload.sessionId, true, undefined);
+}
+
+async function handleAdoptProject(
+  ws: WS,
+  payload: AdoptProjectPayload | undefined,
+): Promise<void> {
+  if (!payload || typeof payload.projectName !== 'string') {
+    sendError(ws, 'bad_request');
+    return;
+  }
+  const projectName = payload.projectName;
+  if (projectName !== slugifyProjectName(projectName)) {
+    sendError(ws, 'bad_request');
+    return;
+  }
+
+  let result: Awaited<ReturnType<typeof adoptProjectForUser>>;
+  try {
+    result = await adoptProjectForUser({
+      userId: ws.data.userId,
+      userSlug: ws.data.userSlug,
+      projectName,
+      db: deps.db,
+      env,
+    });
+  } catch (err) {
+    const code = err instanceof ProjectNotFoundError ? 'not_found' : 'internal';
+    logger.warn({ err, projectName }, 'adopt_project failed');
+    sendError(ws, code);
+    return;
+  }
+
+  sendDirect(
+    ws,
+    envelope<ProjectAdoptedPayload>(
+      'project_adopted',
+      {
+        projectName: result.projectName,
+        workDir: result.workDir,
+        sessionCount: result.sessionCount,
+      },
+      '',
+    ),
+  );
 }

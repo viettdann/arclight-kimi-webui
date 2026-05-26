@@ -37,6 +37,7 @@ export type WSMessageType =
   | 'turn_end'
   | 'session_state'
   | 'title_update'
+  | 'project_adopted'
   | 'error'
   // client → server
   | 'subscribe'
@@ -46,7 +47,8 @@ export type WSMessageType =
   | 'approve_tool'
   | 'answer_question'
   | 'interrupt_turn'
-  | 'close_session';
+  | 'close_session'
+  | 'adopt_project';
 
 // ─────────────────────────── Domain types ───────────────────────────
 
@@ -356,6 +358,17 @@ export interface AnswerQuestionPayload {
 export type InterruptTurnPayload = Record<string, never>;
 export type CloseSessionPayload = Record<string, never>;
 
+export interface AdoptProjectPayload {
+  /** Logical project slug; must equal slugifyProjectName(name). */
+  projectName: string;
+}
+
+export interface ProjectAdoptedPayload {
+  projectName: string;
+  workDir: string;
+  sessionCount: number;
+}
+
 // ─────────────────────────── REST DTOs ───────────────────────────
 
 export interface HealthResponse {
@@ -382,6 +395,13 @@ export interface SessionListResponse {
 export interface ProjectSummary {
   name: string;
   workDir: string;
+  /**
+   * `local` when the workspace folder exists on the current machine.
+   * `foreign` when only `kimi_sessions` rows reference this projectName.
+   * Foreign projects become local on the first successful adoption
+   * (which mkdir's the folder via `ensureWorkDir`).
+   */
+  origin: 'local' | 'foreign';
 }
 
 export interface ProjectCreateRequest {

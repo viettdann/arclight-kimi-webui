@@ -289,6 +289,12 @@ export function makeFakeDb(): FakeDb {
         return makeSelectChain();
       },
     }),
+    selectDistinct: (..._args: unknown[]) => ({
+      from: (table: { _: { name?: string } } & object) => {
+        calls.push({ op: 'select', table: (table as { _?: { name?: string } })?._?.name });
+        return makeSelectChain();
+      },
+    }),
   };
   return {
     db: fake as unknown as DB,

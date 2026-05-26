@@ -7,6 +7,7 @@ import type { ProjectListResponse, ProjectSummary } from 'shared/types';
 import type { AuthVariables } from '../src/auth/middleware';
 import type { AuditEvent } from '../src/lib/logger';
 import { createProjectsRoutes } from '../src/routes/projects';
+import { makeFakeDb } from './_helpers';
 
 interface MockUser {
   id: string;
@@ -17,9 +18,18 @@ interface BuildOpts {
   user: MockUser | null;
   env: { WORKSPACE_ROOT: string };
   audit: AuditEvent[];
+  /** Pre-seeded DB rows for the next `selectDistinct(projectName)` query. */
+  dbProjectNames?: string[];
 }
 
-function buildApp(opts: BuildOpts): Hono<{ Variables: AuthVariables }> {
+function buildApp(opts: BuildOpts): {
+  app: Hono<{ Variables: AuthVariables }>;
+  fake: ReturnType<typeof makeFakeDb>;
+} {
+  const fake = makeFakeDb();
+  // Seed the DISTINCT projectName query so GET / has a deterministic DB side.
+  fake.selectQueue.push((opts.dbProjectNames ?? []).map((name) => ({ projectName: name })));
+
   const app = new Hono<{ Variables: AuthVariables }>();
   app.use('*', async (c, next) => {
     // biome-ignore lint/suspicious/noExplicitAny: test fixture forces user shape
@@ -34,15 +44,17 @@ function buildApp(opts: BuildOpts): Hono<{ Variables: AuthVariables }> {
       auditLog: (e) => {
         opts.audit.push(e);
       },
+      db: fake.db,
     }),
   );
-  return app;
+  return { app, fake };
 }
 
 let tmpRoot: string;
 let userRoot: string;
 let audit: AuditEvent[];
 let app: Hono<{ Variables: AuthVariables }>;
+let fake: ReturnType<typeof makeFakeDb>;
 
 const mockUser: MockUser = { id: 'u1', email: 'alice@example.com' };
 
@@ -50,7 +62,9 @@ beforeEach(async () => {
   tmpRoot = await mkdtemp(path.join(tmpdir(), 'kimi-projects-test-'));
   userRoot = path.join(tmpRoot, 'alice');
   audit = [];
-  app = buildApp({ user: mockUser, env: { WORKSPACE_ROOT: tmpRoot }, audit });
+  const built = buildApp({ user: mockUser, env: { WORKSPACE_ROOT: tmpRoot }, audit });
+  app = built.app;
+  fake = built.fake;
 });
 
 afterEach(async () => {
@@ -60,7 +74,7 @@ afterEach(async () => {
 // ─────────────────────────── POST /api/projects ───────────────────────────
 
 describe('POST /api/projects', () => {
-  it('creates a project with slugified name and 0o700 mode', async () => {
+  it('creates a project with slugified name and 0o700 mode + origin local', async () => {
     const res = await app.request('/api/projects', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -70,6 +84,7 @@ describe('POST /api/projects', () => {
     const body = (await res.json()) as ProjectSummary;
     expect(body.name).toBe('hello-world');
     expect(body.workDir).toBe(path.join(userRoot, 'hello-world'));
+    expect(body.origin).toBe('local');
 
     const s = await stat(body.workDir);
     expect(s.isDirectory()).toBe(true);
@@ -187,7 +202,7 @@ describe('POST /api/projects', () => {
   });
 
   it('returns 401 when no user is set', async () => {
-    const localApp = buildApp({ user: null, env: { WORKSPACE_ROOT: tmpRoot }, audit });
+    const localApp = buildApp({ user: null, env: { WORKSPACE_ROOT: tmpRoot }, audit }).app;
     const res = await localApp.request('/api/projects', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -269,8 +284,26 @@ describe('GET /api/projects', () => {
   });
 
   it('returns 401 when no user is set', async () => {
-    const localApp = buildApp({ user: null, env: { WORKSPACE_ROOT: tmpRoot }, audit });
+    const localApp = buildApp({ user: null, env: { WORKSPACE_ROOT: tmpRoot }, audit }).app;
     const res = await localApp.request('/api/projects');
     expect(res.status).toBe(401);
+  });
+
+  it('returns union of FS dirs and DB projectNames with origin populated', async () => {
+    // FS has `alpha`; DB has `alpha` (overlap → local wins) and `beta` (foreign).
+    await mkdir(userRoot, { recursive: true, mode: 0o700 });
+    await mkdir(path.join(userRoot, 'alpha'), { mode: 0o700 });
+
+    // Override the seeded empty DB rows for this request.
+    fake.selectQueue.length = 0;
+    fake.selectQueue.push([{ projectName: 'alpha' }, { projectName: 'beta' }]);
+
+    const res = await app.request('/api/projects');
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as ProjectListResponse;
+    expect(body.projects).toEqual([
+      { name: 'alpha', workDir: path.join(userRoot, 'alpha'), origin: 'local' },
+      { name: 'beta', workDir: path.join(userRoot, 'beta'), origin: 'foreign' },
+    ]);
   });
 });

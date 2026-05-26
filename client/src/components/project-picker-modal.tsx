@@ -18,6 +18,7 @@ interface ProjectPickerModalProps {
 
 export function ProjectPickerModal({ isOpen, onClose, projects }: ProjectPickerModalProps) {
   const handlePick = (project: ProjectSummary) => {
+    if (project.origin === 'foreign') return;
     sendWS('create_session', { workDir: project.workDir, thinking: true });
     onClose();
   };
@@ -36,18 +37,27 @@ export function ProjectPickerModal({ isOpen, onClose, projects }: ProjectPickerM
         </DialogHeader>
 
         <ul className="flex max-h-72 flex-col gap-1 overflow-y-auto">
-          {projects.map((p) => (
-            <li key={p.name}>
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => handlePick(p)}
-                className="w-full justify-start"
-              >
-                {p.name}
-              </Button>
-            </li>
-          ))}
+          {projects.map((p) => {
+            const isForeign = p.origin === 'foreign';
+            return (
+              <li key={p.name}>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => handlePick(p)}
+                  aria-disabled={isForeign}
+                  title={isForeign ? 'Adopt a session inside this project first' : undefined}
+                  className={
+                    isForeign
+                      ? 'w-full cursor-not-allowed justify-start gap-2 opacity-50'
+                      : 'w-full justify-start gap-2'
+                  }
+                >
+                  <span className="truncate">{p.name}</span>
+                </Button>
+              </li>
+            );
+          })}
         </ul>
 
         <DialogFooter>

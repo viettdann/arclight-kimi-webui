@@ -7,7 +7,7 @@ import {
   type StreamEvent,
   type Turn,
 } from '@moonshot-ai/kimi-agent-sdk';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import type { ApprovalRequestPayload, ErrorPayload, QuestionRequestPayload } from 'shared/types';
 import { type DB, db, schema } from '../db';
 import { env as defaultEnv } from '../env';
@@ -500,12 +500,19 @@ export async function restoreFromBackup(args: RestoreFromBackupArgs): Promise<Ac
     });
   }
 
-  if (sessRow.workDir !== localWorkDir) {
-    await dbh
-      .update(schema.kimiSessions)
-      .set({ workDir: localWorkDir })
-      .where(eq(schema.kimiSessions.id, sessRow.id));
-  }
+  // Cascade-rewrite every sibling row under `(userId, projectName)` so all
+  // sessions in this project flip to local atomically. Sibling rows already
+  // at `localWorkDir` are no-ops at the row level; the statement still
+  // touches them, which is acceptable.
+  await dbh
+    .update(schema.kimiSessions)
+    .set({ workDir: localWorkDir })
+    .where(
+      and(
+        eq(schema.kimiSessions.userId, sessRow.userId),
+        eq(schema.kimiSessions.projectName, sessRow.projectName),
+      ),
+    );
 
   const kimi = factory({
     workDir: localWorkDir,

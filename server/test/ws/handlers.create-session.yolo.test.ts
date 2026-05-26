@@ -63,6 +63,45 @@ describe('handleCreateSession — yoloMode plumbing', () => {
     );
   });
 
+  it('rejects bad_request when first segment of workDir is not slug-canonical', async () => {
+    const fake = makeFakeDb();
+    const createKimiCalls: CreateKimiArgs[] = [];
+    const fakeCreateKimi = (args: CreateKimiArgs): Session => {
+      createKimiCalls.push(args);
+      return stubSession({ sessionId: 'kimi-fake-reject', workDir: args.workDir });
+    };
+    setHandlerDeps({
+      manager,
+      db: fake.db,
+      createKimi:
+        fakeCreateKimi as unknown as typeof import('../../src/services/kimi-session').createKimi,
+    });
+
+    const ws = new FakeWS('alice');
+    await handleMessage(
+      asWS(ws),
+      JSON.stringify({
+        type: 'create_session',
+        payload: {
+          // Capital letters and space → slugifyProjectName('Foo Bar') = 'foo-bar' ≠ 'Foo Bar'.
+          workDir: '/tmp/kimi-webui-test/alice/Foo Bar',
+        },
+      }),
+    );
+
+    // No factory call, no DB insert.
+    expect(createKimiCalls.length).toBe(0);
+    const insertCall = fake.calls.find((c) => c.op === 'insert');
+    expect(insertCall).toBeUndefined();
+
+    // Error frame emitted.
+    const errors = ws.parsed().filter((m) => m.type === 'error') as Array<{
+      payload: { code: string };
+    }>;
+    expect(errors.length).toBeGreaterThanOrEqual(1);
+    expect(errors[0]?.payload.code).toBe('bad_request');
+  });
+
   it('defaults yoloMode to false in DB insert and omits it from createKimi args when payload omits it', async () => {
     const fake = makeFakeDb();
     const createKimiCalls: CreateKimiArgs[] = [];

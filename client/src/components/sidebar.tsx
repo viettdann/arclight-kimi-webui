@@ -75,11 +75,21 @@ function AuthSection({ onLoginClick }: { onLoginClick: () => void }) {
   );
 }
 
-const REFRESH_TRIGGER_TYPES = new Set<WSMessageType>(['snapshot', 'session_state', 'title_update']);
+const REFRESH_TRIGGER_TYPES = new Set<WSMessageType>([
+  'snapshot',
+  'session_state',
+  'title_update',
+  'project_adopted',
+]);
 // Cheap pre-filter so the streaming hot path (text_delta, thinking_delta, …)
 // avoids JSON.parse on every frame. We only parse when the raw frame contains
 // at least one trigger-type literal.
-const REFRESH_RAW_HINTS = ['"snapshot"', '"session_state"', '"title_update"'];
+const REFRESH_RAW_HINTS = [
+  '"snapshot"',
+  '"session_state"',
+  '"title_update"',
+  '"project_adopted"',
+];
 
 export function Sidebar({ onLoginClick }: SidebarProps) {
   const navigate = useNavigate();
@@ -111,10 +121,15 @@ export function Sidebar({ onLoginClick }: SidebarProps) {
     return () => window.removeEventListener('focus', onFocus);
   }, [status]);
 
-  // WS message subscription → debounced sessions refresh on session-mutating events.
+  // WS message subscription → debounced sessions + projects refresh on
+  // session-mutating events. Projects refresh only on events that can flip a
+  // project's origin (`session_state` covers cascade-via-resume, `project_adopted`
+  // covers explicit whole-project adoption); `snapshot`/`title_update` never
+  // change the project set.
   useEffect(() => {
     if (status !== 'authenticated') return;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    let projectsDirty = false;
     const unsubscribe = wsClient.on('message', (ev: MessageEvent) => {
       const raw = typeof ev.data === 'string' ? ev.data : '';
       if (!raw) return;
@@ -136,10 +151,14 @@ export function Sidebar({ onLoginClick }: SidebarProps) {
         return;
       }
       if (!type || !REFRESH_TRIGGER_TYPES.has(type as WSMessageType)) return;
+      if (type === 'session_state' || type === 'project_adopted') projectsDirty = true;
       if (timer !== null) clearTimeout(timer);
       timer = setTimeout(() => {
         timer = null;
+        const refreshProjects = projectsDirty;
+        projectsDirty = false;
         void useSessionsStore.getState().fetch();
+        if (refreshProjects) void useProjectsStore.getState().fetch();
       }, 500);
     });
     return () => {
@@ -150,13 +169,18 @@ export function Sidebar({ onLoginClick }: SidebarProps) {
 
   const triggerNewTask = useCallback(() => {
     const list = useProjectsStore.getState().projects;
-    if (list.length === 0) {
+    const locals = list.filter((p) => p.origin === 'local');
+    const hasForeign = list.some((p) => p.origin === 'foreign');
+    if (locals.length === 0) {
       setNewProjectOpen(true);
-      showToast({ message: 'Create a project first', type: 'info' });
+      showToast({
+        message: hasForeign ? 'Adopt a session or create a new project' : 'Create a project first',
+        type: 'info',
+      });
       return;
     }
-    if (list.length === 1) {
-      const only = list[0];
+    if (locals.length === 1) {
+      const only = locals[0];
       if (only) sendWS('create_session', { workDir: only.workDir, thinking: true });
       return;
     }
@@ -186,6 +210,11 @@ export function Sidebar({ onLoginClick }: SidebarProps) {
   // Memoize so ProjectRow receives a stable bucket reference per project name
   // and bails out of unrelated re-renders (modal open/close, auth churn).
   const sessionsByProject = useMemo(() => groupByProject(sessions), [sessions]);
+
+  // Partition projects by origin once per `projects` reference change. `.filter`
+  // is order-preserving so server-side collator order is retained in each pass.
+  const localProjects = useMemo(() => projects.filter((p) => p.origin === 'local'), [projects]);
+  const foreignProjects = useMemo(() => projects.filter((p) => p.origin === 'foreign'), [projects]);
 
   return (
     <>
@@ -281,13 +310,36 @@ export function Sidebar({ onLoginClick }: SidebarProps) {
               </div>
             ) : (
               <div className="flex flex-col gap-0.5">
-                {projects.map((project) => (
-                  <ProjectRow
-                    key={project.name}
-                    project={project}
-                    sessions={sessionsByProject[project.name] ?? []}
-                  />
-                ))}
+                {localProjects.length === 0 && foreignProjects.length > 0 ? (
+                  <p className="px-3 py-1 text-sm text-muted-foreground">
+                    No active projects on this machine
+                  </p>
+                ) : (
+                  localProjects.map((project) => (
+                    <ProjectRow
+                      key={project.name}
+                      project={project}
+                      sessions={sessionsByProject[project.name] ?? []}
+                    />
+                  ))
+                )}
+                {foreignProjects.length > 0 && (
+                  <>
+                    <div className="mt-3 mb-1 border-t border-sidebar-border" />
+                    <div className="mb-1 px-3">
+                      <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                        To restore
+                      </span>
+                    </div>
+                    {foreignProjects.map((project) => (
+                      <ProjectRow
+                        key={project.name}
+                        project={project}
+                        sessions={sessionsByProject[project.name] ?? []}
+                      />
+                    ))}
+                  </>
+                )}
               </div>
             )}
           </div>

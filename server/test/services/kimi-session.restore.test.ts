@@ -107,7 +107,7 @@ describe('restoreFromBackup — cross-machine adoption', () => {
     expect(active?.workDir).toBe(localWorkDir);
   });
 
-  it('local row (workDir matches localWorkDir): no UPDATE issued', async () => {
+  it('local row (workDir matches localWorkDir): cascade UPDATE still fires (idempotent)', async () => {
     const fake = makeFakeDb();
     const localWorkDir = path.join(workspaceRoot, 'alice', 'projA');
     fake.selectQueue.push([joinedRow({ workDir: localWorkDir })]);
@@ -126,8 +126,43 @@ describe('restoreFromBackup — cross-machine adoption', () => {
       createKimiFn: factory,
     });
 
-    const updateCall = fake.calls.find((c) => c.op === 'update');
-    expect(updateCall).toBeUndefined();
+    // Cascade UPDATE fires unconditionally; rows already at localWorkDir are
+    // a row-level no-op but the SQL statement still runs. The new value is
+    // the local path (same as cached) so the row is unchanged.
+    const updateCall = fake.calls.find(
+      (c) => c.op === 'update' && (c.values as { workDir?: string }).workDir === localWorkDir,
+    );
+    expect(updateCall).toBeDefined();
+  });
+
+  it('cascade adoption: scoped UPDATE issues against (userId, projectName)', async () => {
+    // We assert via the recorded UPDATE call carrying the new workDir, since
+    // the fake DB does not model row matching for WHERE clauses. The real
+    // statement scopes by userId + projectName so sibling foreign rows under
+    // the same project flip atomically.
+    const fake = makeFakeDb();
+    fake.selectQueue.push([joinedRow({ workDir: '/legacy/abs/path', projectName: 'kimi-dev' })]);
+    fake.selectQueue.push([]); // no session_files
+
+    const factory = (args: CreateKimiArgs): Session =>
+      stubSession({ sessionId: 'kimi-x', workDir: args.workDir });
+
+    const manager = new KimiSessionManager();
+    await restoreFromBackup({
+      sessionId: 'sess-1',
+      manager,
+      db: fake.db,
+      env: { WORKSPACE_ROOT: workspaceRoot },
+      shareDir: tmpShareDir,
+      createKimiFn: factory,
+    });
+
+    const localWorkDir = path.join(workspaceRoot, 'alice', 'kimi-dev');
+    const updateCalls = fake.calls.filter(
+      (c) => c.op === 'update' && (c.values as { workDir?: string }).workDir === localWorkDir,
+    );
+    // Exactly one statement covers all siblings — not one per sibling row.
+    expect(updateCalls).toHaveLength(1);
   });
 
   it('empty session_files backup: skips on-disk materialise but still registers', async () => {

@@ -1,6 +1,15 @@
-import { ChevronDown, ChevronRight, Plus } from 'lucide-react';
+import { ChevronDown, ChevronRight, CloudDownload, Plus } from 'lucide-react';
+import { useState } from 'react';
 import type { ProjectSummary, SessionListItem } from 'shared/types';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { useProjectsStore } from '../lib/projects-store';
 import { sendWS } from '../lib/ws-send';
 import { SessionRow } from './session-row';
@@ -13,10 +22,22 @@ interface ProjectRowProps {
 export function ProjectRow({ project, sessions }: ProjectRowProps) {
   const expanded = useProjectsStore((s) => s.expanded[project.name] ?? false);
   const toggleExpanded = useProjectsStore((s) => s.toggleExpanded);
+  const isForeign = project.origin === 'foreign';
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const handleNewTask = (e: React.MouseEvent) => {
     e.stopPropagation();
     sendWS('create_session', { workDir: project.workDir, thinking: true });
+  };
+
+  const handleRestoreClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setConfirmOpen(true);
+  };
+
+  const confirmRestore = () => {
+    sendWS('adopt_project', { projectName: project.name });
+    setConfirmOpen(false);
   };
 
   return (
@@ -31,16 +52,30 @@ export function ProjectRow({ project, sessions }: ProjectRowProps) {
           {expanded ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
           <span className="truncate font-medium">{project.name}</span>
         </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-xs"
-          onClick={handleNewTask}
-          aria-label={`New task in ${project.name}`}
-          className="hover:bg-sidebar-accent"
-        >
-          <Plus />
-        </Button>
+        {isForeign ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            onClick={handleRestoreClick}
+            aria-label={`Restore project ${project.name}`}
+            title={`Restore '${project.name}' to this machine`}
+            className="hover:bg-sidebar-accent"
+          >
+            <CloudDownload />
+          </Button>
+        ) : (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            onClick={handleNewTask}
+            aria-label={`New task in ${project.name}`}
+            className="hover:bg-sidebar-accent"
+          >
+            <Plus />
+          </Button>
+        )}
       </div>
       {expanded && (
         <div className="ml-4 flex flex-col gap-0.5 py-0.5">
@@ -51,6 +86,30 @@ export function ProjectRow({ project, sessions }: ProjectRowProps) {
           )}
         </div>
       )}
+      <Dialog
+        open={confirmOpen}
+        onOpenChange={(open) => {
+          if (!open) setConfirmOpen(false);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Restore project</DialogTitle>
+            <DialogDescription>
+              Restore '{project.name}'? {sessions.length} session
+              {sessions.length === 1 ? '' : 's'} will be moved to this machine.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setConfirmOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={confirmRestore}>
+              Restore
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
