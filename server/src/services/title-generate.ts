@@ -154,6 +154,17 @@ export async function generateTitleViaAnthropic(
     ],
   });
 
+  logger.info(
+    {
+      url,
+      model: cfg.model,
+      apiKeyPrefix: cfg.apiKey ? `${cfg.apiKey.slice(0, 8)}…(${cfg.apiKey.length})` : '(empty)',
+      userLen: userText.length,
+      assistantLen: assistantText.length,
+    },
+    'title-generate: POST /messages',
+  );
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   let res: Response;
@@ -174,6 +185,10 @@ export async function generateTitleViaAnthropic(
 
   if (!res.ok) {
     const errBody = await res.text().catch(() => '');
+    logger.warn(
+      { url, status: res.status, body: errBody.slice(0, 200) },
+      'title-generate: provider HTTP error',
+    );
     throw new Error(`title generation HTTP ${res.status}: ${errBody.slice(0, 200)}`);
   }
 
@@ -191,7 +206,12 @@ export async function generateTitleViaAnthropic(
       typeof (b as { text?: unknown }).text === 'string',
   );
   if (!firstText) throw new Error('title generation: no text block in response');
-  return cleanTitle(firstText.text);
+  const cleaned = cleanTitle(firstText.text);
+  logger.info(
+    { url, raw: firstText.text.slice(0, 100), cleaned },
+    'title-generate: provider returned title',
+  );
+  return cleaned;
 }
 
 /** Strip leading/trailing whitespace + surrounding quotes, then cap to 50 chars. */
@@ -233,7 +253,10 @@ export async function maybeGenerateTitleBackground(
   database: DB = defaultDb,
   opts: MaybeGenerateOpts = {},
 ): Promise<void> {
-  if (inflight.has(active.sessionId)) return;
+  if (inflight.has(active.sessionId)) {
+    logger.info({ sessionId: active.sessionId }, 'title-generate: skip (inflight)');
+    return;
+  }
 
   // Skip if a title already exists (set by /title slash, custom_title, or a
   // previous run of this generator). The check is best-effort — a race with
@@ -244,8 +267,18 @@ export async function maybeGenerateTitleBackground(
     .from(schema.kimiSessions)
     .where(eq(schema.kimiSessions.id, active.sessionId))
     .limit(1);
-  if (!existing) return;
-  if (existing.title && existing.title.trim().length > 0) return;
+  if (!existing) {
+    logger.info({ sessionId: active.sessionId }, 'title-generate: skip (session row missing)');
+    return;
+  }
+  if (existing.title && existing.title.trim().length > 0) {
+    logger.info(
+      { sessionId: active.sessionId, existing: existing.title },
+      'title-generate: skip (already titled)',
+    );
+    return;
+  }
+  logger.info({ sessionId: active.sessionId }, 'title-generate: starting');
 
   inflight.add(active.sessionId);
   try {
@@ -257,13 +290,29 @@ export async function maybeGenerateTitleBackground(
 
     const readWire = opts.readWire ?? readFirstTurnFromWire;
     const turn = await readWire(wirePath);
-    if (!turn?.userText) return;
+    if (!turn?.userText) {
+      logger.warn(
+        { sessionId: active.sessionId, wirePath },
+        'title-generate: skip (no first user turn in wire.jsonl)',
+      );
+      return;
+    }
 
     const loadCfg = opts.loadConfig ?? defaultLoadConfig;
     const cfg = await loadCfg(database);
 
     let title: string | null = null;
-    if (cfg) {
+    if (!cfg) {
+      logger.warn(
+        { sessionId: active.sessionId },
+        'title-generate: no provider config, will fallback',
+      );
+    } else if (!cfg.apiKey) {
+      logger.warn(
+        { sessionId: active.sessionId, baseUrl: cfg.baseUrl, model: cfg.model },
+        'title-generate: provider apiKey empty, will fallback',
+      );
+    } else {
       try {
         title = await generateTitleViaAnthropic(
           cfg,
@@ -273,12 +322,18 @@ export async function maybeGenerateTitleBackground(
         );
       } catch (err) {
         logger.warn(
-          { err, sessionId: active.sessionId },
+          { err, sessionId: active.sessionId, baseUrl: cfg.baseUrl, model: cfg.model },
           'title generation failed, falling back to user message',
         );
       }
     }
-    if (!title) title = shortenForTitle(turn.userText);
+    if (!title) {
+      title = shortenForTitle(turn.userText);
+      logger.info(
+        { sessionId: active.sessionId, fallback: title },
+        'title-generate: using fallback first-message title',
+      );
+    }
     if (!title) return;
 
     await database
