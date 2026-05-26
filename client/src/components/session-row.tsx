@@ -1,8 +1,9 @@
-import { Trash2 } from 'lucide-react';
-import { type MouseEvent, useState } from 'react';
+import { MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
+import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import type { SessionListItem } from 'shared/types';
 import { Button } from '@/components/ui/button';
+import { DropdownItem, DropdownMenu } from '@/components/ui/dropdown-menu';
 import { useSessionsStore } from '../lib/sessions-store';
 import { sendWS } from '../lib/ws-send';
 import { ConfirmDeleteSessionDialog } from './confirm-delete-session-dialog';
@@ -40,8 +41,7 @@ export function SessionRow({ session }: SessionRowProps) {
     attach();
   };
 
-  const handleDeleteClick = (e: MouseEvent) => {
-    e.stopPropagation();
+  const handleDeleteClick = () => {
     setConfirmDeleteOpen(true);
   };
 
@@ -83,16 +83,28 @@ export function SessionRow({ session }: SessionRowProps) {
           <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusColor}`} aria-hidden />
           <span className="truncate">{title}</span>
         </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-xs"
-          onClick={handleDeleteClick}
-          aria-label={`Delete session ${title}`}
-          className="absolute right-1.5 opacity-0 transition-opacity group-hover/session-row:opacity-100 focus-visible:opacity-100 hover:bg-destructive/15 hover:text-destructive"
-        >
-          <Trash2 />
-        </Button>
+        <div className="absolute right-1.5 opacity-100 transition-opacity md:opacity-0 md:group-hover/session-row:opacity-100 md:group-focus-within/session-row:opacity-100">
+          <DropdownMenu
+            trigger={
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                aria-label={`Actions for ${title}`}
+                className="hover:bg-sidebar-accent"
+              >
+                <MoreHorizontal />
+              </Button>
+            }
+          >
+            <DropdownItem disabled icon={<Pencil />}>
+              Rename
+            </DropdownItem>
+            <DropdownItem destructive icon={<Trash2 />} onClick={handleDeleteClick}>
+              Delete Task
+            </DropdownItem>
+          </DropdownMenu>
+        </div>
       </div>
 
       <ConfirmDeleteSessionDialog

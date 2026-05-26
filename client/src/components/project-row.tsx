@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, CloudDownload, Plus } from 'lucide-react';
+import { ChevronDown, ChevronRight, CloudDownload, FolderTree, Plus } from 'lucide-react';
 import { useState } from 'react';
 import type { ProjectSummary, SessionListItem } from 'shared/types';
 import { Button } from '@/components/ui/button';
@@ -11,17 +11,20 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useProjectsStore } from '../lib/projects-store';
+import { useSidebarViewStore } from '../lib/sidebar-view-store';
 import { sendWS } from '../lib/ws-send';
 import { SessionRow } from './session-row';
 
 interface ProjectRowProps {
   project: ProjectSummary;
   sessions: SessionListItem[];
+  isActive: boolean;
 }
 
-export function ProjectRow({ project, sessions }: ProjectRowProps) {
+export function ProjectRow({ project, sessions, isActive }: ProjectRowProps) {
   const expanded = useProjectsStore((s) => s.expanded[project.name] ?? false);
   const toggleExpanded = useProjectsStore((s) => s.toggleExpanded);
+  const openFiles = useSidebarViewStore((s) => s.openFiles);
   const isForeign = project.origin === 'foreign';
   const [confirmOpen, setConfirmOpen] = useState(false);
 
@@ -33,6 +36,11 @@ export function ProjectRow({ project, sessions }: ProjectRowProps) {
   const handleRestoreClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     setConfirmOpen(true);
+  };
+
+  const handleOpenFiles = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    openFiles();
   };
 
   const confirmRestore = () => {
@@ -52,6 +60,19 @@ export function ProjectRow({ project, sessions }: ProjectRowProps) {
           {expanded ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
           <span className="truncate font-medium">{project.name}</span>
         </Button>
+        {isActive && !isForeign && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            onClick={handleOpenFiles}
+            aria-label={`File management for ${project.name}`}
+            title="File Management"
+            className="hover:bg-sidebar-accent text-emerald-500"
+          >
+            <FolderTree />
+          </Button>
+        )}
         {isForeign ? (
           <Button
             type="button"

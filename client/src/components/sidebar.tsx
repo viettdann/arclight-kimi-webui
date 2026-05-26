@@ -1,13 +1,15 @@
 import { LogOut, Plus, Settings, SquarePen, Zap } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate, useParams } from 'react-router';
 import type { WSMessageType } from 'shared/types';
 import { Button } from '@/components/ui/button';
 import { useAuthStore } from '../lib/auth-store';
 import { useProjectsStore } from '../lib/projects-store';
 import { groupByProject, useSessionsStore } from '../lib/sessions-store';
+import { useSidebarViewStore } from '../lib/sidebar-view-store';
 import { wsClient } from '../lib/ws-client';
 import { sendWS } from '../lib/ws-send';
+import { FileManagementView } from './file-management-view';
 import { NewProjectModal } from './new-project-modal';
 import { ProjectPickerModal } from './project-picker-modal';
 import { ProjectRow } from './project-row';
@@ -86,25 +88,31 @@ const REFRESH_TRIGGER_TYPES = new Set<WSMessageType>([
 // Cheap pre-filter so the streaming hot path (text_delta, thinking_delta, …)
 // avoids JSON.parse on every frame. We only parse when the raw frame contains
 // at least one trigger-type literal.
-const REFRESH_RAW_HINTS = [
-  '"snapshot"',
-  '"session_state"',
-  '"title_update"',
-  '"project_adopted"',
-];
+const REFRESH_RAW_HINTS = ['"snapshot"', '"session_state"', '"title_update"', '"project_adopted"'];
 
 export function Sidebar({ isOpen, onClose, onLoginClick }: SidebarProps) {
   const navigate = useNavigate();
+  const { id: openSessionId } = useParams<{ id: string }>();
   const status = useAuthStore((s) => s.status);
   const projects = useProjectsStore((s) => s.projects);
   const projectsStatus = useProjectsStore((s) => s.status);
   const fetchProjects = useProjectsStore((s) => s.fetch);
   const sessions = useSessionsStore((s) => s.sessions);
   const fetchSessions = useSessionsStore((s) => s.fetch);
+  const filesOpen = useSidebarViewStore((s) => s.filesOpen);
 
   const [newProjectOpen, setNewProjectOpen] = useState(false);
   const [skillsOpen, setSkillsOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+
+  const activeProjectName = useMemo(() => {
+    if (!openSessionId) return null;
+    return sessions.find((s) => s.id === openSessionId)?.projectName ?? null;
+  }, [openSessionId, sessions]);
+
+  // `filesOpen` is intent only; the project shown is always the active one.
+  // If the user navigates away (no active project), the files panel hides.
+  const showFiles = filesOpen && activeProjectName !== null;
 
   // Initial load when authenticated.
   useEffect(() => {
@@ -276,90 +284,95 @@ export function Sidebar({ isOpen, onClose, onLoginClick }: SidebarProps) {
           </Button>
         </nav>
 
-        {/* Project list */}
-        <div className="flex flex-1 flex-col px-3 py-2">
-          <div className="mb-2 flex items-center justify-between px-3">
-            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-              Project list
-            </span>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-xs"
-              onClick={() => {
-                onClose?.();
-                setNewProjectOpen(true);
-              }}
-              aria-label="Add project"
-            >
-              <Plus />
-            </Button>
-          </div>
+        {showFiles && activeProjectName ? (
+          <FileManagementView projectName={activeProjectName} />
+        ) : (
+          <div className="flex flex-1 flex-col px-3 py-2 min-h-0">
+            <div className="mb-2 flex items-center justify-between px-3">
+              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                Project list
+              </span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                onClick={() => {
+                  onClose?.();
+                  setNewProjectOpen(true);
+                }}
+                aria-label="Add project"
+              >
+                <Plus />
+              </Button>
+            </div>
 
-          <div className="flex flex-1 flex-col overflow-y-auto">
-            {projectsStatus === 'loading' ? (
-              <div className="flex flex-col gap-2 px-3 py-2">
-                <div className="h-4 w-3/4 animate-pulse rounded bg-muted" />
-                <div className="h-4 w-2/3 animate-pulse rounded bg-muted" />
-                <div className="h-4 w-4/5 animate-pulse rounded bg-muted" />
-              </div>
-            ) : projectsStatus === 'error' ? (
-              <div className="flex flex-col items-center justify-center gap-2 py-6 text-center">
-                <p className="text-sm text-muted-foreground">Failed to load projects</p>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="xs"
-                  onClick={() => {
-                    void fetchProjects();
-                  }}
-                >
-                  Retry
-                </Button>
-              </div>
-            ) : projects.length === 0 ? (
-              <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
-                <div className="rounded-full bg-muted p-3">
-                  <Plus className="h-5 w-5 text-muted-foreground" />
+            <div className="flex flex-1 flex-col overflow-y-auto">
+              {projectsStatus === 'loading' ? (
+                <div className="flex flex-col gap-2 px-3 py-2">
+                  <div className="h-4 w-3/4 animate-pulse rounded bg-muted" />
+                  <div className="h-4 w-2/3 animate-pulse rounded bg-muted" />
+                  <div className="h-4 w-4/5 animate-pulse rounded bg-muted" />
                 </div>
-                <p className="text-sm text-muted-foreground">No projects yet</p>
-              </div>
-            ) : (
-              <div className="flex flex-col gap-0.5">
-                {localProjects.length === 0 && foreignProjects.length > 0 ? (
-                  <p className="px-3 py-1 text-sm text-muted-foreground">
-                    No active projects on this machine
-                  </p>
-                ) : (
-                  localProjects.map((project) => (
-                    <ProjectRow
-                      key={project.name}
-                      project={project}
-                      sessions={sessionsByProject[project.name] ?? []}
-                    />
-                  ))
-                )}
-                {foreignProjects.length > 0 && (
-                  <>
-                    <div className="mt-3 mb-1 border-t border-sidebar-border" />
-                    <div className="mb-1 px-3">
-                      <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                        To restore
-                      </span>
-                    </div>
-                    {foreignProjects.map((project) => (
+              ) : projectsStatus === 'error' ? (
+                <div className="flex flex-col items-center justify-center gap-2 py-6 text-center">
+                  <p className="text-sm text-muted-foreground">Failed to load projects</p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="xs"
+                    onClick={() => {
+                      void fetchProjects();
+                    }}
+                  >
+                    Retry
+                  </Button>
+                </div>
+              ) : projects.length === 0 ? (
+                <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
+                  <div className="rounded-full bg-muted p-3">
+                    <Plus className="h-5 w-5 text-muted-foreground" />
+                  </div>
+                  <p className="text-sm text-muted-foreground">No projects yet</p>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-0.5">
+                  {localProjects.length === 0 && foreignProjects.length > 0 ? (
+                    <p className="px-3 py-1 text-sm text-muted-foreground">
+                      No active projects on this machine
+                    </p>
+                  ) : (
+                    localProjects.map((project) => (
                       <ProjectRow
                         key={project.name}
                         project={project}
                         sessions={sessionsByProject[project.name] ?? []}
+                        isActive={project.name === activeProjectName}
                       />
-                    ))}
-                  </>
-                )}
-              </div>
-            )}
+                    ))
+                  )}
+                  {foreignProjects.length > 0 && (
+                    <>
+                      <div className="mt-3 mb-1 border-t border-sidebar-border" />
+                      <div className="mb-1 px-3">
+                        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                          To restore
+                        </span>
+                      </div>
+                      {foreignProjects.map((project) => (
+                        <ProjectRow
+                          key={project.name}
+                          project={project}
+                          sessions={sessionsByProject[project.name] ?? []}
+                          isActive={project.name === activeProjectName}
+                        />
+                      ))}
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Auth section */}
         <div className="border-t border-sidebar-border py-3">
