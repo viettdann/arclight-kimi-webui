@@ -1,10 +1,11 @@
-import { afterAll, describe, expect, it, mock } from 'bun:test';
+import { afterAll, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { makeFakeDb } from '../_helpers';
-import { catchUpWireBackup } from '../../src/services/reconcile';
 import * as realFsPromises from 'node:fs/promises';
+import * as realLogger from '../../src/lib/logger';
 
 let mockWireSize = 0;
 let mockWireContent = '';
+const warnCalls: Array<{ payload: unknown; msg: unknown }> = [];
 
 // Snapshot real exports before `mock.module` swaps the namespace.
 const originalStat = realFsPromises.stat;
@@ -42,6 +43,25 @@ mock.module('node:fs/promises', () => {
   };
 });
 
+mock.module('../../src/lib/logger', () => ({
+  ...realLogger,
+  logger: {
+    ...realLogger.logger,
+    warn: (payload: unknown, msg?: unknown) => {
+      warnCalls.push({ payload, msg });
+    },
+    error: () => {},
+    info: () => {},
+    debug: () => {},
+  },
+}));
+
+const { catchUpWireBackup } = await import('../../src/services/reconcile');
+
+beforeEach(() => {
+  warnCalls.length = 0;
+});
+
 afterAll(() => {
   mock.restore();
 });
@@ -67,7 +87,7 @@ describe('Integration — Crash Recovery', () => {
     expect((insertCall?.values as any).wireByteOffset).toBe(71);
   });
 
-  it('correctly resets when DB offset is larger than disk wire size (e.g. disk truncated)', async () => {
+  it('skips and logs a warning when DB offset is larger than disk wire size (e.g. disk truncated)', async () => {
     const fake = makeFakeDb();
 
     mockWireContent = 'TRUNCATED_WIRE_FILE\n';
@@ -81,9 +101,13 @@ describe('Integration — Crash Recovery', () => {
       prevOffset: 100,
     });
 
-    const insertCall = fake.calls.find((c) => c.op === 'insert');
-    expect(insertCall).toBeDefined();
-    expect((insertCall?.values as any).wireJsonl).toBe('TRUNCATED_WIRE_FILE\n');
-    expect((insertCall?.values as any).wireByteOffset).toBe(20);
+    expect(fake.calls.find((c) => c.op === 'insert')).toBeUndefined();
+    expect(warnCalls).toHaveLength(1);
+    expect(warnCalls[0]?.payload).toEqual({
+      sessionRowId: 'sess-crash-2',
+      wireSize: 20,
+      prevOffset: 100,
+    });
+    expect(warnCalls[0]?.msg).toBe('wire shrunk; skipping reconcile');
   });
 });

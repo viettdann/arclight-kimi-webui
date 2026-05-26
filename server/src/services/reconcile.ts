@@ -1,5 +1,4 @@
 import { existsSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import { and, eq, isNotNull, sql } from 'drizzle-orm';
 import { type DB, schema } from '../db';
@@ -21,21 +20,18 @@ export async function catchUpWireBackup(args: {
   const { prevOffset } = args;
 
   const wireSize = await fileSize(wirePath);
-  let appendBytes: Buffer;
-  let newOffset: number;
-  let resetWire = false;
+  if (wireSize === prevOffset) return;
 
   if (wireSize < prevOffset) {
-    appendBytes = await readFile(wirePath);
-    newOffset = wireSize;
-    resetWire = true;
-  } else if (wireSize > prevOffset) {
-    appendBytes = await readRange(wirePath, prevOffset, wireSize - prevOffset);
-    newOffset = wireSize;
-  } else {
-    appendBytes = Buffer.alloc(0);
-    newOffset = prevOffset;
+    logger.warn(
+      { sessionRowId: args.sessionRowId, wireSize, prevOffset },
+      'wire shrunk; skipping reconcile',
+    );
+    return;
   }
+
+  const appendBytes = await readRange(wirePath, prevOffset, wireSize - prevOffset);
+  const newOffset = wireSize;
 
   const wireChunk = appendBytes.toString('utf8');
 
@@ -52,9 +48,7 @@ export async function catchUpWireBackup(args: {
     .onConflictDoUpdate({
       target: schema.kimiSessionFiles.sessionId,
       set: {
-        wireJsonl: resetWire
-          ? wireChunk
-          : sql`${schema.kimiSessionFiles.wireJsonl} || ${wireChunk}`,
+        wireJsonl: sql`${schema.kimiSessionFiles.wireJsonl} || ${wireChunk}`,
         wireByteOffset: newOffset,
         updatedAt: sql`now()`,
       },

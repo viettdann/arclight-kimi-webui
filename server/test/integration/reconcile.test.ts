@@ -1,12 +1,13 @@
-import { afterAll, describe, expect, it, mock } from 'bun:test';
+import { afterAll, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { makeFakeDb } from '../_helpers';
-import { reconcileOnStartup } from '../../src/services/reconcile';
 import * as realFs from 'node:fs';
 import * as realFsPromises from 'node:fs/promises';
+import * as realLogger from '../../src/lib/logger';
 
 let mockExists = false;
 let mockSize = 0;
 let mockContent = '';
+const warnCalls: Array<{ payload: unknown; msg: unknown }> = [];
 
 // Snapshot real exports before `mock.module` swaps the namespaces.
 const originalExistsSync = realFs.existsSync;
@@ -49,6 +50,27 @@ mock.module('node:fs/promises', () => {
       return originalOpen(p, mode);
     },
   };
+});
+
+mock.module('../../src/lib/logger', () => {
+  return {
+    ...realLogger,
+    logger: {
+      ...realLogger.logger,
+      warn: (payload: unknown, msg?: unknown) => {
+        warnCalls.push({ payload, msg });
+      },
+      error: () => {},
+      info: () => {},
+      debug: () => {},
+    },
+  };
+});
+
+const { reconcileOnStartup, catchUpWireBackup } = await import('../../src/services/reconcile');
+
+beforeEach(() => {
+  warnCalls.length = 0;
 });
 
 afterAll(() => {
@@ -120,5 +142,31 @@ describe('Integration — reconcileOnStartup', () => {
     // restore path runs on the next WS attach instead.
     expect(fake.calls.find((c) => c.op === 'update')).toBeUndefined();
     expect(fake.calls.find((c) => c.op === 'insert')).toBeUndefined();
+  });
+});
+
+describe('catchUpWireBackup — wire shrink guard', () => {
+  it('skips and logs a warning when wire on disk is smaller than DB offset', async () => {
+    const fake = makeFakeDb();
+
+    mockContent = 'short\n';
+    mockSize = mockContent.length; // 6
+
+    await catchUpWireBackup({
+      sessionRowId: 'sess-shrunk',
+      workDir: '/tmp/work',
+      kimiSessionId: 'kimi-session-shrunk',
+      db: fake.db,
+      prevOffset: 200,
+    });
+
+    expect(fake.calls.find((c) => c.op === 'insert')).toBeUndefined();
+    expect(warnCalls).toHaveLength(1);
+    expect(warnCalls[0]?.payload).toEqual({
+      sessionRowId: 'sess-shrunk',
+      wireSize: 6,
+      prevOffset: 200,
+    });
+    expect(warnCalls[0]?.msg).toBe('wire shrunk; skipping reconcile');
   });
 });

@@ -18,7 +18,9 @@ import { createTranslatorState, translateStreamEvent } from '../ws/events';
 import { loadEnvForInjection } from './kimi-config/env-injection';
 import { kimiPaths } from './kimi-config/paths';
 import { resolveShareDir } from './kimi-config/share-dir';
+import { ensureKimiMetadata } from './kimi-config/share-metadata';
 import { clearPendingPrompt } from './pending-prompts';
+import { sanitizeStateJson, stripSystemPromptHead } from './restore-transforms';
 import type { ActiveSession, KimiSessionManager } from './session-manager';
 import { extractTitle, stateJsonPathFor } from './title';
 import { maybeGenerateTitleBackground } from './title-generate';
@@ -86,13 +88,17 @@ export async function restoreKimiFiles(
   workDir: string,
   sessionId: string,
   files: { wireJsonl: string; contextJsonl: string; stateJson: string },
+  opts?: { transform?: boolean },
 ): Promise<void> {
   const dir = kimiPaths().sessionDir(workDir, sessionId);
   await mkdir(dir, { recursive: true, mode: 0o700 });
+  const transform = opts?.transform === true;
+  const contextJsonl = transform ? stripSystemPromptHead(files.contextJsonl) : files.contextJsonl;
+  const stateJson = transform ? sanitizeStateJson(files.stateJson) : files.stateJson;
   await Promise.all([
     writeFile(path.join(dir, 'wire.jsonl'), files.wireJsonl, { mode: 0o600 }),
-    writeFile(path.join(dir, 'context.jsonl'), files.contextJsonl, { mode: 0o600 }),
-    writeFile(path.join(dir, 'state.json'), files.stateJson, { mode: 0o600 }),
+    writeFile(path.join(dir, 'context.jsonl'), contextJsonl, { mode: 0o600 }),
+    writeFile(path.join(dir, 'state.json'), stateJson, { mode: 0o600 }),
   ]);
 }
 
@@ -136,21 +142,19 @@ export async function appendWireDelta(
   const wireSize = await fileSize(wirePath);
   if (wireSize === prevOffset) return;
 
+  if (wireSize < prevOffset) {
+    logger.warn(
+      { sessionId: active.sessionId, wireSize, prevOffset },
+      'wire shrunk; skipping append',
+    );
+    return;
+  }
+
   const delta = wireSize - prevOffset;
   if (delta < 4096 && !force) return;
 
-  let appendBytes: Buffer;
-  let newOffset: number;
-  let resetWire = false;
-
-  if (wireSize < prevOffset) {
-    appendBytes = await readFile(wirePath);
-    newOffset = wireSize;
-    resetWire = true;
-  } else {
-    appendBytes = await readRange(wirePath, prevOffset, delta);
-    newOffset = wireSize;
-  }
+  const appendBytes = await readRange(wirePath, prevOffset, delta);
+  const newOffset = wireSize;
 
   const wireChunk = appendBytes.toString('utf8');
 
@@ -167,9 +171,7 @@ export async function appendWireDelta(
     .onConflictDoUpdate({
       target: schema.kimiSessionFiles.sessionId,
       set: {
-        wireJsonl: resetWire
-          ? wireChunk
-          : sql`${schema.kimiSessionFiles.wireJsonl} || ${wireChunk}`,
+        wireJsonl: sql`${schema.kimiSessionFiles.wireJsonl} || ${wireChunk}`,
         wireByteOffset: newOffset,
         updatedAt: sql`now()`,
       },
@@ -480,12 +482,14 @@ export async function restoreFromBackup(args: RestoreFromBackupArgs): Promise<Ac
     projectName: sessRow.projectName,
     env: envSrc,
   });
+  const shareDir = args.shareDir ?? resolveShareDir();
 
-  // ensureWorkDir, session_files SELECT, and loadEnvForInjection are independent
-  // after the joined SELECT — run them concurrently to shave round-trips off the
-  // lazy-resume hot path.
-  const [, filesRows, envVars] = await Promise.all([
+  // ensureWorkDir, ensureKimiMetadata, session_files SELECT, and
+  // loadEnvForInjection are independent after the joined SELECT — run them
+  // concurrently to shave round-trips off the lazy-resume hot path.
+  const [, , filesRows, envVars] = await Promise.all([
     ensureWorkDir(localWorkDir),
+    ensureKimiMetadata(shareDir, localWorkDir),
     dbh
       .select()
       .from(schema.kimiSessionFiles)
@@ -495,18 +499,30 @@ export async function restoreFromBackup(args: RestoreFromBackupArgs): Promise<Ac
   ]);
   const filesRow = filesRows[0];
 
-  const hasBackup =
-    filesRow != null &&
-    (filesRow.wireJsonl.length > 0 ||
-      filesRow.contextJsonl.length > 0 ||
-      filesRow.stateJson.length > 0);
-
-  if (hasBackup && filesRow != null) {
-    await restoreKimiFiles(localWorkDir, kimiSessionId, {
-      wireJsonl: filesRow.wireJsonl,
-      contextJsonl: filesRow.contextJsonl,
-      stateJson: filesRow.stateJson,
-    });
+  if (filesRow != null) {
+    await restoreKimiFiles(
+      localWorkDir,
+      kimiSessionId,
+      {
+        wireJsonl: filesRow.wireJsonl,
+        contextJsonl: filesRow.contextJsonl,
+        stateJson: filesRow.stateJson,
+      },
+      { transform: true },
+    );
+    // Wire blob just replaced disk; reset the byte-offset cursor to the
+    // restored blob's length so the next `appendWireDelta` computes its
+    // delta from the right baseline.
+    const newOffset = Buffer.byteLength(filesRow.wireJsonl, 'utf8');
+    await dbh
+      .update(schema.kimiSessionFiles)
+      .set({ wireByteOffset: newOffset })
+      .where(eq(schema.kimiSessionFiles.sessionId, args.sessionId));
+  } else {
+    logger.error(
+      { sessionId: args.sessionId, kimiSessionId, workDir: localWorkDir },
+      'restoreFromBackup: session_files row missing; skipping materialise',
+    );
   }
 
   // Cascade-rewrite every sibling row under `(userId, projectName)` so all
@@ -530,7 +546,7 @@ export async function restoreFromBackup(args: RestoreFromBackupArgs): Promise<Ac
     thinking: sessRow.thinking,
     yoloMode: sessRow.yoloMode,
     env: envVars,
-    shareDir: args.shareDir ?? resolveShareDir(),
+    shareDir,
   });
 
   // Count completed turns from the restored wire log so the next TurnBegin

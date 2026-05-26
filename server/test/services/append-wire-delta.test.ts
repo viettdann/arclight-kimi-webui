@@ -1,11 +1,11 @@
-import { afterAll, describe, expect, it, mock } from 'bun:test';
+import { afterAll, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { makeFakeDb, stubSession } from '../_helpers';
-import { appendWireDelta } from '../../src/services/kimi-session';
-import { KimiSessionManager } from '../../src/services/session-manager';
 import * as realFsPromises from 'node:fs/promises';
+import * as realLogger from '../../src/lib/logger';
 
 let mockWireSize = 0;
 let mockWireContent = '';
+const warnCalls: Array<{ payload: unknown; msg: unknown }> = [];
 
 // Snapshot real exports before `mock.module` swaps the namespace.
 const originalStat = realFsPromises.stat;
@@ -41,6 +41,29 @@ mock.module('node:fs/promises', () => {
       return originalReadFile(p, encoding);
     },
   };
+});
+
+mock.module('../../src/lib/logger', () => {
+  return {
+    ...realLogger,
+    logger: {
+      ...realLogger.logger,
+      warn: (payload: unknown, msg?: unknown) => {
+        warnCalls.push({ payload, msg });
+      },
+      error: () => {},
+      info: () => {},
+      debug: () => {},
+    },
+  };
+});
+
+// Import AFTER mock.module so the module under test resolves the mocked logger.
+const { appendWireDelta } = await import('../../src/services/kimi-session');
+const { KimiSessionManager } = await import('../../src/services/session-manager');
+
+beforeEach(() => {
+  warnCalls.length = 0;
 });
 
 afterAll(() => {
@@ -94,7 +117,7 @@ describe('appendWireDelta', () => {
     expect((insertCall?.values as any).wireByteOffset).toBe(115);
   });
 
-  it('resets wire content if wire file has shrunk (size < offset)', async () => {
+  it('logs warning and skips when wire file has shrunk (size < offset)', async () => {
     const fake = makeFakeDb();
     fake.selectQueue.push([{ offset: 200 }]); // DB offset was 200, but file shrunk!
 
@@ -112,9 +135,13 @@ describe('appendWireDelta', () => {
 
     await appendWireDelta(active, true, fake.db);
 
-    const insertCall = fake.calls.find((c) => c.op === 'insert');
-    expect(insertCall).toBeDefined();
-    expect((insertCall?.values as any).wireJsonl).toBe('SHRUNK_CONTENT\n');
-    expect((insertCall?.values as any).wireByteOffset).toBe(15);
+    expect(fake.calls.find((c) => c.op === 'insert')).toBeUndefined();
+    expect(warnCalls).toHaveLength(1);
+    expect(warnCalls[0]?.payload).toEqual({
+      sessionId: 'sess-1',
+      wireSize: 15,
+      prevOffset: 200,
+    });
+    expect(warnCalls[0]?.msg).toBe('wire shrunk; skipping append');
   });
 });
