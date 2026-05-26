@@ -42,19 +42,19 @@ describe('Integration — Close & Flush', () => {
       JSON.stringify({
         type: 'close_session',
         sessionId: 'sess-close-1',
-      })
+      }),
     );
 
     // Verify DB update is called to set status to 'closed'
     const updateCall = fake.calls.find(
-      (c) => c.op === 'update' && (c.values as any).status === 'closed'
+      (c) => c.op === 'update' && (c.values as any).status === 'closed',
     );
     expect(updateCall).toBeDefined();
 
     // Verify WS got the closed event
-    const closedEvent = ws.parsed().find(
-      (m) => m.type === 'session_state' && (m.payload as any).state === 'closed'
-    );
+    const closedEvent = ws
+      .parsed()
+      .find((m) => m.type === 'session_state' && (m.payload as any).state === 'closed');
     expect(closedEvent).toBeDefined();
     expect((closedEvent?.payload as any).reason).toBe('ws');
 

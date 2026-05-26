@@ -48,10 +48,7 @@ function CodeBlock({ code, language }: { code: string; language: string }) {
 
 const components: Components = {
   h1: ({ children, ...rest }) => (
-    <h1
-      {...rest}
-      className="text-2xl font-bold tracking-tight mt-6 mb-3 text-foreground font-sans"
-    >
+    <h1 {...rest} className="text-2xl font-bold tracking-tight mt-6 mb-3 text-foreground font-sans">
       {children}
     </h1>
   ),
@@ -196,23 +193,23 @@ export function TextBlock({ content, isStreaming }: TextBlockProps) {
   return (
     <div className="flex flex-col gap-2 w-full max-w-none">
       <div className="space-y-2 select-text">
-        {hasTags
-          ? segments.map((seg, i) =>
-              seg.kind === 'tag' ? (
-                <HarnessTagBlock key={i} name={seg.name} content={seg.content} />
-              ) : (
-                seg.content.trim() && (
-                  <ReactMarkdown key={i} remarkPlugins={[remarkGfm]} components={components}>
-                    {seg.content}
-                  </ReactMarkdown>
-                )
-              ),
-            )
-          : (
-            <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
-              {content}
-            </ReactMarkdown>
-          )}
+        {hasTags ? (
+          segments.map((seg, i) =>
+            seg.kind === 'tag' ? (
+              <HarnessTagBlock key={i} name={seg.name} content={seg.content} />
+            ) : (
+              seg.content.trim() && (
+                <ReactMarkdown key={i} remarkPlugins={[remarkGfm]} components={components}>
+                  {seg.content}
+                </ReactMarkdown>
+              )
+            ),
+          )
+        ) : (
+          <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+            {content}
+          </ReactMarkdown>
+        )}
         {isStreaming && (
           <span className="inline-flex items-center gap-1.5 ml-1 text-primary select-none font-medium text-xs">
             <Loader2 className="h-3 w-3 animate-spin" />

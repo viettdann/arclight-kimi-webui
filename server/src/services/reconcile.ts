@@ -52,7 +52,9 @@ export async function catchUpWireBackup(args: {
     .onConflictDoUpdate({
       target: schema.kimiSessionFiles.sessionId,
       set: {
-        wireJsonl: resetWire ? wireChunk : sql`${schema.kimiSessionFiles.wireJsonl} || ${wireChunk}`,
+        wireJsonl: resetWire
+          ? wireChunk
+          : sql`${schema.kimiSessionFiles.wireJsonl} || ${wireChunk}`,
         wireByteOffset: newOffset,
         updatedAt: sql`now()`,
       },
@@ -69,7 +71,9 @@ export async function reconcileOnStartup({ db }: { db: DB }): Promise<void> {
       kimiSessionId: schema.kimiSessions.kimiSessionId,
     })
     .from(schema.kimiSessions)
-    .where(and(eq(schema.kimiSessions.status, 'active'), isNotNull(schema.kimiSessions.kimiSessionId)));
+    .where(
+      and(eq(schema.kimiSessions.status, 'active'), isNotNull(schema.kimiSessions.kimiSessionId)),
+    );
 
   for (const row of activeSessions) {
     if (!row.kimiSessionId) continue;

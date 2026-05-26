@@ -29,7 +29,7 @@ describe('Integration — Lifecycle', () => {
         payload: {
           workDir: '/tmp/kimi-webui-test/user-1/my-project',
         },
-      })
+      }),
     );
 
     // Verify snapshot and session state broadcasted
@@ -55,11 +55,13 @@ describe('Integration — Lifecycle', () => {
         payload: {
           content: 'Hello Kimi!',
         },
-      })
+      }),
     );
 
     // Verify pendingPrompt enqueued
-    const updateCall = fake.calls.find((c) => c.op === 'update' && (c.values as any).pendingPrompt !== undefined);
+    const updateCall = fake.calls.find(
+      (c) => c.op === 'update' && (c.values as any).pendingPrompt !== undefined,
+    );
     expect(updateCall).toBeDefined();
     expect((updateCall?.values as any).pendingPrompt).toBe('Hello Kimi!');
 

@@ -43,7 +43,9 @@ describe('flushContextAndState', () => {
 
     const insertCall = fake.calls.find((c) => c.op === 'insert');
     expect(insertCall).toBeDefined();
-    expect((insertCall?.values as any).contextJsonl).toBe('{"role":"user","content":"context_data"}\n');
+    expect((insertCall?.values as any).contextJsonl).toBe(
+      '{"role":"user","content":"context_data"}\n',
+    );
     expect((insertCall?.values as any).stateJson).toBe('{"custom_title":"Mock Title"}');
   });
 });

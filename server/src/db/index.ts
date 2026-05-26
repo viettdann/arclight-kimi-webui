@@ -21,7 +21,11 @@ function buildSslOption(): PostgresSSL {
       if (existsSync(serverCwdPath)) {
         certPath = serverCwdPath;
       } else {
-        const dirnamePath = resolve(__dirname, '../../..', env.PGSSLROOTCERT.replace(/^\.\.\//, ''));
+        const dirnamePath = resolve(
+          __dirname,
+          '../../..',
+          env.PGSSLROOTCERT.replace(/^\.\.\//, ''),
+        );
         if (existsSync(dirnamePath)) {
           certPath = dirnamePath;
         } else {

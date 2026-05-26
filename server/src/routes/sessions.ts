@@ -149,7 +149,10 @@ export function createSessionsRouter(deps: SessionsRouterDeps): Hono<{ Variables
     const id = c.req.param('id');
 
     const [row] = await db
-      .select({ workDir: schema.kimiSessions.workDir, kimiSessionId: schema.kimiSessions.kimiSessionId })
+      .select({
+        workDir: schema.kimiSessions.workDir,
+        kimiSessionId: schema.kimiSessions.kimiSessionId,
+      })
       .from(schema.kimiSessions)
       .where(and(eq(schema.kimiSessions.id, id), eq(schema.kimiSessions.userId, user.id)))
       .limit(1);

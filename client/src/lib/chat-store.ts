@@ -110,10 +110,7 @@ function applyEventToBlocks(
         typeof payload === 'object' && typeof payload.partIdx === 'number' ? payload.partIdx : 0;
       const existingIdx = updatedBlocks.findIndex(
         (b) =>
-          b.kind === 'text' &&
-          b.turnIdx === turn &&
-          b.stepIdx === step &&
-          b.partIdx === partIdx,
+          b.kind === 'text' && b.turnIdx === turn && b.stepIdx === step && b.partIdx === partIdx,
       );
       if (existingIdx >= 0) {
         const existing = updatedBlocks[existingIdx] as Extract<Block, { kind: 'text' }>;

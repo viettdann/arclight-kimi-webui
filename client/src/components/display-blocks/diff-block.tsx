@@ -26,7 +26,11 @@ export function DiffBlock({ path, oldText, newText }: DiffBlockProps) {
   };
 
   const mode: DiffMode =
-    oldText === '' && newText !== '' ? 'create' : newText === '' && oldText !== '' ? 'delete' : 'modify';
+    oldText === '' && newText !== ''
+      ? 'create'
+      : newText === '' && oldText !== ''
+        ? 'delete'
+        : 'modify';
 
   // Simple line-by-line diff generator for visualization
   const getDiffLines = (): DiffLine[] => {

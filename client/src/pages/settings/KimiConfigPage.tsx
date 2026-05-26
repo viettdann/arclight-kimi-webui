@@ -90,7 +90,9 @@ function emptyConfig(): KimiConfigDTO {
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="border border-slate-200 rounded-lg p-5 space-y-5 bg-white shadow-sm transition-all hover:shadow-md">
-      <h2 className="text-sm font-semibold uppercase tracking-wider text-indigo-600 border-b border-slate-100 pb-2">{title}</h2>
+      <h2 className="text-sm font-semibold uppercase tracking-wider text-indigo-600 border-b border-slate-100 pb-2">
+        {title}
+      </h2>
       {children}
     </section>
   );
@@ -98,7 +100,10 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 function Label({ children, htmlFor }: { children: React.ReactNode; htmlFor?: string }) {
   return (
-    <label htmlFor={htmlFor} className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
+    <label
+      htmlFor={htmlFor}
+      className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5"
+    >
       {children}
     </label>
   );
@@ -188,7 +193,9 @@ function KeyValueEditor({
   return (
     <div className="space-y-3 p-4 border border-slate-100 rounded-lg bg-slate-50/30">
       <div className="flex items-center justify-between">
-        <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">{label}</span>
+        <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+          {label}
+        </span>
         <button
           type="button"
           onClick={add}
@@ -197,7 +204,9 @@ function KeyValueEditor({
           + Add Field
         </button>
       </div>
-      {entries.length === 0 && <p className="text-xs text-slate-400 italic py-1">No custom fields defined</p>}
+      {entries.length === 0 && (
+        <p className="text-xs text-slate-400 italic py-1">No custom fields defined</p>
+      )}
       {entries.map(([k, v], i) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: entries shift on edit
         <div key={i} className="flex gap-2">
@@ -423,11 +432,31 @@ export function KimiConfigPage() {
   const modelIds = Object.keys(draft.models);
 
   const tabs: { id: TabId; label: string; description: string }[] = [
-    { id: 'general', label: 'General Settings', description: 'Default models, behavior rules, styles' },
-    { id: 'provider', label: 'Provider & Models', description: 'API Server credentials, model list configurations' },
-    { id: 'services', label: 'Web Integration', description: 'Google Search & URL text fetch APIs' },
-    { id: 'agent', label: 'Agent & Background', description: 'Safety boundaries, memory limits, task workers' },
-    { id: 'advanced', label: 'Advanced & Hooks', description: 'Webhooks, raw TOML bypasses, MCP server timeout' },
+    {
+      id: 'general',
+      label: 'General Settings',
+      description: 'Default models, behavior rules, styles',
+    },
+    {
+      id: 'provider',
+      label: 'Provider & Models',
+      description: 'API Server credentials, model list configurations',
+    },
+    {
+      id: 'services',
+      label: 'Web Integration',
+      description: 'Google Search & URL text fetch APIs',
+    },
+    {
+      id: 'agent',
+      label: 'Agent & Background',
+      description: 'Safety boundaries, memory limits, task workers',
+    },
+    {
+      id: 'advanced',
+      label: 'Advanced & Hooks',
+      description: 'Webhooks, raw TOML bypasses, MCP server timeout',
+    },
   ];
 
   return (
@@ -437,7 +466,9 @@ export function KimiConfigPage() {
         <div className="max-w-6xl mx-auto px-6 py-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
           <div>
             <h1 className="text-xl font-bold text-slate-900 tracking-tight">Kimi Configuration</h1>
-            <p className="text-xs text-slate-400 mt-0.5">Control, validate, and customize your agentic workflow behavior</p>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Control, validate, and customize your agentic workflow behavior
+            </p>
           </div>
           <div className="flex items-center gap-3">
             <button
@@ -446,7 +477,9 @@ export function KimiConfigPage() {
               disabled={testing}
               className="px-4 py-2 text-xs font-semibold rounded-md border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 active:bg-slate-100 disabled:opacity-50 transition-all flex items-center gap-1.5 shadow-sm"
             >
-              {testing && <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-slate-500 border-t-transparent" />}
+              {testing && (
+                <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-slate-500 border-t-transparent" />
+              )}
               {testing ? 'Testing…' : 'Test Connection'}
             </button>
             <button
@@ -455,7 +488,9 @@ export function KimiConfigPage() {
               disabled={saving}
               className="px-5 py-2 text-xs font-semibold rounded-md bg-indigo-600 text-white hover:bg-indigo-700 active:bg-indigo-800 disabled:opacity-50 transition-all flex items-center gap-1.5 shadow-md shadow-indigo-100"
             >
-              {saving && <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white border-t-transparent" />}
+              {saving && (
+                <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+              )}
               {saving ? 'Saving…' : 'Save Config'}
             </button>
           </div>
@@ -466,20 +501,27 @@ export function KimiConfigPage() {
         {/* Status Card Banner */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
           {status && (
-            <div className={cn(
-              "flex items-center gap-3 rounded-lg border px-4 py-3 shadow-sm text-sm bg-white",
-              status.ready ? "border-emerald-100" : "border-rose-100"
-            )}>
-              <div className={cn(
-                "h-2.5 w-2.5 rounded-full shrink-0",
-                status.ready ? "bg-emerald-500 animate-pulse" : "bg-rose-500 animate-pulse"
-              )} />
+            <div
+              className={cn(
+                'flex items-center gap-3 rounded-lg border px-4 py-3 shadow-sm text-sm bg-white',
+                status.ready ? 'border-emerald-100' : 'border-rose-100',
+              )}
+            >
+              <div
+                className={cn(
+                  'h-2.5 w-2.5 rounded-full shrink-0',
+                  status.ready ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500 animate-pulse',
+                )}
+              />
               <div className="min-w-0 flex-1">
                 <p className="font-semibold text-slate-800">
                   System Status: {status.ready ? 'Ready to work' : 'Configuration Required'}
                 </p>
                 <p className="text-xs text-slate-500 truncate mt-0.5">
-                  Auth Mode: <span className="font-mono text-slate-600 bg-slate-50 px-1 py-0.5 rounded border border-slate-100">{status.authMode}</span>
+                  Auth Mode:{' '}
+                  <span className="font-mono text-slate-600 bg-slate-50 px-1 py-0.5 rounded border border-slate-100">
+                    {status.authMode}
+                  </span>
                   {status.missing.length > 0 && ` • Missing values: ${status.missing.join(', ')}`}
                 </p>
               </div>
@@ -487,20 +529,26 @@ export function KimiConfigPage() {
           )}
 
           {testResult && (
-            <div className={cn(
-              "flex items-center gap-3 rounded-lg border px-4 py-3 shadow-sm text-sm bg-white",
-              testResult.ok ? "border-emerald-100" : "border-rose-100"
-            )}>
-              <div className={cn(
-                "h-2.5 w-2.5 rounded-full shrink-0",
-                testResult.ok ? "bg-emerald-500" : "bg-rose-500"
-              )} />
+            <div
+              className={cn(
+                'flex items-center gap-3 rounded-lg border px-4 py-3 shadow-sm text-sm bg-white',
+                testResult.ok ? 'border-emerald-100' : 'border-rose-100',
+              )}
+            >
+              <div
+                className={cn(
+                  'h-2.5 w-2.5 rounded-full shrink-0',
+                  testResult.ok ? 'bg-emerald-500' : 'bg-rose-500',
+                )}
+              />
               <div className="min-w-0 flex-1">
                 <p className="font-semibold text-slate-800">
                   Connection Status: {testResult.ok ? 'Connection Successful' : 'Connection Failed'}
                 </p>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  {testResult.ok ? 'Successfully validated model keys and base gateway API.' : `Error: ${testResult.error}`}
+                  {testResult.ok
+                    ? 'Successfully validated model keys and base gateway API.'
+                    : `Error: ${testResult.error}`}
                 </p>
               </div>
             </div>
@@ -509,7 +557,6 @@ export function KimiConfigPage() {
 
         {/* Tab Layout Container */}
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-          
           {/* Sidebar Tab Selector */}
           <div className="lg:col-span-1 space-y-1 bg-white p-3 rounded-lg border border-slate-200 shadow-sm h-fit">
             {tabs.map((tab) => (
@@ -524,21 +571,26 @@ export function KimiConfigPage() {
                   'w-full text-left px-3.5 py-3 rounded-md transition-all duration-150 group cursor-pointer border border-transparent',
                   activeTab === tab.id
                     ? 'bg-indigo-50 border-indigo-100/50 text-indigo-700 shadow-sm'
-                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900',
                 )}
               >
                 <p className="text-sm font-semibold">{tab.label}</p>
-                <p className={cn(
-                  "text-[10px] mt-0.5 truncate",
-                  activeTab === tab.id ? "text-indigo-500/80" : "text-slate-400 group-hover:text-slate-500"
-                )}>{tab.description}</p>
+                <p
+                  className={cn(
+                    'text-[10px] mt-0.5 truncate',
+                    activeTab === tab.id
+                      ? 'text-indigo-500/80'
+                      : 'text-slate-400 group-hover:text-slate-500',
+                  )}
+                >
+                  {tab.description}
+                </p>
               </button>
             ))}
           </div>
 
           {/* Form Tabs Content Area */}
           <div className="lg:col-span-3 space-y-6">
-            
             {/* 1. GENERAL SETTINGS */}
             {activeTab === 'general' && (
               <div className="space-y-6 animate-in fade-in duration-200">
@@ -578,7 +630,9 @@ export function KimiConfigPage() {
                       <Select
                         id="default-theme"
                         value={draft.defaults.theme}
-                        onChange={(e) => updateDefaults({ theme: e.target.value as 'dark' | 'light' })}
+                        onChange={(e) =>
+                          updateDefaults({ theme: e.target.value as 'dark' | 'light' })
+                        }
                       >
                         <option value="dark">Dark Theme</option>
                         <option value="light">Light Theme</option>
@@ -615,14 +669,18 @@ export function KimiConfigPage() {
                         label="Merge All Available Skills"
                         sublabel="Merge global and workspace local skills during execution cycles"
                         checked={draft.defaults.mergeAllAvailableSkills}
-                        onChange={(e) => updateDefaults({ mergeAllAvailableSkills: e.target.checked })}
+                        onChange={(e) =>
+                          updateDefaults({ mergeAllAvailableSkills: e.target.checked })
+                        }
                       />
                     </div>
                   </div>
 
                   <div className="border-t border-slate-100 pt-4">
                     <Label>Extra Skills Directories</Label>
-                    <p className="text-[10px] text-slate-400 mb-3">Add absolute filesystem folders to index supplementary skills</p>
+                    <p className="text-[10px] text-slate-400 mb-3">
+                      Add absolute filesystem folders to index supplementary skills
+                    </p>
                     <div className="space-y-2">
                       {draft.defaults.extraSkillDirs.map((dir, i) => (
                         // biome-ignore lint/suspicious/noArrayIndexKey: admin index stable
@@ -748,8 +806,12 @@ export function KimiConfigPage() {
                   <div className="space-y-4">
                     <div className="flex items-center justify-between bg-slate-50 p-3 rounded-lg border border-slate-100">
                       <div>
-                        <span className="text-xs font-semibold text-slate-700 block">Default System Model</span>
-                        <span className="text-[10px] text-slate-400">Preferred large language model for standard tasks</span>
+                        <span className="text-xs font-semibold text-slate-700 block">
+                          Default System Model
+                        </span>
+                        <span className="text-[10px] text-slate-400">
+                          Preferred large language model for standard tasks
+                        </span>
                       </div>
                       <Select
                         value={draft.defaults.model}
@@ -775,7 +837,10 @@ export function KimiConfigPage() {
                           const m = draft.models[id];
                           if (!m) return null;
                           return (
-                            <div key={id} className="border border-slate-200 rounded-lg p-4 bg-white shadow-sm space-y-3 relative hover:border-slate-300 transition-all">
+                            <div
+                              key={id}
+                              className="border border-slate-200 rounded-lg p-4 bg-white shadow-sm space-y-3 relative hover:border-slate-300 transition-all"
+                            >
                               <div className="flex justify-between items-center border-b border-slate-100 pb-2">
                                 <span className="text-xs font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded font-mono truncate max-w-[200px]">
                                   {id}
@@ -845,7 +910,9 @@ export function KimiConfigPage() {
                                   <Input
                                     value={m.displayName ?? ''}
                                     placeholder="e.g. Kimi Coding Engine"
-                                    onChange={(e) => updateModel(id, { displayName: e.target.value })}
+                                    onChange={(e) =>
+                                      updateModel(id, { displayName: e.target.value })
+                                    }
                                   />
                                 </div>
                               </div>
@@ -873,8 +940,12 @@ export function KimiConfigPage() {
                   <div className="space-y-4">
                     <div className="flex items-center justify-between bg-slate-50/50 p-3 rounded-lg border border-slate-100">
                       <div>
-                        <span className="text-sm font-semibold text-slate-700">Enable Google / Web Search</span>
-                        <p className="text-xs text-slate-400 mt-0.5">Let the agent scan the live internet when encountering unknown frameworks</p>
+                        <span className="text-sm font-semibold text-slate-700">
+                          Enable Google / Web Search
+                        </span>
+                        <p className="text-xs text-slate-400 mt-0.5">
+                          Let the agent scan the live internet when encountering unknown frameworks
+                        </p>
                       </div>
                       <input
                         type="checkbox"
@@ -929,8 +1000,12 @@ export function KimiConfigPage() {
                   <div className="space-y-4">
                     <div className="flex items-center justify-between bg-slate-50/50 p-3 rounded-lg border border-slate-100">
                       <div>
-                        <span className="text-sm font-semibold text-slate-700">Enable Markdown Fetching</span>
-                        <p className="text-xs text-slate-400 mt-0.5">Allows downloading and indexing URL documentation content</p>
+                        <span className="text-sm font-semibold text-slate-700">
+                          Enable Markdown Fetching
+                        </span>
+                        <p className="text-xs text-slate-400 mt-0.5">
+                          Allows downloading and indexing URL documentation content
+                        </p>
                       </div>
                       <input
                         type="checkbox"
@@ -968,9 +1043,10 @@ export function KimiConfigPage() {
                             value={draft.services.fetch.apiKey}
                             onChange={(e) =>
                               updateServices({
-                                fetch: { ...draft.services.fetch, apiKey: e.target.value } as NonNullable<
-                                  typeof draft.services.fetch
-                                >,
+                                fetch: {
+                                  ...draft.services.fetch,
+                                  apiKey: e.target.value,
+                                } as NonNullable<typeof draft.services.fetch>,
                               })
                             }
                           />
@@ -989,7 +1065,9 @@ export function KimiConfigPage() {
                   <div className="flex items-center justify-between bg-indigo-50 border border-indigo-100 p-3 rounded-lg">
                     <div>
                       <span className="text-xs font-bold text-indigo-800 block">Reset Limits</span>
-                      <span className="text-[10px] text-indigo-500/80">Revert loop boundaries to recommended values</span>
+                      <span className="text-[10px] text-indigo-500/80">
+                        Revert loop boundaries to recommended values
+                      </span>
                     </div>
                     <button
                       type="button"
@@ -1004,28 +1082,44 @@ export function KimiConfigPage() {
                       <Label>Max Steps Per Turn</Label>
                       <NumberInput
                         value={draft.loopControl.maxStepsPerTurn}
-                        onChange={(e) => updateLoopControl({ maxStepsPerTurn: Math.max(1, Number(e.target.value)) })}
+                        onChange={(e) =>
+                          updateLoopControl({
+                            maxStepsPerTurn: Math.max(1, Number(e.target.value)),
+                          })
+                        }
                       />
                     </div>
                     <div>
                       <Label>Max Retries Per Step</Label>
                       <NumberInput
                         value={draft.loopControl.maxRetriesPerStep}
-                        onChange={(e) => updateLoopControl({ maxRetriesPerStep: Math.max(0, Number(e.target.value)) })}
+                        onChange={(e) =>
+                          updateLoopControl({
+                            maxRetriesPerStep: Math.max(0, Number(e.target.value)),
+                          })
+                        }
                       />
                     </div>
                     <div>
                       <Label>Max Ralph Iterations</Label>
                       <NumberInput
                         value={draft.loopControl.maxRalphIterations}
-                        onChange={(e) => updateLoopControl({ maxRalphIterations: Math.max(0, Number(e.target.value)) })}
+                        onChange={(e) =>
+                          updateLoopControl({
+                            maxRalphIterations: Math.max(0, Number(e.target.value)),
+                          })
+                        }
                       />
                     </div>
                     <div>
                       <Label>Reserved Context Size</Label>
                       <NumberInput
                         value={draft.loopControl.reservedContextSize}
-                        onChange={(e) => updateLoopControl({ reservedContextSize: Math.max(0, Number(e.target.value)) })}
+                        onChange={(e) =>
+                          updateLoopControl({
+                            reservedContextSize: Math.max(0, Number(e.target.value)),
+                          })
+                        }
                       />
                     </div>
                     <div className="md:col-span-2">
@@ -1042,7 +1136,9 @@ export function KimiConfigPage() {
                           }
                           className="flex-1 accent-indigo-600 h-2 bg-slate-200 rounded-lg cursor-pointer"
                         />
-                        <span className="text-sm font-mono font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">{draft.loopControl.compactionTriggerRatio}</span>
+                        <span className="text-sm font-mono font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+                          {draft.loopControl.compactionTriggerRatio}
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -1054,21 +1150,29 @@ export function KimiConfigPage() {
                       <Label>Max Concurrency Tasks</Label>
                       <NumberInput
                         value={draft.background.maxRunningTasks}
-                        onChange={(e) => updateBackground({ maxRunningTasks: Math.max(1, Number(e.target.value)) })}
+                        onChange={(e) =>
+                          updateBackground({ maxRunningTasks: Math.max(1, Number(e.target.value)) })
+                        }
                       />
                     </div>
                     <div>
                       <Label>Read Stream Chunk (Bytes)</Label>
                       <NumberInput
                         value={draft.background.readMaxBytes}
-                        onChange={(e) => updateBackground({ readMaxBytes: Math.max(100, Number(e.target.value)) })}
+                        onChange={(e) =>
+                          updateBackground({ readMaxBytes: Math.max(100, Number(e.target.value)) })
+                        }
                       />
                     </div>
                     <div>
                       <Label>Agent Timeout Limit (Seconds)</Label>
                       <NumberInput
                         value={draft.background.agentTaskTimeoutS}
-                        onChange={(e) => updateBackground({ agentTaskTimeoutS: Math.max(10, Number(e.target.value)) })}
+                        onChange={(e) =>
+                          updateBackground({
+                            agentTaskTimeoutS: Math.max(10, Number(e.target.value)),
+                          })
+                        }
                       />
                     </div>
                     <div>
@@ -1076,7 +1180,9 @@ export function KimiConfigPage() {
                       <NumberInput
                         value={draft.background.notificationTailLines}
                         onChange={(e) =>
-                          updateBackground({ notificationTailLines: Math.max(1, Number(e.target.value)) })
+                          updateBackground({
+                            notificationTailLines: Math.max(1, Number(e.target.value)),
+                          })
                         }
                       />
                     </div>
@@ -1085,7 +1191,9 @@ export function KimiConfigPage() {
                       <NumberInput
                         value={draft.background.notificationTailChars}
                         onChange={(e) =>
-                          updateBackground({ notificationTailChars: Math.max(10, Number(e.target.value)) })
+                          updateBackground({
+                            notificationTailChars: Math.max(10, Number(e.target.value)),
+                          })
                         }
                       />
                     </div>
@@ -1093,7 +1201,11 @@ export function KimiConfigPage() {
                       <Label>Log Poll Interval (ms)</Label>
                       <NumberInput
                         value={draft.background.waitPollIntervalMs}
-                        onChange={(e) => updateBackground({ waitPollIntervalMs: Math.max(10, Number(e.target.value)) })}
+                        onChange={(e) =>
+                          updateBackground({
+                            waitPollIntervalMs: Math.max(10, Number(e.target.value)),
+                          })
+                        }
                       />
                     </div>
                     <div>
@@ -1101,7 +1213,9 @@ export function KimiConfigPage() {
                       <NumberInput
                         value={draft.background.workerHeartbeatIntervalMs}
                         onChange={(e) =>
-                          updateBackground({ workerHeartbeatIntervalMs: Math.max(100, Number(e.target.value)) })
+                          updateBackground({
+                            workerHeartbeatIntervalMs: Math.max(100, Number(e.target.value)),
+                          })
                         }
                       />
                     </div>
@@ -1109,14 +1223,22 @@ export function KimiConfigPage() {
                       <Label>Worker Expire Limit (ms)</Label>
                       <NumberInput
                         value={draft.background.workerStaleAfterMs}
-                        onChange={(e) => updateBackground({ workerStaleAfterMs: Math.max(500, Number(e.target.value)) })}
+                        onChange={(e) =>
+                          updateBackground({
+                            workerStaleAfterMs: Math.max(500, Number(e.target.value)),
+                          })
+                        }
                       />
                     </div>
                     <div>
                       <Label>Task Graceful Terminate (ms)</Label>
                       <NumberInput
                         value={draft.background.killGracePeriodMs}
-                        onChange={(e) => updateBackground({ killGracePeriodMs: Math.max(0, Number(e.target.value)) })}
+                        onChange={(e) =>
+                          updateBackground({
+                            killGracePeriodMs: Math.max(0, Number(e.target.value)),
+                          })
+                        }
                       />
                     </div>
                     <div className="lg:col-span-3 pt-2">
@@ -1139,35 +1261,55 @@ export function KimiConfigPage() {
                   <Section title="Server Environment & Limits (Read-only)">
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
                       <div className="p-3 bg-slate-50 rounded-lg border border-slate-100 flex flex-col justify-between">
-                        <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider block">Workspace Directory</span>
-                        <span className="text-xs font-mono text-slate-700 mt-1.5 truncate block" title={status.system.workspaceRoot}>
+                        <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider block">
+                          Workspace Directory
+                        </span>
+                        <span
+                          className="text-xs font-mono text-slate-700 mt-1.5 truncate block"
+                          title={status.system.workspaceRoot}
+                        >
                           {status.system.workspaceRoot}
                         </span>
                       </div>
                       <div className="p-3 bg-slate-50 rounded-lg border border-slate-100 flex flex-col justify-between">
-                        <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider block">Max Upload File Limit</span>
+                        <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider block">
+                          Max Upload File Limit
+                        </span>
                         <span className="text-sm font-semibold text-slate-800 mt-1.5 block">
-                          {(status.system.maxUploadBytes / (1024 * 1024)).toFixed(0)} MB <span className="text-xs text-slate-400 font-normal">({status.system.maxUploadBytes.toLocaleString()} bytes)</span>
+                          {(status.system.maxUploadBytes / (1024 * 1024)).toFixed(0)} MB{' '}
+                          <span className="text-xs text-slate-400 font-normal">
+                            ({status.system.maxUploadBytes.toLocaleString()} bytes)
+                          </span>
                         </span>
                       </div>
                       <div className="p-3 bg-slate-50 rounded-lg border border-slate-100 flex flex-col justify-between">
-                        <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider block">Server Log Level</span>
+                        <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider block">
+                          Server Log Level
+                        </span>
                         <span className="text-sm font-semibold text-slate-800 mt-1.5 block uppercase">
                           {status.system.logLevel}
                         </span>
                       </div>
                       <div className="p-3 bg-slate-50 rounded-lg border border-slate-100 flex flex-col justify-between">
-                        <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider block">Active Node Port</span>
+                        <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider block">
+                          Active Node Port
+                        </span>
                         <span className="text-sm font-mono font-bold text-slate-700 mt-1.5 block">
                           :{status.system.port}
                         </span>
                       </div>
                       <div className="p-3 bg-slate-50 rounded-lg border border-slate-100 flex flex-col justify-between">
-                        <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider block">Server Environment Mode</span>
-                        <span className={cn(
-                          "text-xs font-semibold px-2 py-0.5 rounded border mt-1.5 w-fit block",
-                          status.system.nodeEnv === 'production' ? "bg-amber-50 border-amber-100 text-amber-800" : "bg-blue-50 border-blue-100 text-blue-800"
-                        )}>
+                        <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider block">
+                          Server Environment Mode
+                        </span>
+                        <span
+                          className={cn(
+                            'text-xs font-semibold px-2 py-0.5 rounded border mt-1.5 w-fit block',
+                            status.system.nodeEnv === 'production'
+                              ? 'bg-amber-50 border-amber-100 text-amber-800'
+                              : 'bg-blue-50 border-blue-100 text-blue-800',
+                          )}
+                        >
                           {status.system.nodeEnv}
                         </span>
                       </div>
@@ -1181,21 +1323,31 @@ export function KimiConfigPage() {
                       <Label>Stale Alert Limit (ms)</Label>
                       <NumberInput
                         value={draft.notifications.claimStaleAfterMs}
-                        onChange={(e) => updateNotifications({ claimStaleAfterMs: Math.max(100, Number(e.target.value)) })}
+                        onChange={(e) =>
+                          updateNotifications({
+                            claimStaleAfterMs: Math.max(100, Number(e.target.value)),
+                          })
+                        }
                       />
                     </div>
                     <div>
                       <Label>MCP Server Tool Timeout (ms)</Label>
                       <NumberInput
                         value={draft.mcpClient.toolCallTimeoutMs}
-                        onChange={(e) => updateMcpClient({ toolCallTimeoutMs: Math.max(100, Number(e.target.value)) })}
+                        onChange={(e) =>
+                          updateMcpClient({
+                            toolCallTimeoutMs: Math.max(100, Number(e.target.value)),
+                          })
+                        }
                       />
                     </div>
                   </div>
                 </Section>
 
                 <Section title="Automation Shell Webhooks (Hooks)">
-                  <p className="text-[10px] text-slate-400 -mt-2.5 mb-3">Hook shell execution codes trigger at specific engine workflow cycles</p>
+                  <p className="text-[10px] text-slate-400 -mt-2.5 mb-3">
+                    Hook shell execution codes trigger at specific engine workflow cycles
+                  </p>
                   <div className="space-y-4">
                     {draft.hooks.length === 0 ? (
                       <p className="text-xs text-slate-400 italic text-center py-6 border border-dashed border-slate-200 rounded-lg">
@@ -1229,7 +1381,9 @@ export function KimiConfigPage() {
                             <Input
                               placeholder="e.g. *.go (Optional)"
                               value={h.matcher ?? ''}
-                              onChange={(e) => updateHook(i, { matcher: e.target.value || undefined })}
+                              onChange={(e) =>
+                                updateHook(i, { matcher: e.target.value || undefined })
+                              }
                             />
                           </div>
                           <div className="md:col-span-2">
@@ -1269,7 +1423,10 @@ export function KimiConfigPage() {
                 <Section title="Raw TOML Configuration Overrides">
                   <div>
                     <Label htmlFor="toml-override">Raw TOML Bypass editor</Label>
-                    <p className="text-[10px] text-slate-400 mb-2">Write raw TOML attributes to directly override material `.kimi/config.toml` outputs</p>
+                    <p className="text-[10px] text-slate-400 mb-2">
+                      Write raw TOML attributes to directly override material `.kimi/config.toml`
+                      outputs
+                    </p>
                     <textarea
                       id="toml-override"
                       value={draft.extraTomlOverride}
@@ -1284,7 +1441,6 @@ export function KimiConfigPage() {
                 </Section>
               </div>
             )}
-
           </div>
         </div>
       </div>

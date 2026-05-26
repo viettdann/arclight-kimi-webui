@@ -20,14 +20,11 @@ function buildApp(
 ) {
   const effectiveFetch =
     fetchFn ??
-    (((async () =>
-      new Response(JSON.stringify({ data: [] }), { status: 200 })) as unknown) as typeof fetch);
+    ((async () =>
+      new Response(JSON.stringify({ data: [] }), { status: 200 })) as unknown as typeof fetch);
   const app = new Hono();
   app.use('*', mockAuth);
-  app.route(
-    '/',
-    createKimiConfigRouter({ db: fakeDb.db, fetchFn: effectiveFetch, shareDir }),
-  );
+  app.route('/', createKimiConfigRouter({ db: fakeDb.db, fetchFn: effectiveFetch, shareDir }));
   return app;
 }
 

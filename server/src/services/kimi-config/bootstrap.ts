@@ -29,8 +29,7 @@ export async function bootstrap(
   const row = await loadOrSeed(db);
 
   const tomlPath = path.join(shareDir, 'config.toml');
-  const shouldWrite =
-    mode === 'always' || (mode === 'if-missing' && !existsSync(tomlPath));
+  const shouldWrite = mode === 'always' || (mode === 'if-missing' && !existsSync(tomlPath));
 
   if (shouldWrite) {
     writeConfigToml(row, shareDir);
