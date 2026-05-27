@@ -2,6 +2,8 @@ import type {
   Block,
   DisplayBlock,
   SessionStatus,
+  SlashCommand,
+  SlashCommandsPayload,
   SnapshotPayload,
   WSMessageType,
 } from 'shared/types';
@@ -13,8 +15,12 @@ export interface ChatSessionState {
   tokenUsage: number | null;
   contextUsage: number | null;
   title: string | null;
+  slashCommands: SlashCommand[];
   pendingPrompt: { text: string; enqueuedAt: string } | null;
   isTurnInProgress: boolean;
+  /** Per-session agent flags, mirrored from the snapshot (true server state). */
+  thinking: boolean;
+  yoloMode: boolean;
   liveTurnIdx: number | null;
   liveStepIdx: number | null;
   subagentStates: Record<string, { liveTurnIdx: number | null; liveStepIdx: number | null }>;
@@ -26,6 +32,8 @@ interface ChatStore {
   loadSnapshot: (sessionId: string, payload: SnapshotPayload) => void;
   applyEvent: (sessionId: string, type: WSMessageType, payload: any) => void;
   addPendingUserBlock: (sessionId: string, text: string) => void;
+  /** Optimistic local update of agent flags; server echoes the truth via snapshot. */
+  setSessionFlags: (sessionId: string, flags: { thinking?: boolean; yoloMode?: boolean }) => void;
 }
 
 const createDefaultSessionState = (): ChatSessionState => ({
@@ -34,8 +42,11 @@ const createDefaultSessionState = (): ChatSessionState => ({
   tokenUsage: null,
   contextUsage: null,
   title: null,
+  slashCommands: [],
   pendingPrompt: null,
   isTurnInProgress: false,
+  thinking: true,
+  yoloMode: false,
   liveTurnIdx: null,
   liveStepIdx: null,
   subagentStates: {},
@@ -336,8 +347,11 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         tokenUsage: payload.totalTokens,
         contextUsage: null,
         title: payload.title,
+        slashCommands: payload.slashCommands ?? [],
         pendingPrompt: payload.pendingPrompt,
         isTurnInProgress: payload.live.turnInProgress,
+        thinking: payload.thinking ?? true,
+        yoloMode: payload.yoloMode ?? false,
         liveTurnIdx: payload.live.turnIdx,
         liveStepIdx: payload.live.stepIdx,
         subagentStates: {},
@@ -498,6 +512,13 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             session.title = payload.title;
           }
           break;
+        case 'slash_commands': {
+          const commands = (payload as SlashCommandsPayload)?.commands;
+          if (Array.isArray(commands)) {
+            session.slashCommands = commands;
+          }
+          break;
+        }
         case 'error':
           session.isTurnInProgress = false;
           break;
@@ -534,6 +555,18 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       session.blocks = [...filtered, pendingBlock];
       session.pendingPrompt = { text, enqueuedAt: new Date().toISOString() };
 
+      sessions[sessionId] = session;
+      return { sessions };
+    });
+  },
+
+  setSessionFlags: (sessionId, flags) => {
+    get().getOrCreateSession(sessionId);
+    set((state) => {
+      const sessions = { ...state.sessions };
+      const session = { ...sessions[sessionId]! };
+      if (flags.thinking !== undefined) session.thinking = flags.thinking;
+      if (flags.yoloMode !== undefined) session.yoloMode = flags.yoloMode;
       sessions[sessionId] = session;
       return { sessions };
     });

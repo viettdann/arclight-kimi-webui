@@ -1,11 +1,12 @@
 import { readFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import { eq } from 'drizzle-orm';
-import type { QuestionItemDTO, SessionStatus, SnapshotPayload } from 'shared/types';
+import type { QuestionItemDTO, SessionStatus, SlashCommand, SnapshotPayload } from 'shared/types';
 import { type DB, db, schema } from '../db';
 import { kimiPaths } from './kimi-config/paths';
 import { peekPendingPrompt } from './pending-prompts';
 import type { ActiveSession, KimiSessionManager } from './session-manager';
+import { getSlashCommands } from './slash-commands-cache';
 import { type LiveOverlay, parseWireFromBytes, wireEventsToBlocks } from './wire-events';
 
 export interface BuildSnapshotArgs {
@@ -31,6 +32,16 @@ export async function buildSnapshot(args: BuildSnapshotArgs): Promise<SnapshotPa
   const overlay = active ? buildLiveOverlay(active) : null;
   const blocks = wireEventsToBlocks(events, { overlay });
 
+  // Snapshot reads slash commands from cache only — it must never spawn a
+  // warm-init probe (that would add ~seconds of latency to every reconnect).
+  // create_session / reconnect own the warm-init and re-broadcast the list.
+  let slashCommands: SlashCommand[] = [];
+  try {
+    slashCommands = await getSlashCommands(sessRow.workDir, { cacheOnly: true });
+  } catch {
+    slashCommands = [];
+  }
+
   const pending = await peekPendingPrompt(args.sessionId, dbh);
   if (pending !== null) {
     blocks.push({
@@ -50,6 +61,9 @@ export async function buildSnapshot(args: BuildSnapshotArgs): Promise<SnapshotPa
     pendingPrompt: pending
       ? { text: pending.text, enqueuedAt: pending.enqueuedAt.toISOString() }
       : null,
+    thinking: sessRow.thinking,
+    yoloMode: sessRow.yoloMode,
+    slashCommands,
     live: {
       turnInProgress: active?.currentTurn != null,
       turnIdx: active?.liveTurnIdx ?? null,
@@ -73,6 +87,9 @@ export function emptySnapshot(status: SessionStatus): SnapshotPayload {
     totalTokens: 0,
     title: null,
     pendingPrompt: null,
+    thinking: true,
+    yoloMode: false,
+    slashCommands: [],
     live: {
       turnInProgress: false,
       turnIdx: null,

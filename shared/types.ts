@@ -38,6 +38,7 @@ export type WSMessageType =
   | 'session_state'
   | 'title_update'
   | 'project_adopted'
+  | 'slash_commands'
   | 'error'
   // client → server
   | 'subscribe'
@@ -178,6 +179,18 @@ export interface QuestionItemDTO {
   multiSelect?: boolean;
 }
 
+/**
+ * One slash command available in a session's workDir, mirroring the SDK
+ * `SlashCommandInfo` (and `InitializeResult.slash_commands`). Surfaced to the
+ * composer picker; sourced from a warm-init ProtocolClient probe keyed by
+ * `(workDir, skillsDir)`, NOT from the live session.
+ */
+export interface SlashCommand {
+  name: string;
+  description: string;
+  aliases: string[];
+}
+
 // ─────────────────────────── Server → Client payloads ───────────────────────────
 
 export interface SnapshotPayload {
@@ -186,6 +199,19 @@ export interface SnapshotPayload {
   totalTokens: number;
   title: string | null;
   pendingPrompt: { text: string; enqueuedAt: string } | null;
+  /**
+   * Per-session agent flags, sourced from the sessions row (re-read on restore).
+   * Carried in the snapshot so the composer's approval/thinking selectors
+   * reflect the true server state after reload — not a stale local default.
+   */
+  thinking: boolean;
+  yoloMode: boolean;
+  /**
+   * Slash commands available in this session's workDir. Carried in the snapshot
+   * (not only a one-shot event) so the composer picker survives reload/resume.
+   * Empty when the warm-init probe failed or has not run yet.
+   */
+  slashCommands: SlashCommand[];
   live: {
     /** True iff the server still has an in-flight Turn for this session. */
     turnInProgress: boolean;
@@ -196,6 +222,11 @@ export interface SnapshotPayload {
     /** Current part index of the in-flight text section (per turn+step). */
     textPartIdx: number;
   };
+}
+
+/** Server→client push of the workDir's slash commands (also embedded in snapshot). */
+export interface SlashCommandsPayload {
+  commands: SlashCommand[];
 }
 
 export interface ReplayDonePayload {
@@ -342,6 +373,14 @@ export interface ResumeSessionPayload {
 
 export interface SendMessagePayload {
   content: string;
+  /**
+   * Per-session agent flags to apply for this prompt onward. The composer's
+   * Thinking/approval toggles are local UI state until the user sends; they
+   * ride along here so a flag change costs no extra message and persists
+   * exactly when it first takes effect. Omitted fields are left unchanged.
+   */
+  thinking?: boolean;
+  yoloMode?: boolean;
 }
 
 // Mirrors `ApprovalResponse` from `@moonshot-ai/kimi-agent-sdk`.

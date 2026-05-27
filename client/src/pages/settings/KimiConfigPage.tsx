@@ -54,7 +54,7 @@ function emptyConfig(): KimiConfigDTO {
   return {
     defaults: {
       model: '',
-      thinking: false,
+      thinking: true,
       yolo: false,
       planMode: false,
       editor: '',

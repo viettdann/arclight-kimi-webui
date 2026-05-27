@@ -15,6 +15,7 @@ import { maskConfigDTO } from '../services/kimi-config/mask';
 import { computeConfigStatus } from '../services/kimi-config/status';
 import { type FetchFn, testConnection } from '../services/kimi-config/test-connection';
 import { writeConfigToml } from '../services/kimi-config/write-toml';
+import { clearSlashCommandsCache } from '../services/slash-commands-cache';
 
 export interface KimiConfigRouterDeps {
   db: DB;
@@ -125,6 +126,10 @@ export function createKimiConfigRouter(
 
     // Re-render TOML file after update
     writeConfigToml(next, deps.shareDir);
+
+    // Editing skills/config can change the available command list; drop the
+    // cache so the next warm-init probe rebuilds it.
+    clearSlashCommandsCache();
 
     const dto: KimiConfigDTO = maskConfigDTO(next);
     return c.json(dto);

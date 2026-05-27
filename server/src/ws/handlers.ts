@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { CliErrorCodes, getErrorCode } from '@moonshot-ai/kimi-agent-sdk';
 import type { ServerWebSocket } from 'bun';
+import { eq } from 'drizzle-orm';
 import type {
   AdoptProjectPayload,
   AnswerQuestionPayload,
@@ -14,6 +15,8 @@ import type {
   ResumeSessionPayload,
   SendMessagePayload,
   SessionStatePayload,
+  SlashCommand,
+  SlashCommandsPayload,
   SnapshotPayload,
   SteerInputPayload,
   SubscribePayload,
@@ -42,6 +45,7 @@ import {
   sessionManager as defaultManager,
   type KimiSessionManager,
 } from '../services/session-manager';
+import { getSlashCommands } from '../services/slash-commands-cache';
 import { buildSnapshot, emptySnapshot } from '../services/snapshot';
 import { deriveProjectName } from '../services/work-dir';
 import { closeAuthExpired } from './close-codes';
@@ -287,7 +291,8 @@ async function handleCreateSession(
   } catch {
     // Config table may be absent in test fakes; fall through to `false`.
   }
-  const thinking = payload.thinking ?? cfgDefaults?.thinking ?? false;
+  // Thinking is on by default: payload wins, else configured default, else true.
+  const thinking = payload.thinking ?? cfgDefaults?.thinking ?? true;
   const yoloMode = payload.yoloMode ?? cfgDefaults?.yolo ?? false;
 
   let kimi: ReturnType<typeof createKimi>;
@@ -340,8 +345,29 @@ async function handleCreateSession(
     logger.warn({ err, sessionId: sessionRowId }, 'initial session_files seed failed');
   }
 
+  // Warm-init the slash-command picker for this workDir. Best-effort: a failed
+  // probe just leaves the picker empty — the session is still fully usable.
+  let slashCommands: SlashCommand[] = [];
+  try {
+    slashCommands = await getSlashCommands(workDir, { env: envVars });
+  } catch {
+    // picker stays empty
+  }
+
   broadcastEvent<SessionStatePayload>(active, 'session_state', { state: 'active' }, deps.manager);
-  broadcastEvent<SnapshotPayload>(active, 'snapshot', emptySnapshot('active'), deps.manager);
+  // Carry the resolved flags + slashCommands in the snapshot so reload/resume
+  // restores the picker and the approval/thinking selectors to true state.
+  const snap = emptySnapshot('active');
+  snap.thinking = thinking;
+  snap.yoloMode = yoloMode;
+  snap.slashCommands = slashCommands;
+  broadcastEvent<SnapshotPayload>(active, 'snapshot', snap, deps.manager);
+  broadcastEvent<SlashCommandsPayload>(
+    active,
+    'slash_commands',
+    { commands: slashCommands },
+    deps.manager,
+  );
   sendDirect(
     ws,
     envelope<ReplayDonePayload>('replay_done', { lastSeq: active.lastSeq }, active.sessionId),
@@ -369,6 +395,31 @@ async function handleSendMessage(
   if (active.currentTurn !== null) {
     sendError(ws, 'turn_in_progress', sessionId);
     return;
+  }
+  // Apply composer flags that ride along with the send. Only fields that
+  // actually flip are written — a resend with unchanged flags is a no-op, so
+  // there is nothing to spam. The SDK reads thinking/yoloMode when the prompt
+  // below spawns the turn, so this is the right moment to commit them.
+  if (
+    (payload.thinking !== undefined && typeof payload.thinking !== 'boolean') ||
+    (payload.yoloMode !== undefined && typeof payload.yoloMode !== 'boolean')
+  ) {
+    sendError(ws, 'bad_request', sessionId);
+    return;
+  }
+  const flagChanges: { thinking?: boolean; yoloMode?: boolean } = {};
+  if (payload.thinking !== undefined && payload.thinking !== active.kimiSession.thinking) {
+    flagChanges.thinking = payload.thinking;
+  }
+  if (payload.yoloMode !== undefined && payload.yoloMode !== active.kimiSession.yoloMode) {
+    flagChanges.yoloMode = payload.yoloMode;
+  }
+  if (flagChanges.thinking !== undefined || flagChanges.yoloMode !== undefined) {
+    Object.assign(active.kimiSession, flagChanges);
+    await deps.db
+      .update(schema.kimiSessions)
+      .set(flagChanges)
+      .where(eq(schema.kimiSessions.id, sessionId));
   }
   await enqueuePendingPrompt(active.sessionId, payload.content, deps.db);
   let turn;
@@ -595,6 +646,24 @@ async function reconnect(
     ws,
     envelope<ReplayDonePayload>('replay_done', { lastSeq: active.lastSeq }, active.sessionId),
   );
+
+  // After a server restart the warm-init cache is empty, so the snapshot above
+  // carried no slash commands. Re-warm in the background (detached — never
+  // block reconnect) and broadcast the list once it lands. Cache hit returns
+  // immediately and re-broadcasts the same list, which is harmless.
+  if (needSnapshot) {
+    void getSlashCommands(active.workDir)
+      .then((commands) => {
+        if (commands.length === 0) return;
+        broadcastEvent<SlashCommandsPayload>(active, 'slash_commands', { commands }, deps.manager);
+      })
+      .catch((err) => {
+        logger.warn(
+          { err, sessionId: active.sessionId },
+          'reconnect slash-commands warm-init failed',
+        );
+      });
+  }
   return active;
 }
 
