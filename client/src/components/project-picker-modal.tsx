@@ -19,7 +19,7 @@ interface ProjectPickerModalProps {
 export function ProjectPickerModal({ isOpen, onClose, projects }: ProjectPickerModalProps) {
   const handlePick = (project: ProjectSummary) => {
     if (project.origin === 'foreign') return;
-    sendWS('create_session', { workDir: project.workDir, thinking: true });
+    sendWS('create_session', { workDir: project.workDir });
     onClose();
   };
 

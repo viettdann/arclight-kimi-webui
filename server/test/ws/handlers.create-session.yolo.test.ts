@@ -102,7 +102,7 @@ describe('handleCreateSession — yoloMode plumbing', () => {
     expect(errors[0]?.payload.code).toBe('bad_request');
   });
 
-  it('defaults yoloMode to false in DB insert and omits it from createKimi args when payload omits it', async () => {
+  it('defaults yoloMode to false in both createKimi args and DB insert when payload omits it', async () => {
     const fake = makeFakeDb();
     const createKimiCalls: CreateKimiArgs[] = [];
     const fakeCreateKimi = (args: CreateKimiArgs): Session => {
@@ -128,9 +128,10 @@ describe('handleCreateSession — yoloMode plumbing', () => {
     );
 
     expect(createKimiCalls.length).toBe(1);
-    // Handler spreads `...(payload.yoloMode != null ? {yoloMode} : {})` —
-    // when payload omits yoloMode, the key is absent from the args object.
-    expect(createKimiCalls[0]?.yoloMode).toBeUndefined();
+    // Handler resolves yoloMode (payload ?? config default ?? false) and always
+    // forwards it. With no payload and a fake DB (loadOrSeed throws → caught),
+    // the resolved value is false.
+    expect(createKimiCalls[0]?.yoloMode).toBe(false);
 
     const insertCall = fake.calls.find(
       (c) => c.op === 'insert' && (c.values as { workDir?: string }).workDir != null,

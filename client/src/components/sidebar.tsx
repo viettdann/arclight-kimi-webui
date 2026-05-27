@@ -192,7 +192,7 @@ export function Sidebar({ isOpen, onClose, onLoginClick }: SidebarProps) {
     }
     if (locals.length === 1) {
       const only = locals[0];
-      if (only) sendWS('create_session', { workDir: only.workDir, thinking: true });
+      if (only) sendWS('create_session', { workDir: only.workDir });
       return;
     }
     setPickerOpen(true);

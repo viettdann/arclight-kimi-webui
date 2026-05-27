@@ -24,17 +24,18 @@ import { validateAuthSession } from '../auth/session-check';
 import { type DB, db, schema } from '../db';
 import { env } from '../env';
 import { auditLog as defaultAuditLog, logger } from '../lib/logger';
-import { broadcastEvent, sendDirect } from '../lib/ws-broadcast';
 import { slugifyProjectName } from '../lib/slug';
+import { broadcastEvent, sendDirect } from '../lib/ws-broadcast';
 import { loadEnvForInjection } from '../services/kimi-config/env-injection';
+import { loadOrSeed } from '../services/kimi-config/load-or-seed';
 import {
   createKimi,
   flushContextAndState,
   pumpTurn,
   restoreFromBackup,
 } from '../services/kimi-session';
-import { adoptProjectForUser, ProjectNotFoundError } from '../services/projects';
 import { clearPendingPrompt, enqueuePendingPrompt } from '../services/pending-prompts';
+import { adoptProjectForUser, ProjectNotFoundError } from '../services/projects';
 import { closeActiveSession } from '../services/session-lifecycle';
 import {
   type ActiveSession,
@@ -277,13 +278,25 @@ async function handleCreateSession(
 
   const envVars = await loadEnvForInjection(deps.db);
 
+  // Resolve thinking/yolo: explicit payload wins, else fall back to the user's
+  // configured defaults (KimiConfig.defaults). Clients should not hardcode these.
+  let cfgDefaults: { thinking: boolean; yolo: boolean } | null = null;
+  try {
+    const cfg = await loadOrSeed(deps.db);
+    cfgDefaults = { thinking: cfg.defaults.thinking, yolo: cfg.defaults.yolo };
+  } catch {
+    // Config table may be absent in test fakes; fall through to `false`.
+  }
+  const thinking = payload.thinking ?? cfgDefaults?.thinking ?? false;
+  const yoloMode = payload.yoloMode ?? cfgDefaults?.yolo ?? false;
+
   let kimi: ReturnType<typeof createKimi>;
   try {
     kimi = deps.createKimi({
       workDir,
       ...(payload.model ? { model: payload.model } : {}),
-      ...(payload.thinking != null ? { thinking: payload.thinking } : {}),
-      ...(payload.yoloMode != null ? { yoloMode: payload.yoloMode } : {}),
+      thinking,
+      yoloMode,
       env: envVars,
     });
   } catch (err) {
@@ -302,8 +315,8 @@ async function handleCreateSession(
     workDir,
     projectName,
     model: payload.model ?? null,
-    thinking: payload.thinking ?? false,
-    yoloMode: payload.yoloMode ?? false,
+    thinking,
+    yoloMode,
     status: 'active',
     kimiSessionId,
     title: null,
@@ -608,10 +621,7 @@ async function handleResumeSession(
   await reconnect(ws, payload.sessionId, true, undefined);
 }
 
-async function handleAdoptProject(
-  ws: WS,
-  payload: AdoptProjectPayload | undefined,
-): Promise<void> {
+async function handleAdoptProject(ws: WS, payload: AdoptProjectPayload | undefined): Promise<void> {
   if (!payload || typeof payload.projectName !== 'string') {
     sendError(ws, 'bad_request');
     return;
