@@ -262,3 +262,73 @@ describe('POST /api/files/upload', () => {
     expect(res.status).toBe(400);
   });
 });
+
+// ─────────────────────────── /write ───────────────────────────
+
+describe('PUT /api/files/write', () => {
+  it('writes a new file, creating parent dirs, with mode 0o600 and audit', async () => {
+    const res = await app.request('/api/files/write', {
+      method: 'PUT',
+      body: JSON.stringify({ path: 'sub/note.txt', content: 'hello world' }),
+      headers: { 'content-type': 'application/json' },
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { written: string; size: number };
+    expect(body).toEqual({ written: 'sub/note.txt', size: 11 });
+
+    const written = await readFile(path.join(userRoot, 'sub/note.txt'), 'utf8');
+    expect(written).toBe('hello world');
+
+    const st = await stat(path.join(userRoot, 'sub/note.txt'));
+    expect(st.mode & 0o777).toBe(0o600);
+
+    expect(auditCalls).toHaveLength(1);
+    expect(auditCalls[0]).toMatchObject({
+      userId: 'u1',
+      action: 'write',
+      path: 'sub/note.txt',
+      bytes: 11,
+    });
+  });
+
+  it('overwrites an existing file', async () => {
+    await writeFile(path.join(userRoot, 'over.txt'), 'old content');
+    const res = await app.request('/api/files/write', {
+      method: 'PUT',
+      body: JSON.stringify({ path: 'over.txt', content: 'new content' }),
+      headers: { 'content-type': 'application/json' },
+    });
+    expect(res.status).toBe(200);
+    const written = await readFile(path.join(userRoot, 'over.txt'), 'utf8');
+    expect(written).toBe('new content');
+  });
+
+  it('returns 403 when path escapes user root', async () => {
+    const res = await app.request('/api/files/write', {
+      method: 'PUT',
+      body: JSON.stringify({ path: '../etc', content: 'x' }),
+      headers: { 'content-type': 'application/json' },
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('returns 400 when target path is an existing directory', async () => {
+    await mkdir(path.join(userRoot, 'wdir'));
+    const res = await app.request('/api/files/write', {
+      method: 'PUT',
+      body: JSON.stringify({ path: 'wdir', content: 'x' }),
+      headers: { 'content-type': 'application/json' },
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 413 when content exceeds READ_MAX_BYTES', async () => {
+    const huge = 'a'.repeat(5 * 1024 * 1024 + 1);
+    const res = await app.request('/api/files/write', {
+      method: 'PUT',
+      body: JSON.stringify({ path: 'huge.txt', content: huge }),
+      headers: { 'content-type': 'application/json' },
+    });
+    expect(res.status).toBe(413);
+  });
+});

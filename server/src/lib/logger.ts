@@ -29,6 +29,7 @@ export type Logger = typeof logger;
 
 export type AuditAction =
   | 'upload'
+  | 'write'
   | 'download'
   | 'session_close'
   | 'session_delete'

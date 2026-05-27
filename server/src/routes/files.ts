@@ -4,7 +4,13 @@ import { Readable } from 'node:stream';
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import busboyLib from 'busboy';
 import { Hono } from 'hono';
-import type { FileEntry, FileListResponse, FileUploadResponse } from 'shared/types';
+import type {
+  FileEntry,
+  FileListResponse,
+  FileUploadResponse,
+  FileWriteRequest,
+  FileWriteResponse,
+} from 'shared/types';
 import { slug } from '../auth';
 import { type AuthVariables, requireAuth } from '../auth/middleware';
 import { env as defaultEnv, type Env } from '../env';
@@ -322,6 +328,74 @@ export function createFilesRoutes(deps: FilesRoutesDeps): Hono<{ Variables: Auth
     Readable.fromWeb(body as unknown as NodeReadableStream<Uint8Array>).pipe(bb);
 
     return responsePromise;
+  });
+
+  // ─────────────────────────── PUT /write ───────────────────────────
+
+  files.put('/write', async (c) => {
+    const user = c.var.user;
+    if (user == null) return c.json({ error: 'unauthorized' }, 401);
+
+    // Reject oversized payloads up front, before buffering the body.
+    const cl = c.req.header('content-length');
+    if (cl && Number(cl) > READ_MAX_BYTES) {
+      return c.json({ error: 'payload_too_large' }, 413);
+    }
+
+    let body: FileWriteRequest;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: 'bad_request' }, 400);
+    }
+    if (
+      typeof body.path !== 'string' ||
+      body.path.length === 0 ||
+      typeof body.content !== 'string'
+    ) {
+      return c.json({ error: 'bad_request' }, 400);
+    }
+
+    const rel = body.path;
+    const content = body.content;
+    const bytes = Buffer.byteLength(content, 'utf8');
+    if (bytes > READ_MAX_BYTES) {
+      return c.json({ error: 'payload_too_large' }, 413);
+    }
+
+    const ctx = await userCtx(user.email, user.id);
+
+    let abs: string;
+    try {
+      abs = await resolveUserPath(ctx.userRoot, rel);
+    } catch {
+      return c.json({ error: 'forbidden' }, 403);
+    }
+
+    // Reject writes onto an existing directory before opening the writer.
+    try {
+      const existing = await stat(abs);
+      if (existing.isDirectory()) {
+        return c.json({ error: 'not_a_file' }, 400);
+      }
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+        return c.json({ error: 'server_error' }, 500);
+      }
+    }
+
+    await mkdir(path.dirname(abs), { recursive: true, mode: 0o700 });
+
+    const writer = Bun.file(abs).writer();
+    writer.write(Buffer.from(content, 'utf8'));
+    await writer.end();
+    // Bun 1.3.13 FileSink doesn't accept a mode argument — chmod after end.
+    await chmod(abs, 0o600);
+
+    auditLog({ userId: ctx.userId, action: 'write', path: rel, bytes });
+
+    const okBody: FileWriteResponse = { written: rel, size: bytes };
+    return c.json(okBody);
   });
 
   return files;

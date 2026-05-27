@@ -390,6 +390,16 @@ export interface FileUploadResponse {
   size: number;
 }
 
+export interface FileWriteRequest {
+  path: string;
+  content: string;
+}
+
+export interface FileWriteResponse {
+  written: string;
+  size: number;
+}
+
 export interface SessionListResponse {
   sessions: SessionListItem[];
 }

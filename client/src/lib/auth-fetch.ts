@@ -52,3 +52,18 @@ export async function authFetch(input: RequestInfo | URL, init?: AuthFetchInit):
   }
   return res;
 }
+
+/**
+ * Extract a human-readable message from a non-ok response: the JSON
+ * `error`/`message` field if present, else the HTTP status line. Never throws.
+ */
+export async function parseError(res: Response): Promise<string> {
+  try {
+    const body = (await res.json()) as { error?: unknown; message?: unknown };
+    if (typeof body?.error === 'string') return body.error;
+    if (typeof body?.message === 'string') return body.message;
+  } catch {
+    // Not JSON — fall through to the status line.
+  }
+  return `${res.status} ${res.statusText}`.trim();
+}

@@ -4,18 +4,7 @@ import type {
   KimiConfigStatusResponse,
   KimiConfigTestResponse,
 } from 'shared/types/kimi-config';
-import { authFetch } from '../lib/auth-fetch';
-
-async function parseError(res: Response): Promise<string> {
-  try {
-    const body = await res.json();
-    if (body?.error && typeof body.error === 'string') return body.error;
-    if (body?.message && typeof body.message === 'string') return body.message;
-  } catch {
-    // fallthrough
-  }
-  return `${res.status} ${res.statusText}`;
-}
+import { authFetch, parseError } from '../lib/auth-fetch';
 
 export async function fetchConfig(): Promise<KimiConfigDTO> {
   const res = await authFetch('/api/config');
