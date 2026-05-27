@@ -246,9 +246,9 @@ export function wireEventsToBlocks(
         if (!tcId) break;
         const part = partPayload.arguments_part ?? '';
         if (!part) break;
-        const tcBlock = blocks.find(
-          (b) => b.kind === 'tool_call' && b.toolCallId === tcId,
-        ) as Extract<Block, { kind: 'tool_call' }> | undefined;
+        const tcBlock = blocks.find((b) => b.kind === 'tool_call' && b.toolCallId === tcId) as
+          | Extract<Block, { kind: 'tool_call' }>
+          | undefined;
         if (tcBlock) {
           const head = typeof tcBlock.args === 'string' ? tcBlock.args : '';
           tcBlock.args = head + part;

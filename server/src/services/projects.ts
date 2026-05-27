@@ -108,10 +108,7 @@ export async function adoptProjectForUser({
     .select({ id: schema.kimiSessions.id })
     .from(schema.kimiSessions)
     .where(
-      and(
-        eq(schema.kimiSessions.userId, userId),
-        eq(schema.kimiSessions.projectName, projectName),
-      ),
+      and(eq(schema.kimiSessions.userId, userId), eq(schema.kimiSessions.projectName, projectName)),
     );
   if (rows.length === 0) throw new ProjectNotFoundError(projectName);
 
@@ -122,10 +119,7 @@ export async function adoptProjectForUser({
     .update(schema.kimiSessions)
     .set({ workDir })
     .where(
-      and(
-        eq(schema.kimiSessions.userId, userId),
-        eq(schema.kimiSessions.projectName, projectName),
-      ),
+      and(eq(schema.kimiSessions.userId, userId), eq(schema.kimiSessions.projectName, projectName)),
     );
 
   return { projectName, workDir, sessionCount: rows.length };

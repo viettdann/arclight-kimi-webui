@@ -87,16 +87,16 @@ export function parseArgs(call: ToolCallBlock): Record<string, unknown> | null {
 function completePartialJson(s: string): string {
   let depth = 0;
   let inStr = false;
-  let escape = false;
+  let escaped = false;
   let lastSafe = -1;
   for (let i = 0; i < s.length; i++) {
     const c = s[i];
-    if (escape) {
-      escape = false;
+    if (escaped) {
+      escaped = false;
       continue;
     }
     if (inStr) {
-      if (c === '\\') escape = true;
+      if (c === '\\') escaped = true;
       else if (c === '"') inStr = false;
       continue;
     }

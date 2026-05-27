@@ -47,9 +47,7 @@ async function ensureKimiMetadataInner(shareDir: string, workDir: string): Promi
   const filePath = path.join(shareDir, 'kimi.json');
   const meta = await readMetadata(filePath);
 
-  const existing = meta.work_dirs.find(
-    (entry) => entry.path === workDir && entry.kaos === 'local',
-  );
+  const existing = meta.work_dirs.find((entry) => entry.path === workDir && entry.kaos === 'local');
   if (existing) return;
 
   meta.work_dirs.push({ path: workDir, kaos: 'local', last_session_id: null });

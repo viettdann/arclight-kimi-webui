@@ -10,11 +10,7 @@ export default defineConfig(({ mode }) => {
   const serverPort = Number(rootEnv.PORT ?? process.env.PORT ?? 3000);
 
   return {
-    plugins: [
-      react(),
-      tailwindcss(),
-      Icons({ compiler: 'jsx', jsx: 'react' }),
-    ],
+    plugins: [react(), tailwindcss(), Icons({ compiler: 'jsx', jsx: 'react' })],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, 'src'),

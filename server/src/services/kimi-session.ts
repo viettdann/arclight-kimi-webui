@@ -430,7 +430,12 @@ export async function pumpTurn(active: ActiveSession, turn: Turn, deps: PumpDeps
       await appendWireDelta(active, true, dbh);
       await flushContextAndState(active, dbh);
     } catch (dbErr) {
-      logDbError(logger, dbErr, { sessionId: active.sessionId }, 'pumpTurn catch path: backup fail');
+      logDbError(
+        logger,
+        dbErr,
+        { sessionId: active.sessionId },
+        'pumpTurn catch path: backup fail',
+      );
     }
 
     await clearPendingPrompt(active.sessionId, dbh);

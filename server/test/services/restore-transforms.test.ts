@@ -1,13 +1,9 @@
 import { describe, expect, it } from 'bun:test';
-import {
-  sanitizeStateJson,
-  stripSystemPromptHead,
-} from '../../src/services/restore-transforms';
+import { sanitizeStateJson, stripSystemPromptHead } from '../../src/services/restore-transforms';
 
 describe('stripSystemPromptHead', () => {
   it('drops a single leading _system_prompt line', () => {
-    const input =
-      '{"role":"_system_prompt","content":"foo"}\n{"role":"user","content":"hi"}\n';
+    const input = '{"role":"_system_prompt","content":"foo"}\n{"role":"user","content":"hi"}\n';
     const out = stripSystemPromptHead(input);
     expect(out).toBe('{"role":"user","content":"hi"}\n');
   });

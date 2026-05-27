@@ -381,7 +381,9 @@ export function Sidebar({ isOpen, onClose, onLoginClick }: SidebarProps) {
       </aside>
 
       {isOpen && (
-        <div
+        <button
+          type="button"
+          aria-label="Close menu"
           className="fixed inset-0 z-30 bg-background/80 backdrop-blur-sm md:hidden animate-in fade-in duration-200"
           onClick={onClose}
         />

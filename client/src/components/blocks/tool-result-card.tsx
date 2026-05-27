@@ -68,6 +68,7 @@ export function ToolResultCard({
 
         {!hasDisplayBlocks && outputText && (
           <button
+            type="button"
             onClick={() => setIsOpen(!isOpen)}
             className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
           >

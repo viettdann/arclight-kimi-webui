@@ -129,6 +129,7 @@ export function AppShell() {
   }, [status, lastClearReason]);
 
   // Tự động đóng sidebar drawer trên di động khi chuyển phiên chat mới
+  // biome-ignore lint/correctness/useExhaustiveDependencies: sessionId is the trigger — close on every session switch
   useEffect(() => {
     setIsSidebarOpen(false);
   }, [sessionId]);

@@ -14,14 +14,15 @@ export function parseHarnessTags(input: string): HarnessSegment[] {
   const segments: HarnessSegment[] = [];
   let cursor = 0;
   TAG_RE.lastIndex = 0;
-  let m: RegExpExecArray | null;
-  while ((m = TAG_RE.exec(input)) !== null) {
+  let m: RegExpExecArray | null = TAG_RE.exec(input);
+  while (m !== null) {
     if (m.index > cursor) {
       const pre = input.slice(cursor, m.index);
       if (pre) segments.push({ kind: 'text', content: pre });
     }
     segments.push({ kind: 'tag', name: m[1] ?? '', content: (m[2] ?? '').trim() });
     cursor = m.index + m[0].length;
+    m = TAG_RE.exec(input);
   }
   if (cursor < input.length) {
     const rest = input.slice(cursor);

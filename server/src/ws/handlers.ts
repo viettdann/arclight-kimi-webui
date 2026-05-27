@@ -458,7 +458,7 @@ async function handleSendMessage(
       .where(eq(schema.kimiSessions.id, sessionId));
   }
   await enqueuePendingPrompt(active.sessionId, payload.content, deps.db);
-  let turn;
+  let turn: ReturnType<typeof active.kimiSession.prompt>;
   try {
     turn = active.kimiSession.prompt(payload.content);
   } catch (err) {

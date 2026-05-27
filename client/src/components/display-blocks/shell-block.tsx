@@ -37,6 +37,7 @@ export function ShellBlock({ command, language }: ShellBlockProps) {
           </div>
         </div>
         <button
+          type="button"
           onClick={handleCopy}
           className="flex items-center gap-1 text-zinc-400 hover:text-zinc-200 transition-colors px-1.5 py-0.5 rounded hover:bg-zinc-800"
         >

@@ -62,6 +62,8 @@ export function PendingApprovalDock() {
     sendWS('approve_tool', { requestId: current.requestId, response }, sessionId);
   };
 
+  // Rebind only when the active request changes; `resolve` reads `current` via closure.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional requestId-only deps
   useEffect(() => {
     if (!current) return;
     const onKey = (e: KeyboardEvent) => {
@@ -73,7 +75,6 @@ export function PendingApprovalDock() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [current?.requestId]);
 
   // Report the dock's rendered height via a CSS variable so the Transcript
@@ -81,6 +82,8 @@ export function PendingApprovalDock() {
   // behind us when the user scrolls to the end. The CSS consumer uses
   // `max(default, var)` — we publish height only, not height-plus-default.
   const cardRef = useRef<HTMLDivElement>(null);
+  // Re-observe only when the active request changes; `current` is read for presence only.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional requestId-only deps
   useEffect(() => {
     if (!current) return;
     const el = cardRef.current;

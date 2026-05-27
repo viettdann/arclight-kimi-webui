@@ -136,6 +136,7 @@ export function DiffBlock({ path, oldText, newText }: DiffBlockProps) {
           <span className="text-[10px] text-muted-foreground font-sans">({path})</span>
         </div>
         <button
+          type="button"
           onClick={handleCopy}
           className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors px-1.5 py-0.5 rounded hover:bg-muted"
         >

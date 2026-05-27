@@ -22,7 +22,10 @@ const mockAuth = createMiddleware(async (c, next) => {
  * tmp dir and clean it up.
  */
 function makeTmpShareDir(): string {
-  return path.join(tmpdir(), `kimi-config-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  return path.join(
+    tmpdir(),
+    `kimi-config-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
 }
 
 function buildApp(

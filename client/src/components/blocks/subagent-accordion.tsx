@@ -31,6 +31,7 @@ export function SubagentAccordion({ blocks, isStreaming }: SubagentAccordionProp
     <div className="rounded-xl border border-primary/10 bg-primary/2 shadow-sm backdrop-blur-sm overflow-hidden animate-in fade-in duration-200">
       {/* Accordion Toggle Header */}
       <button
+        type="button"
         onClick={toggleOpen}
         disabled={isStreaming}
         className={`w-full flex items-center justify-between px-4 py-2.5 text-xs font-semibold text-primary select-none ${

@@ -19,12 +19,18 @@ const modelEntry = row.models[alias];
 const apiModel = modelEntry?.model ?? alias;
 
 console.log('baseUrl :', row.provider.baseUrl);
-console.log('apiKey  :', row.provider.apiKey ? `${row.provider.apiKey.slice(0, 8)}…(${row.provider.apiKey.length})` : '(empty)');
+console.log(
+  'apiKey  :',
+  row.provider.apiKey
+    ? `${row.provider.apiKey.slice(0, 8)}…(${row.provider.apiKey.length})`
+    : '(empty)',
+);
 console.log('model   :', apiModel);
 console.log('---');
 
 const userText = 'Add a dark-mode toggle to the navbar';
-const assistantText = 'Sure, I will add a button next to the user menu that toggles a data-theme attribute on <html>.';
+const assistantText =
+  'Sure, I will add a button next to the user menu that toggles a data-theme attribute on <html>.';
 
 try {
   const title = await generateTitleViaAnthropic(
