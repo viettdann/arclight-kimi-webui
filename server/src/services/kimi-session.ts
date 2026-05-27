@@ -17,6 +17,7 @@ import type {
   ToolCallPayload,
 } from 'shared/types';
 import { type DB, db, schema } from '../db';
+import { logDbError } from '../db/errors';
 import { env as defaultEnv } from '../env';
 import { logger } from '../lib/logger';
 import { broadcastEvent } from '../lib/ws-broadcast';
@@ -429,7 +430,7 @@ export async function pumpTurn(active: ActiveSession, turn: Turn, deps: PumpDeps
       await appendWireDelta(active, true, dbh);
       await flushContextAndState(active, dbh);
     } catch (dbErr) {
-      logger.error({ err: dbErr, sessionId: active.sessionId }, 'pumpTurn catch path: backup fail');
+      logDbError(logger, dbErr, { sessionId: active.sessionId }, 'pumpTurn catch path: backup fail');
     }
 
     await clearPendingPrompt(active.sessionId, dbh);

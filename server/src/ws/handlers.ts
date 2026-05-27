@@ -27,6 +27,7 @@ import type {
 } from 'shared/types';
 import { validateAuthSession } from '../auth/session-check';
 import { type DB, db, schema } from '../db';
+import { logDbError } from '../db/errors';
 import { env } from '../env';
 import { auditLog as defaultAuditLog, logger } from '../lib/logger';
 import { slugifyProjectName } from '../lib/slug';
@@ -181,7 +182,7 @@ async function revalidateAuthSession(ws: WS): Promise<boolean> {
   try {
     valid = await validateAuthSession(ws.data.authSessionId, deps.db);
   } catch (err) {
-    logger.error({ err, authSessionId: ws.data.authSessionId }, 'revalidateAuthSession: db error');
+    logDbError(logger, err, { authSessionId: ws.data.authSessionId }, 'revalidateAuthSession');
     return true;
   }
   if (!valid) {

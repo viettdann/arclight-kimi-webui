@@ -1,4 +1,5 @@
 import { validateAuthSessions } from '../auth/session-check';
+import { logDbError } from '../db/errors';
 import { logger } from '../lib/logger';
 import { closeAuthExpired } from './close-codes';
 import { snapshot } from './registry';
@@ -35,7 +36,7 @@ async function runCycle(): Promise<void> {
   try {
     valid = await validateAuthSessions(ids);
   } catch (err) {
-    logger.error({ err }, 'ws heartbeat: session validation failed; skipping cycle');
+    logDbError(logger, err, {}, 'ws heartbeat: session validation failed; skipping cycle');
     return;
   }
 
