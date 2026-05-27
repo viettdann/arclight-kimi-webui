@@ -207,7 +207,7 @@ export function makeControlledTurn(): ControlledTurn {
 // ─────────────────────────── Recording fake DB ───────────────────────────
 
 export interface DbCall {
-  op: 'insert' | 'update' | 'select';
+  op: 'insert' | 'update' | 'select' | 'delete';
   table?: string;
   values?: unknown;
 }
@@ -270,9 +270,14 @@ export function makeFakeDb(): FakeDb {
               },
             ]),
           onConflictDoUpdate: () => Promise.resolve(),
+          onConflictDoNothing: () => Promise.resolve(),
         });
       },
     }),
+    delete: (table: { _: { name?: string } } & object) => {
+      calls.push({ op: 'delete', table: (table as { _?: { name?: string } })?._?.name });
+      return { where: () => Promise.resolve() };
+    },
     update: (table: { _: { name?: string } } & object) => ({
       set: (v: unknown) => {
         calls.push({

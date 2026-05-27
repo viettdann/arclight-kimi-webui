@@ -15,6 +15,7 @@ import {
   patchConfig,
   testConfigConnection,
 } from '../../api/kimi-config';
+import { AccessControlTab } from '../../components/settings/access-control-tab';
 import { cn } from '../../lib/utils';
 
 const PROVIDER_TYPES: ProviderType[] = [
@@ -237,7 +238,7 @@ function KeyValueEditor({
 
 // ─── Main page ────────────────────────────────────────────────────
 
-type TabId = 'general' | 'provider' | 'services' | 'agent' | 'advanced';
+type TabId = 'general' | 'provider' | 'services' | 'agent' | 'advanced' | 'access';
 
 export function KimiConfigPage() {
   const [config, setConfig] = useState<KimiConfigDTO | null>(null);
@@ -456,6 +457,11 @@ export function KimiConfigPage() {
       id: 'advanced',
       label: 'Advanced & Hooks',
       description: 'Webhooks, raw TOML bypasses, MCP server timeout',
+    },
+    {
+      id: 'access',
+      label: 'Access Control',
+      description: 'Who can use the app',
     },
   ];
 
@@ -1441,6 +1447,9 @@ export function KimiConfigPage() {
                 </Section>
               </div>
             )}
+
+            {/* 6. ACCESS CONTROL */}
+            {activeTab === 'access' && <AccessControlTab />}
           </div>
         </div>
       </div>

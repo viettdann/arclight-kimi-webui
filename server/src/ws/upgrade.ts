@@ -1,5 +1,7 @@
 import type { Server } from 'bun';
 import { auth, slug } from '../auth';
+import { canUserAccess } from '../auth/access';
+import { db } from '../db';
 
 export type WSData = {
   userId: string;
@@ -21,6 +23,12 @@ export async function handleWsUpgrade(
 ): Promise<Response | undefined> {
   const session = await auth.api.getSession({ headers: req.headers });
   if (!session?.user) return new Response(null, { status: 401 });
+
+  // Allowlist gate at upgrade time. A pending user is rejected here. The
+  // browser never sees this 403 — a failed WS handshake surfaces only as an
+  // abnormal close (1006) — so the reconnect-loop is prevented purely by the
+  // client `canConnect` gate, which refuses to connect unless `allowed`.
+  if (!(await canUserAccess(db, session.user))) return new Response(null, { status: 403 });
 
   const data: WSData = {
     userId: session.user.id,

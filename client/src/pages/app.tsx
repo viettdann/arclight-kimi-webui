@@ -3,6 +3,7 @@ import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router';
 import { Button } from '@/components/ui/button';
 import { ChatInput } from '../components/chat-input';
+import { ComingSoon } from '../components/coming-soon';
 import { LoginModal } from '../components/login-modal';
 import { PendingApprovalDock } from '../components/pending-approval-dock';
 import { Sidebar } from '../components/sidebar';
@@ -29,6 +30,7 @@ export function AppShell() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const status = useAuthStore((s) => s.status);
+  const allowed = useAuthStore((s) => s.allowed);
   const lastClearReason = useAuthStore((s) => s.lastClearReason);
   const wasPreviouslyAuthenticated = useRef(false);
 
@@ -130,6 +132,11 @@ export function AppShell() {
   useEffect(() => {
     setIsSidebarOpen(false);
   }, [sessionId]);
+
+  // Authenticated but not on the allowlist → hold them at Coming Soon.
+  if (status === 'authenticated' && allowed === false) {
+    return <ComingSoon />;
+  }
 
   return (
     <div className="flex min-h-screen bg-background">

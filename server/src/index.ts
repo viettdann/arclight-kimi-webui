@@ -1,12 +1,14 @@
 import { Hono } from 'hono';
 import type { HealthResponse } from 'shared/types';
 import { auth } from './auth';
-import { type AuthVariables, sessionMiddleware } from './auth/middleware';
+import { type AuthVariables, requireAllowed, sessionMiddleware } from './auth/middleware';
 import { client, db } from './db';
 import { env } from './env';
 import { auditLog, logger } from './lib/logger';
+import { createAccessRouter } from './routes/access';
 import filesRoutes from './routes/files';
 import { createKimiConfigRouter } from './routes/kimi-config';
+import { createMeRouter } from './routes/me';
 import projectsRoutes from './routes/projects';
 import { createSessionsRouter } from './routes/sessions';
 import { bootstrap } from './services/kimi-config/bootstrap';
@@ -45,6 +47,16 @@ app.get('/api/health', (c) => {
   return c.json(body);
 });
 
+// Allowlist gate on the data-plane prefixes. Registered before their routers
+// so it runs ahead of each router's own `requireAuth`. `/api/me` and
+// `/api/admin/access` stay ungated here (me must report status to pending
+// users; access is admin-only).
+app.use('/api/files/*', requireAllowed);
+app.use('/api/projects/*', requireAllowed);
+app.use('/api/sessions/*', requireAllowed);
+
+app.route('/api/me', createMeRouter({ db }));
+app.route('/api/admin/access', createAccessRouter({ db }));
 app.route('/api/files', filesRoutes);
 app.route('/api/projects', projectsRoutes);
 app.route('/api/sessions', createSessionsRouter({ db, manager: sessionManager, auditLog, env }));

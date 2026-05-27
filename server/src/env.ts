@@ -14,6 +14,10 @@ const envSchema = z.object({
   PGSSLROOTCERT: z.string().optional(),
   REDIS_URL: z.string().optional(),
 
+  // Baseline for the email allowlist gate. An admin override stored in the
+  // `access_control` table takes precedence; read here as `=== 'true'`.
+  ACCESS_CONTROL_ENABLED: z.enum(['true', 'false']).default('true'),
+
   BETTER_AUTH_SECRET: z.string().min(32),
   BETTER_AUTH_URL: z.string().url(),
   AZURE_AD_CLIENT_ID: z.string().min(1),

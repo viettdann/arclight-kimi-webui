@@ -429,6 +429,35 @@ export interface HealthResponse {
   version: string;
 }
 
+// ─────────────────────────── Access control ───────────────────────────
+
+/** `GET /api/me` — the current user's role and whether they may use the app. */
+export interface MeResponse {
+  role: 'admin' | 'user';
+  /** `true` for everyone when access control is off; allowlist result when on. */
+  allowed: boolean;
+}
+
+export interface AllowedEmailDTO {
+  email: string;
+  /** ISO timestamp. */
+  createdAt: string;
+}
+
+export interface AllowlistResponse {
+  emails: AllowedEmailDTO[];
+}
+
+/** `GET`/`PATCH /api/admin/access/control` — the allowlist gate's on/off state. */
+export interface AccessControlResponse {
+  /** Admin override; `null` means "follow the env default". */
+  override: boolean | null;
+  /** Effective value of the `ACCESS_CONTROL_ENABLED` env flag. */
+  envDefault: boolean;
+  /** Resolved gate state: `override ?? envDefault`. */
+  effective: boolean;
+}
+
 export interface FileListResponse {
   entries: FileEntry[];
 }
