@@ -8,7 +8,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { sendWS } from '../lib/ws-send';
+import { useNewSessionStore } from '../lib/new-session-store';
 
 interface ProjectPickerModalProps {
   isOpen: boolean;
@@ -17,9 +17,10 @@ interface ProjectPickerModalProps {
 }
 
 export function ProjectPickerModal({ isOpen, onClose, projects }: ProjectPickerModalProps) {
+  const requestNewSession = useNewSessionStore((s) => s.request);
   const handlePick = (project: ProjectSummary) => {
     if (project.origin === 'foreign') return;
-    sendWS('create_session', { workDir: project.workDir });
+    requestNewSession(project);
     onClose();
   };
 

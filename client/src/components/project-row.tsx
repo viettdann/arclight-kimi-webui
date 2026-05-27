@@ -10,6 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { useNewSessionStore } from '../lib/new-session-store';
 import { useProjectsStore } from '../lib/projects-store';
 import { useSidebarViewStore } from '../lib/sidebar-view-store';
 import { sendWS } from '../lib/ws-send';
@@ -27,10 +28,12 @@ export function ProjectRow({ project, sessions, isActive }: ProjectRowProps) {
   const openFiles = useSidebarViewStore((s) => s.openFiles);
   const isForeign = project.origin === 'foreign';
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const creating = useNewSessionStore((s) => s.pending[project.name] ?? false);
+  const requestNewSession = useNewSessionStore((s) => s.request);
 
   const handleNewTask = (e: React.MouseEvent) => {
     e.stopPropagation();
-    sendWS('create_session', { workDir: project.workDir });
+    requestNewSession(project);
   };
 
   const handleRestoreClick = (e: React.MouseEvent) => {
@@ -91,6 +94,7 @@ export function ProjectRow({ project, sessions, isActive }: ProjectRowProps) {
             variant="ghost"
             size="icon-xs"
             onClick={handleNewTask}
+            disabled={creating}
             aria-label={`New task in ${project.name}`}
             className="hover:bg-sidebar-accent"
           >

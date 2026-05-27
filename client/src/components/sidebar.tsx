@@ -4,11 +4,11 @@ import { useNavigate, useParams } from 'react-router';
 import type { WSMessageType } from 'shared/types';
 import { Button } from '@/components/ui/button';
 import { useAuthStore } from '../lib/auth-store';
+import { useNewSessionStore } from '../lib/new-session-store';
 import { useProjectsStore } from '../lib/projects-store';
 import { groupByProject, useSessionsStore } from '../lib/sessions-store';
 import { useSidebarViewStore } from '../lib/sidebar-view-store';
 import { wsClient } from '../lib/ws-client';
-import { sendWS } from '../lib/ws-send';
 import { FileManagementView } from './file-management-view';
 import { NewProjectModal } from './new-project-modal';
 import { ProjectPickerModal } from './project-picker-modal';
@@ -192,7 +192,7 @@ export function Sidebar({ isOpen, onClose, onLoginClick }: SidebarProps) {
     }
     if (locals.length === 1) {
       const only = locals[0];
-      if (only) sendWS('create_session', { workDir: only.workDir });
+      if (only) useNewSessionStore.getState().request(only);
       return;
     }
     setPickerOpen(true);
