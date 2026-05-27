@@ -1,4 +1,5 @@
 import type {
+  ApprovalMode,
   Block,
   DisplayBlock,
   SessionStatus,
@@ -21,6 +22,7 @@ export interface ChatSessionState {
   /** Per-session agent flags, mirrored from the snapshot (true server state). */
   thinking: boolean;
   yoloMode: boolean;
+  approvalMode: ApprovalMode;
   liveTurnIdx: number | null;
   liveStepIdx: number | null;
   subagentStates: Record<string, { liveTurnIdx: number | null; liveStepIdx: number | null }>;
@@ -33,7 +35,10 @@ interface ChatStore {
   applyEvent: (sessionId: string, type: WSMessageType, payload: any) => void;
   addPendingUserBlock: (sessionId: string, text: string) => void;
   /** Optimistic local update of agent flags; server echoes the truth via snapshot. */
-  setSessionFlags: (sessionId: string, flags: { thinking?: boolean; yoloMode?: boolean }) => void;
+  setSessionFlags: (
+    sessionId: string,
+    flags: { thinking?: boolean; yoloMode?: boolean; approvalMode?: ApprovalMode },
+  ) => void;
 }
 
 const createDefaultSessionState = (): ChatSessionState => ({
@@ -47,6 +52,7 @@ const createDefaultSessionState = (): ChatSessionState => ({
   isTurnInProgress: false,
   thinking: true,
   yoloMode: false,
+  approvalMode: 'ask',
   liveTurnIdx: null,
   liveStepIdx: null,
   subagentStates: {},
@@ -352,6 +358,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         isTurnInProgress: payload.live.turnInProgress,
         thinking: payload.thinking ?? true,
         yoloMode: payload.yoloMode ?? false,
+        approvalMode: payload.approvalMode ?? 'ask',
         liveTurnIdx: payload.live.turnIdx,
         liveStepIdx: payload.live.stepIdx,
         subagentStates: {},
@@ -567,6 +574,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       const session = { ...sessions[sessionId]! };
       if (flags.thinking !== undefined) session.thinking = flags.thinking;
       if (flags.yoloMode !== undefined) session.yoloMode = flags.yoloMode;
+      if (flags.approvalMode !== undefined) session.approvalMode = flags.approvalMode;
       sessions[sessionId] = session;
       return { sessions };
     });

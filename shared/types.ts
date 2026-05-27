@@ -55,6 +55,9 @@ export type WSMessageType =
 
 export type SessionStatus = 'active' | 'idle' | 'closed';
 
+export const APPROVAL_MODES = ['ask', 'auto', 'yolo'] as const;
+export type ApprovalMode = (typeof APPROVAL_MODES)[number];
+
 export type DisplayBlock =
   | { type: 'shell'; command: string; language: string }
   | { type: 'diff'; path: string; oldText: string; newText: string }
@@ -206,6 +209,7 @@ export interface SnapshotPayload {
    */
   thinking: boolean;
   yoloMode: boolean;
+  approvalMode: ApprovalMode;
   /**
    * Slash commands available in this session's workDir. Carried in the snapshot
    * (not only a one-shot event) so the composer picker survives reload/resume.
@@ -288,6 +292,12 @@ export interface ApprovalRequestPayload {
   action: string;
   description: string;
   requestId: string;
+  /**
+   * Shell command this request runs, extracted from the SDK `display` shell
+   * block when present. Used by the `auto` tier to decide whether a shell tool
+   * is read-only and safe to auto-approve. Absent for non-shell tools.
+   */
+  command?: string;
 }
 
 export interface ApprovalResponsePayload {
@@ -365,6 +375,7 @@ export interface CreateSessionPayload {
   model?: string;
   thinking?: boolean;
   yoloMode?: boolean;
+  approvalMode?: ApprovalMode;
 }
 
 export interface ResumeSessionPayload {
@@ -381,6 +392,7 @@ export interface SendMessagePayload {
    */
   thinking?: boolean;
   yoloMode?: boolean;
+  approvalMode?: ApprovalMode;
 }
 
 // Mirrors `ApprovalResponse` from `@moonshot-ai/kimi-agent-sdk`.

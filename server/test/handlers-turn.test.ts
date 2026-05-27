@@ -314,6 +314,231 @@ describe('handlers — approval flow', () => {
   });
 });
 
+describe('handlers — auto-approve tier', () => {
+  it('auto-approves a safe (read-only) tool: approve called, no pending, request+response broadcast', async () => {
+    const turn = makeControlledTurn();
+    const { session } = scriptableSession(turn.turn);
+    const active = registerActive('sess-A', 'alice', session);
+    active.approvalMode = 'auto';
+    const ws = new FakeWS('alice');
+    manager.attachWS(active, asWS(ws));
+
+    await handleMessage(
+      asWS(ws),
+      JSON.stringify({
+        type: 'send_message',
+        sessionId: 'sess-A',
+        payload: { content: 'read a file' },
+      }),
+    );
+
+    turn.push({
+      type: 'ToolCall',
+      payload: {
+        id: 'tc-1',
+        type: 'function',
+        function: { name: 'read', arguments: { path: 'a.txt' } },
+      },
+    });
+    turn.push({
+      type: 'ApprovalRequest',
+      payload: {
+        id: 'req-1',
+        tool_call_id: 'tc-1',
+        action: 'read',
+        description: 'Read a.txt',
+      },
+    });
+
+    await settled(() => turn.approveCalls.length === 1);
+
+    // Server-side auto-approve: turn.approve called with 'approve', no pending.
+    expect(turn.approveCalls).toEqual([{ requestId: 'req-1', response: 'approve' }]);
+    expect(active.pendingApprovals.has('req-1')).toBe(false);
+
+    // UI sees exactly one approval_request and one approval_response (audit trail).
+    const reqs = ws.parsed().filter((m) => m.type === 'approval_request');
+    const resps = ws.parsed().filter((m) => m.type === 'approval_response');
+    expect(reqs.length).toBe(1);
+    expect(resps.length).toBe(1);
+    expect((resps[0]?.payload as { requestId: string; response: string }).requestId).toBe('req-1');
+    expect((resps[0]?.payload as { response: string }).response).toBe('approve');
+
+    turn.end({ status: 'finished', steps: 1 });
+    await settled(() => ws.parsed().some((m) => m.type === 'turn_end'));
+  });
+
+  it('does NOT auto-approve a side-effecting tool: it goes to pending, no approve call', async () => {
+    const turn = makeControlledTurn();
+    const { session } = scriptableSession(turn.turn);
+    const active = registerActive('sess-A', 'alice', session);
+    active.approvalMode = 'auto';
+    const ws = new FakeWS('alice');
+    manager.attachWS(active, asWS(ws));
+
+    await handleMessage(
+      asWS(ws),
+      JSON.stringify({
+        type: 'send_message',
+        sessionId: 'sess-A',
+        payload: { content: 'run shell' },
+      }),
+    );
+
+    turn.push({
+      type: 'ToolCall',
+      payload: {
+        id: 'tc-1',
+        type: 'function',
+        function: { name: 'shell', arguments: { cmd: 'rm -rf' } },
+      },
+    });
+    turn.push({
+      type: 'ApprovalRequest',
+      payload: {
+        id: 'req-1',
+        tool_call_id: 'tc-1',
+        action: 'shell',
+        description: 'Run shell',
+      },
+    });
+
+    await settled(() => active.pendingApprovals.has('req-1'));
+
+    expect(turn.approveCalls.length).toBe(0);
+    expect(active.pendingApprovals.has('req-1')).toBe(true);
+    // No auto approval_response was broadcast.
+    expect(ws.parsed().filter((m) => m.type === 'approval_response').length).toBe(0);
+
+    turn.end({ status: 'finished', steps: 1 });
+    await settled(() => ws.parsed().some((m) => m.type === 'turn_end'));
+  });
+
+  it('ask mode never auto-approves even a safe tool', async () => {
+    const turn = makeControlledTurn();
+    const { session } = scriptableSession(turn.turn);
+    const active = registerActive('sess-A', 'alice', session);
+    // default approvalMode is 'ask'
+    expect(active.approvalMode).toBe('ask');
+    const ws = new FakeWS('alice');
+    manager.attachWS(active, asWS(ws));
+
+    await handleMessage(
+      asWS(ws),
+      JSON.stringify({
+        type: 'send_message',
+        sessionId: 'sess-A',
+        payload: { content: 'read a file' },
+      }),
+    );
+
+    turn.push({
+      type: 'ToolCall',
+      payload: {
+        id: 'tc-1',
+        type: 'function',
+        function: { name: 'read', arguments: { path: 'a.txt' } },
+      },
+    });
+    turn.push({
+      type: 'ApprovalRequest',
+      payload: {
+        id: 'req-1',
+        tool_call_id: 'tc-1',
+        action: 'read',
+        description: 'Read a.txt',
+      },
+    });
+
+    await settled(() => active.pendingApprovals.has('req-1'));
+
+    expect(turn.approveCalls.length).toBe(0);
+    expect(active.pendingApprovals.has('req-1')).toBe(true);
+
+    turn.end({ status: 'finished', steps: 1 });
+    await settled(() => ws.parsed().some((m) => m.type === 'turn_end'));
+  });
+
+  it('auto-approves a read-only shell command (tool name + command from ToolCall)', async () => {
+    const turn = makeControlledTurn();
+    const { session } = scriptableSession(turn.turn);
+    const active = registerActive('sess-A', 'alice', session);
+    active.approvalMode = 'auto';
+    const ws = new FakeWS('alice');
+    manager.attachWS(active, asWS(ws));
+
+    await handleMessage(
+      asWS(ws),
+      JSON.stringify({
+        type: 'send_message',
+        sessionId: 'sess-A',
+        payload: { content: 'find sln files' },
+      }),
+    );
+
+    turn.push({
+      type: 'ToolCall',
+      payload: {
+        id: 'tc-1',
+        type: 'function',
+        // arguments arrives as a JSON string in production.
+        function: { name: 'shell', arguments: JSON.stringify({ cmd: 'find apps -name "*.sln"' }) },
+      },
+    });
+    turn.push({
+      type: 'ApprovalRequest',
+      payload: { id: 'req-1', tool_call_id: 'tc-1', action: 'run command', description: 'find' },
+    });
+
+    await settled(() => turn.approveCalls.length === 1);
+
+    expect(turn.approveCalls).toEqual([{ requestId: 'req-1', response: 'approve' }]);
+    expect(active.pendingApprovals.has('req-1')).toBe(false);
+
+    turn.end({ status: 'finished', steps: 1 });
+    await settled(() => ws.parsed().some((m) => m.type === 'turn_end'));
+  });
+
+  it('does NOT auto-approve reading a secret file even with a read-only tool', async () => {
+    const turn = makeControlledTurn();
+    const { session } = scriptableSession(turn.turn);
+    const active = registerActive('sess-A', 'alice', session);
+    active.approvalMode = 'auto';
+    const ws = new FakeWS('alice');
+    manager.attachWS(active, asWS(ws));
+
+    await handleMessage(
+      asWS(ws),
+      JSON.stringify({
+        type: 'send_message',
+        sessionId: 'sess-A',
+        payload: { content: 'read env' },
+      }),
+    );
+
+    turn.push({
+      type: 'ToolCall',
+      payload: {
+        id: 'tc-1',
+        type: 'function',
+        function: { name: 'read', arguments: JSON.stringify({ path: '.env.production' }) },
+      },
+    });
+    turn.push({
+      type: 'ApprovalRequest',
+      payload: { id: 'req-1', tool_call_id: 'tc-1', action: 'read file', description: 'read .env' },
+    });
+
+    await settled(() => active.pendingApprovals.has('req-1'));
+
+    expect(turn.approveCalls.length).toBe(0);
+    expect(active.pendingApprovals.has('req-1')).toBe(true);
+
+    turn.end({ status: 'finished', steps: 1 });
+    await settled(() => ws.parsed().some((m) => m.type === 'turn_end'));
+  });
+});
+
 describe('handlers — concurrency guard', () => {
   it('rejects send_message while currentTurn is active with turn_in_progress', async () => {
     const turn = makeControlledTurn();

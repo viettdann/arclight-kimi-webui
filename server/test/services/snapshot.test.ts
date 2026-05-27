@@ -1,9 +1,9 @@
 import { afterAll, describe, expect, it, mock } from 'bun:test';
-import { makeFakeDb, stubSession } from '../_helpers';
-import { buildSnapshot } from '../../src/services/snapshot';
-import { KimiSessionManager } from '../../src/services/session-manager';
 import * as realFsPromises from 'node:fs/promises';
 import type { Block } from 'shared/types';
+import { KimiSessionManager } from '../../src/services/session-manager';
+import { buildSnapshot } from '../../src/services/snapshot';
+import { makeFakeDb, stubSession } from '../_helpers';
 
 type BlockOfKind<K extends Block['kind']> = Extract<Block, { kind: K }>;
 function assertKind<K extends Block['kind']>(b: Block | undefined, kind: K): BlockOfKind<K> {
@@ -55,6 +55,7 @@ describe('buildSnapshot', () => {
         model: null,
         thinking: false,
         yoloMode: false,
+        approvalMode: 'auto',
         status: 'active',
         kimiSessionId: 'kimi-x',
         title: 'Mock Session Title',
@@ -88,6 +89,7 @@ describe('buildSnapshot', () => {
     expect(snapshot?.title).toBe('Mock Session Title');
     expect(snapshot?.totalTokens).toBe(50);
     expect(snapshot?.status).toBe('active');
+    expect(snapshot?.approvalMode).toBe('auto');
     // No `currentTurn` was attached to the active session in this test, so
     // resume should report no in-flight turn.
     expect(snapshot?.live.turnInProgress).toBe(false);
@@ -111,6 +113,7 @@ describe('buildSnapshot', () => {
         model: null,
         thinking: false,
         yoloMode: false,
+        approvalMode: 'ask',
         status: 'active',
         kimiSessionId: 'kimi-x',
         title: null,
@@ -147,6 +150,7 @@ describe('buildSnapshot', () => {
         model: null,
         thinking: false,
         yoloMode: false,
+        approvalMode: 'ask',
         status: 'active',
         kimiSessionId: 'kimi-x',
         title: 'Mock Session Title',

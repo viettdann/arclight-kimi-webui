@@ -61,6 +61,80 @@ describe('handleCreateSession — yoloMode plumbing', () => {
     expect((insertCall?.values as { workDir: string }).workDir).toBe(
       '/tmp/kimi-webui-test/alice/proj',
     );
+    // yoloMode=true derives approvalMode='yolo'.
+    expect((insertCall?.values as { approvalMode: string }).approvalMode).toBe('yolo');
+  });
+
+  it('payload.approvalMode=auto persists mode but forwards yoloMode=false to the SDK', async () => {
+    const fake = makeFakeDb();
+    const createKimiCalls: CreateKimiArgs[] = [];
+    const fakeCreateKimi = (args: CreateKimiArgs): Session => {
+      createKimiCalls.push(args);
+      return stubSession({ sessionId: 'kimi-fake-auto', workDir: args.workDir });
+    };
+    setHandlerDeps({
+      manager,
+      db: fake.db,
+      createKimi:
+        fakeCreateKimi as unknown as typeof import('../../src/services/kimi-session').createKimi,
+    });
+
+    const ws = new FakeWS('alice');
+    await handleMessage(
+      asWS(ws),
+      JSON.stringify({
+        type: 'create_session',
+        payload: {
+          workDir: '/tmp/kimi-webui-test/alice/proj',
+          approvalMode: 'auto',
+        },
+      }),
+    );
+
+    expect(createKimiCalls.length).toBe(1);
+    // auto tier runs the SDK with yolo OFF; the server gates safe tools.
+    expect(createKimiCalls[0]?.yoloMode).toBe(false);
+
+    const insertCall = fake.calls.find(
+      (c) => c.op === 'insert' && (c.values as { workDir?: string }).workDir != null,
+    );
+    expect(insertCall).toBeDefined();
+    expect((insertCall?.values as { approvalMode: string }).approvalMode).toBe('auto');
+    expect((insertCall?.values as { yoloMode: boolean }).yoloMode).toBe(false);
+  });
+
+  it('rejects bad_request for an invalid approvalMode enum', async () => {
+    const fake = makeFakeDb();
+    const createKimiCalls: CreateKimiArgs[] = [];
+    const fakeCreateKimi = (args: CreateKimiArgs): Session => {
+      createKimiCalls.push(args);
+      return stubSession({ sessionId: 'kimi-fake-bad', workDir: args.workDir });
+    };
+    setHandlerDeps({
+      manager,
+      db: fake.db,
+      createKimi:
+        fakeCreateKimi as unknown as typeof import('../../src/services/kimi-session').createKimi,
+    });
+
+    const ws = new FakeWS('alice');
+    await handleMessage(
+      asWS(ws),
+      JSON.stringify({
+        type: 'create_session',
+        payload: {
+          workDir: '/tmp/kimi-webui-test/alice/proj',
+          approvalMode: 'bogus',
+        },
+      }),
+    );
+
+    expect(createKimiCalls.length).toBe(0);
+    expect(fake.calls.find((c) => c.op === 'insert')).toBeUndefined();
+    const errors = ws.parsed().filter((m) => m.type === 'error') as Array<{
+      payload: { code: string };
+    }>;
+    expect(errors[0]?.payload.code).toBe('bad_request');
   });
 
   it('rejects bad_request when first segment of workDir is not slug-canonical', async () => {
@@ -138,6 +212,8 @@ describe('handleCreateSession — yoloMode plumbing', () => {
     );
     expect(insertCall).toBeDefined();
     expect((insertCall?.values as { yoloMode: boolean }).yoloMode).toBe(false);
+    // No yolo and no explicit mode → approvalMode='ask'.
+    expect((insertCall?.values as { approvalMode: string }).approvalMode).toBe('ask');
   });
 });
 
@@ -154,6 +230,7 @@ describe('restoreFromBackup — yoloMode plumbing', () => {
           model: null,
           thinking: false,
           yoloMode: true,
+          approvalMode: 'yolo',
           status: 'active',
           kimiSessionId: 'kimi-x',
           title: null,
@@ -183,6 +260,8 @@ describe('restoreFromBackup — yoloMode plumbing', () => {
     expect(factoryCalls.length).toBe(1);
     expect(factoryCalls[0]?.yoloMode).toBe(true);
     expect(factoryCalls[0]?.sessionId).toBe('kimi-x');
+    // approvalMode from the row is carried onto the ActiveSession.
+    expect(manager.peek('sess-1')?.approvalMode).toBe('yolo');
   });
 
   it('forwards sessRow.yoloMode=false into the createKimi factory', async () => {
@@ -197,6 +276,7 @@ describe('restoreFromBackup — yoloMode plumbing', () => {
           model: null,
           thinking: false,
           yoloMode: false,
+          approvalMode: 'ask',
           status: 'active',
           kimiSessionId: 'kimi-y',
           title: null,
@@ -226,5 +306,6 @@ describe('restoreFromBackup — yoloMode plumbing', () => {
     expect(factoryCalls.length).toBe(1);
     expect(factoryCalls[0]?.yoloMode).toBe(false);
     expect(factoryCalls[0]?.sessionId).toBe('kimi-y');
+    expect(manager.peek('sess-2')?.approvalMode).toBe('ask');
   });
 });

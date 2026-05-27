@@ -55,7 +55,8 @@ function findFlagUpdate(calls: DbCall[]) {
     (c) =>
       c.op === 'update' &&
       ((c.values as { thinking?: boolean }).thinking !== undefined ||
-        (c.values as { yoloMode?: boolean }).yoloMode !== undefined),
+        (c.values as { yoloMode?: boolean }).yoloMode !== undefined ||
+        (c.values as { approvalMode?: string }).approvalMode !== undefined),
   );
 }
 
@@ -113,6 +114,113 @@ describe('handleSendMessage — composer flags', () => {
 
     expect(findFlagUpdate(fake.calls)).toBeUndefined();
     expect(wsErrors(ws).length).toBe(0);
+  });
+
+  it('applies approvalMode=auto to the in-memory tier without flipping SDK yolo', async () => {
+    const fake = makeFakeDb();
+    setHandlerDeps({ manager, db: fake.db });
+
+    const turn = makeControlledTurn();
+    const session = scriptableSession(turn.turn);
+    const active = registerActive(session);
+    expect(active.approvalMode).toBe('ask');
+
+    const ws = new FakeWS('alice');
+    manager.attachWS(active, asWS(ws));
+    await handleMessage(
+      asWS(ws),
+      JSON.stringify({
+        type: 'send_message',
+        sessionId: 'sess-A',
+        payload: { content: 'hi', approvalMode: 'auto' },
+      }),
+    );
+
+    expect(active.approvalMode).toBe('auto');
+    // auto does not enable SDK yolo.
+    expect(active.kimiSession.yoloMode).toBe(false);
+
+    const upd = findFlagUpdate(fake.calls);
+    expect(upd).toBeDefined();
+    expect((upd?.values as { approvalMode: string }).approvalMode).toBe('auto');
+    expect(wsErrors(ws).length).toBe(0);
+  });
+
+  it('approvalMode=yolo flips the in-memory tier and SDK yolo together', async () => {
+    const fake = makeFakeDb();
+    setHandlerDeps({ manager, db: fake.db });
+
+    const turn = makeControlledTurn();
+    const session = scriptableSession(turn.turn);
+    const active = registerActive(session);
+
+    const ws = new FakeWS('alice');
+    manager.attachWS(active, asWS(ws));
+    await handleMessage(
+      asWS(ws),
+      JSON.stringify({
+        type: 'send_message',
+        sessionId: 'sess-A',
+        payload: { content: 'hi', approvalMode: 'yolo' },
+      }),
+    );
+
+    expect(active.approvalMode).toBe('yolo');
+    expect(active.kimiSession.yoloMode).toBe(true);
+
+    const upd = findFlagUpdate(fake.calls);
+    expect((upd?.values as { approvalMode: string }).approvalMode).toBe('yolo');
+    expect((upd?.values as { yoloMode: boolean }).yoloMode).toBe(true);
+  });
+
+  it('legacy yoloMode-only payload maps to a mode and persists it', async () => {
+    const fake = makeFakeDb();
+    setHandlerDeps({ manager, db: fake.db });
+
+    const turn = makeControlledTurn();
+    const session = scriptableSession(turn.turn);
+    const active = registerActive(session);
+
+    const ws = new FakeWS('alice');
+    manager.attachWS(active, asWS(ws));
+    await handleMessage(
+      asWS(ws),
+      JSON.stringify({
+        type: 'send_message',
+        sessionId: 'sess-A',
+        payload: { content: 'hi', yoloMode: true },
+      }),
+    );
+
+    expect(active.approvalMode).toBe('yolo');
+    expect(active.kimiSession.yoloMode).toBe(true);
+    const upd = findFlagUpdate(fake.calls);
+    expect((upd?.values as { approvalMode: string }).approvalMode).toBe('yolo');
+  });
+
+  it('rejects bad_request for an invalid approvalMode enum', async () => {
+    const fake = makeFakeDb();
+    setHandlerDeps({ manager, db: fake.db });
+
+    const turn = makeControlledTurn();
+    const session = scriptableSession(turn.turn);
+    const active = registerActive(session);
+
+    const ws = new FakeWS('alice');
+    manager.attachWS(active, asWS(ws));
+    await handleMessage(
+      asWS(ws),
+      JSON.stringify({
+        type: 'send_message',
+        sessionId: 'sess-A',
+        payload: { content: 'hi', approvalMode: 'bogus' },
+      }),
+    );
+
+    const errs = wsErrors(ws);
+    expect(errs.length).toBe(1);
+    expect(errs[0]?.payload.code).toBe('bad_request');
+    expect(findFlagUpdate(fake.calls)).toBeUndefined();
   });
 
   it('rejects bad_request for a non-boolean flag', async () => {

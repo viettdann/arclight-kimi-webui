@@ -12,15 +12,22 @@
     {
       "idx": 1,
       "version": "7",
-      "when": 1779732000000,
+      "when": 1779724965000,
       "tag": "0001_session_cross_machine_restore",
       "breakpoints": true
     },
     {
       "idx": 2,
       "version": "7",
-      "when": 1780000000000,
+      "when": 1779726945000,
       "tag": "0002_rename_sessions_to_kimi_sessions",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1779868725861,
+      "tag": "0003_add_approval_mode",
       "breakpoints": true
     }
   ]

@@ -1,6 +1,7 @@
 import type { Session, Turn } from '@moonshot-ai/kimi-agent-sdk';
 import type { ServerWebSocket } from 'bun';
 import type {
+  ApprovalMode,
   ApprovalRequestPayload,
   QuestionRequestPayload,
   StatusUpdatePayload,
@@ -42,6 +43,11 @@ export interface ActiveSession {
   kimiSessionId: string;
   kimiSession: Session;
   currentTurn: Turn | null;
+  /**
+   * Active approval tier for this session. `auto` auto-approves read-only tools
+   * server-side; `yolo` is mirrored onto `kimiSession.yoloMode` for the SDK.
+   */
+  approvalMode: ApprovalMode;
   wsSet: Set<ServerWebSocket<WSData>>;
   eventBuffer: EventBuffer;
   translator: TranslatorState;
@@ -84,6 +90,7 @@ export interface RegisterArgs {
   workDir: string;
   kimiSessionId: string;
   kimiSession: Session;
+  approvalMode?: ApprovalMode;
   bufferCapacity?: number;
   /**
    * Seed for `liveTurnIdx` so it doesn't collide with completed turns' block ids
@@ -113,6 +120,7 @@ export class KimiSessionManager {
       kimiSessionId: args.kimiSessionId,
       kimiSession: args.kimiSession,
       currentTurn: null,
+      approvalMode: args.approvalMode ?? 'ask',
       wsSet: new Set(),
       eventBuffer: createEventBuffer(args.bufferCapacity),
       translator: createTranslatorState(),

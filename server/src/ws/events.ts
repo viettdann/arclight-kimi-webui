@@ -1,5 +1,4 @@
 import type { StreamEvent } from '@moonshot-ai/kimi-agent-sdk';
-import { contentPartsToText, mapDisplayBlocks } from '../services/wire-events';
 import type {
   ApprovalRequestPayload,
   CompactionBeginPayload,
@@ -20,6 +19,7 @@ import type {
   TurnBeginPayload,
   WSMessageType,
 } from 'shared/types';
+import { contentPartsToText, mapDisplayBlocks } from '../services/wire-events';
 
 // SDK's `ToolCallPart` carries no id — it is implicitly the most recent
 // `ToolCall`. Translator state tracks it across the turn so we can stamp
@@ -141,11 +141,15 @@ export function translateStreamEvent(
     }
 
     case 'ApprovalRequest': {
+      // A shell tool's command rides in the `display` shell block. Surface it so
+      // the auto tier can vet read-only commands; omit for non-shell tools.
+      const shellBlock = mapDisplayBlocks(ev.payload.display).find((b) => b.type === 'shell');
       const payload: ApprovalRequestPayload = {
         id: ev.payload.tool_call_id,
         requestId: ev.payload.id,
         action: ev.payload.action,
         description: ev.payload.description,
+        ...(shellBlock ? { command: shellBlock.command } : {}),
       };
       return { type: 'approval_request', payload };
     }

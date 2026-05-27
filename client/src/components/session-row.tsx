@@ -4,6 +4,7 @@ import { useNavigate, useParams } from 'react-router';
 import type { SessionListItem } from 'shared/types';
 import { Button } from '@/components/ui/button';
 import { DropdownItem, DropdownMenu } from '@/components/ui/dropdown-menu';
+import { useDraftStore } from '../lib/draft-store';
 import { useSessionsStore } from '../lib/sessions-store';
 import { sendWS } from '../lib/ws-send';
 import { ConfirmDeleteSessionDialog } from './confirm-delete-session-dialog';
@@ -48,6 +49,9 @@ export function SessionRow({ session }: SessionRowProps) {
   const handleConfirmDelete = async () => {
     try {
       await remove(session.id);
+      // Drop the persisted composer draft so a deleted session leaves no
+      // orphaned key in localStorage.
+      useDraftStore.getState().clearDraft(session.id);
       if (openSessionId === session.id) {
         void navigate('/');
       }

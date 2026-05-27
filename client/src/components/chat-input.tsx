@@ -1,10 +1,20 @@
-import { Brain, Check, ChevronDown, Send, ShieldCheck, Slash, Square, Zap } from 'lucide-react';
+import {
+  Brain,
+  Check,
+  ChevronDown,
+  Send,
+  ShieldCheck,
+  Square,
+  SquareSlash,
+  Zap,
+} from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router';
-import type { SlashCommand } from 'shared/types';
+import type { ApprovalMode, SlashCommand } from 'shared/types';
 import { Button } from '@/components/ui/button';
 import { DropdownItem, DropdownMenu } from '@/components/ui/dropdown-menu';
 import { useChatStore } from '../lib/chat-store';
+import { useDraftStore } from '../lib/draft-store';
 import { resolveModel, useKimiConfigStore } from '../lib/kimi-config-store';
 import { useSessionsStore } from '../lib/sessions-store';
 import { sendWS } from '../lib/ws-send';
@@ -68,7 +78,20 @@ function Switch({ on }: { on: boolean }) {
 
 export function ChatInput() {
   const { id: sessionId } = useParams<{ id: string }>();
-  const [text, setText] = useState('');
+  // Draft text lives in a per-session store (persisted to localStorage), not in
+  // local component state: switching sessions must show the target session's
+  // draft (or empty), and a reload must not lose what was typed. `text`/`setText`
+  // are thin adapters over the store so the rest of the component is unchanged.
+  const text = useDraftStore((s) => (sessionId ? (s.drafts[sessionId] ?? '') : ''));
+  const setText = useCallback(
+    (value: string | ((prev: string) => string)) => {
+      if (!sessionId) return;
+      const prev = useDraftStore.getState().drafts[sessionId] ?? '';
+      const next = typeof value === 'function' ? value(prev) : value;
+      useDraftStore.getState().setDraft(sessionId, next);
+    },
+    [sessionId],
+  );
   const [yoloConfirmOpen, setYoloConfirmOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   // True while the leading '/' was injected by the toggle button (not typed by
@@ -93,8 +116,8 @@ export function ChatInput() {
   // Approval mode + thinking mirror the true state from the snapshot (survive
   // reload). Changing them → optimistic store update + WS send; applied from the
   // next message onward (server respawns the CLI).
-  const yoloMode = useChatStore((s) =>
-    sessionId ? (s.sessions[sessionId]?.yoloMode ?? false) : false,
+  const approvalMode = useChatStore((s) =>
+    sessionId ? (s.sessions[sessionId]?.approvalMode ?? 'ask') : 'ask',
   );
   const thinking = useChatStore((s) =>
     sessionId ? (s.sessions[sessionId]?.thinking ?? false) : false,
@@ -154,6 +177,13 @@ export function ChatInput() {
     el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
   }, []);
 
+  // `onInput` only fires on typing, so resize whenever `text` changes from
+  // elsewhere — switching sessions or restoring a persisted draft on load.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `text` is the trigger; `handleInput` is stable.
+  useEffect(() => {
+    handleInput();
+  }, [text]);
+
   const onChangeText = (value: string) => {
     setText(value);
     setHighlightIdx(0);
@@ -201,30 +231,31 @@ export function ChatInput() {
     useChatStore.getState().addPendingUserBlock(sessionId, content);
     // Composer flags ride along with the send — no separate message. The server
     // applies them just before spawning the turn and persists only real flips.
-    sendWS('send_message', { content, thinking, yoloMode }, sessionId);
+    sendWS('send_message', { content, thinking, approvalMode }, sessionId);
   };
 
   // Toggles only mutate local store state; the value is committed when the user
   // sends (it can't take effect before the next prompt anyway).
-  const applyApprovalMode = (yolo: boolean) => {
+  const applyApprovalMode = (mode: ApprovalMode) => {
     if (!sessionId) return;
-    useChatStore.getState().setSessionFlags(sessionId, { yoloMode: yolo });
+    useChatStore.getState().setSessionFlags(sessionId, { approvalMode: mode });
   };
 
-  // Enabling YOLO is gated by a confirm dialog the first time per session.
-  const setApprovalMode = (yolo: boolean) => {
+  // Switching to YOLO is gated by a confirm dialog the first time per session.
+  // ask / auto apply immediately.
+  const setApprovalMode = (mode: ApprovalMode) => {
     if (!sessionId) return;
-    if (yolo && !yoloMode && !yoloAcknowledged.has(sessionId)) {
+    if (mode === 'yolo' && approvalMode !== 'yolo' && !yoloAcknowledged.has(sessionId)) {
       setYoloConfirmOpen(true);
       return;
     }
-    applyApprovalMode(yolo);
+    applyApprovalMode(mode);
   };
 
   const confirmYolo = () => {
     if (sessionId) yoloAcknowledged.add(sessionId);
     setYoloConfirmOpen(false);
-    applyApprovalMode(true);
+    applyApprovalMode('yolo');
   };
 
   const toggleThinking = () => {
@@ -360,9 +391,9 @@ export function ChatInput() {
               disabled={!sessionId}
               aria-label="Slash commands"
               title="Slash commands"
-              className="font-mono text-muted-foreground cursor-pointer"
+              className="text-muted-foreground cursor-pointer"
             >
-              <Slash className="h-3.5 w-3.5" />
+              <SquareSlash className="h-4 w-4" />
             </Button>
             <span
               className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium select-none ${
@@ -383,12 +414,86 @@ export function ChatInput() {
                   type="button"
                   variant="ghost"
                   size="xs"
+                  className={`cursor-pointer ${approvalMode === 'yolo' ? 'text-amber-500' : 'text-muted-foreground'}`}
+                  disabled={!sessionId}
+                  aria-label="Approval mode"
+                  title="Approval mode — applies from the next message"
+                >
+                  {approvalMode === 'yolo' ? (
+                    <Zap className="h-3.5 w-3.5" />
+                  ) : (
+                    <ShieldCheck
+                      className={`h-3.5 w-3.5 ${approvalMode === 'auto' ? 'text-primary' : ''}`}
+                    />
+                  )}
+                  <span className="hidden sm:inline">
+                    {approvalMode === 'yolo'
+                      ? 'YOLO'
+                      : approvalMode === 'auto'
+                        ? 'Auto-safe'
+                        : 'Ask first'}
+                  </span>
+                  <ChevronDown className="h-3.5 w-3.5" />
+                </Button>
+              }
+            >
+              <div className="px-2 pt-1 pb-1.5 text-[11px] text-muted-foreground select-none">
+                Applies from the next message
+              </div>
+              <DropdownItem
+                onClick={() => setApprovalMode('ask')}
+                icon={<Check className={approvalMode === 'ask' ? '' : 'opacity-0'} />}
+              >
+                <span className="flex flex-col">
+                  <span>Ask first</span>
+                  <span className="text-xs text-muted-foreground">
+                    Approve each tool before it runs
+                  </span>
+                </span>
+              </DropdownItem>
+              <DropdownItem
+                onClick={() => setApprovalMode('auto')}
+                icon={<Check className={approvalMode === 'auto' ? '' : 'opacity-0'} />}
+              >
+                <span className="flex flex-col">
+                  <span className="flex items-center gap-1.5">
+                    Auto-safe
+                    <ShieldCheck className="h-3 w-3 text-primary" />
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    Auto-approve read-only tools, ask for the rest
+                  </span>
+                </span>
+              </DropdownItem>
+              <DropdownItem
+                onClick={() => setApprovalMode('yolo')}
+                icon={<Check className={approvalMode === 'yolo' ? '' : 'opacity-0'} />}
+              >
+                <span className="flex flex-col">
+                  <span className="flex items-center gap-1.5">
+                    YOLO
+                    <Zap className="h-3 w-3 text-amber-500" />
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    Run every tool without asking
+                  </span>
+                </span>
+              </DropdownItem>
+            </DropdownMenu>
+
+            <DropdownMenu
+              align="end"
+              trigger={
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="xs"
                   className="text-muted-foreground cursor-pointer"
                   disabled={!sessionId}
                   aria-label="Model"
                   title="Model — applies from the next message"
                 >
-                  <Brain className="h-3.5 w-3.5" />
+                  {effectiveThinking && <Brain className="h-3.5 w-3.5" />}
                   <span className="hidden sm:inline">{modelLabel ?? 'Model'}</span>
                   <ChevronDown className="h-3.5 w-3.5" />
                 </Button>
@@ -411,58 +516,6 @@ export function ChatInput() {
                   ) : (
                     <Switch on={effectiveThinking} />
                   )}
-                </span>
-              </DropdownItem>
-            </DropdownMenu>
-
-            <DropdownMenu
-              align="end"
-              trigger={
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="xs"
-                  className={`cursor-pointer ${yoloMode ? 'text-amber-500' : 'text-muted-foreground'}`}
-                  disabled={!sessionId}
-                  aria-label="Approval mode"
-                  title="Approval mode — applies from the next message"
-                >
-                  {yoloMode ? (
-                    <Zap className="h-3.5 w-3.5" />
-                  ) : (
-                    <ShieldCheck className="h-3.5 w-3.5" />
-                  )}
-                  <span className="hidden sm:inline">{yoloMode ? 'YOLO' : 'Normal'}</span>
-                  <ChevronDown className="h-3.5 w-3.5" />
-                </Button>
-              }
-            >
-              <div className="px-2 pt-1 pb-1.5 text-[11px] text-muted-foreground select-none">
-                Applies from the next message
-              </div>
-              <DropdownItem
-                onClick={() => setApprovalMode(false)}
-                icon={<Check className={yoloMode ? 'opacity-0' : ''} />}
-              >
-                <span className="flex flex-col">
-                  <span>Normal</span>
-                  <span className="text-xs text-muted-foreground">
-                    Approve each tool before it runs
-                  </span>
-                </span>
-              </DropdownItem>
-              <DropdownItem
-                onClick={() => setApprovalMode(true)}
-                icon={<Check className={yoloMode ? '' : 'opacity-0'} />}
-              >
-                <span className="flex flex-col">
-                  <span className="flex items-center gap-1.5">
-                    YOLO
-                    <Zap className="h-3 w-3 text-amber-500" />
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    Run every tool without asking
-                  </span>
                 </span>
               </DropdownItem>
             </DropdownMenu>

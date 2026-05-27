@@ -1,7 +1,13 @@
 import { readFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import { eq } from 'drizzle-orm';
-import type { QuestionItemDTO, SessionStatus, SlashCommand, SnapshotPayload } from 'shared/types';
+import type {
+  ApprovalMode,
+  QuestionItemDTO,
+  SessionStatus,
+  SlashCommand,
+  SnapshotPayload,
+} from 'shared/types';
 import { type DB, db, schema } from '../db';
 import { kimiPaths } from './kimi-config/paths';
 import { peekPendingPrompt } from './pending-prompts';
@@ -63,6 +69,7 @@ export async function buildSnapshot(args: BuildSnapshotArgs): Promise<SnapshotPa
       : null,
     thinking: sessRow.thinking,
     yoloMode: sessRow.yoloMode,
+    approvalMode: sessRow.approvalMode as ApprovalMode,
     slashCommands,
     live: {
       turnInProgress: active?.currentTurn != null,
@@ -89,6 +96,7 @@ export function emptySnapshot(status: SessionStatus): SnapshotPayload {
     pendingPrompt: null,
     thinking: true,
     yoloMode: false,
+    approvalMode: 'ask',
     slashCommands: [],
     live: {
       turnInProgress: false,

@@ -1,0 +1,1 @@
+ALTER TABLE "kimi_sessions" ADD COLUMN "approvalMode" text DEFAULT 'ask' NOT NULL;

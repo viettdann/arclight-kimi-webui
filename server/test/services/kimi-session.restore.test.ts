@@ -4,8 +4,8 @@ import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { Session } from '@moonshot-ai/kimi-agent-sdk';
-import { makeFakeDb, stubSession } from '../_helpers';
 import * as realLogger from '../../src/lib/logger';
+import { makeFakeDb, stubSession } from '../_helpers';
 
 // Snapshot before any mock.module override (none in this file, but keep parity).
 const _originalReadFile = realFsPromises.readFile;
@@ -75,6 +75,7 @@ function joinedRow(over: Partial<{ workDir: string; projectName: string; kimiSes
       model: null,
       thinking: false,
       yoloMode: false,
+      approvalMode: 'ask',
       status: 'active',
       kimiSessionId: over.kimiSessionId ?? 'kimi-x',
       title: null,

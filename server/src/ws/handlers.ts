@@ -3,9 +3,11 @@ import path from 'node:path';
 import { CliErrorCodes, getErrorCode } from '@moonshot-ai/kimi-agent-sdk';
 import type { ServerWebSocket } from 'bun';
 import { eq } from 'drizzle-orm';
+import { APPROVAL_MODES } from 'shared/types';
 import type {
   AdoptProjectPayload,
   AnswerQuestionPayload,
+  ApprovalMode,
   ApprovalResponse,
   ApproveToolPayload,
   CreateSessionPayload,
@@ -77,6 +79,7 @@ interface IncomingMessage {
 }
 
 const VALID_APPROVAL: ReadonlySet<string> = new Set(['approve', 'approve_for_session', 'reject']);
+const VALID_APPROVAL_MODE: ReadonlySet<string> = new Set(APPROVAL_MODES);
 
 interface HandlerDeps {
   db: DB;
@@ -264,6 +267,10 @@ async function handleCreateSession(
     sendError(ws, 'bad_request');
     return;
   }
+  if (payload.approvalMode !== undefined && !VALID_APPROVAL_MODE.has(payload.approvalMode)) {
+    sendError(ws, 'bad_request');
+    return;
+  }
   const workDir = validateWorkDir(ws.data.userSlug, payload.workDir);
   if (workDir === null) {
     sendError(ws, 'bad_request');
@@ -293,7 +300,12 @@ async function handleCreateSession(
   }
   // Thinking is on by default: payload wins, else configured default, else true.
   const thinking = payload.thinking ?? cfgDefaults?.thinking ?? true;
-  const yoloMode = payload.yoloMode ?? cfgDefaults?.yolo ?? false;
+  // approvalMode is the source of truth: explicit payload wins, else derive
+  // from the legacy yolo flag (payload or configured default). yoloMode forwarded
+  // to the SDK is then derived from the resolved mode.
+  const yoloDefault = payload.yoloMode ?? cfgDefaults?.yolo ?? false;
+  const approvalMode: ApprovalMode = payload.approvalMode ?? (yoloDefault ? 'yolo' : 'ask');
+  const sdkYolo = approvalMode === 'yolo';
 
   let kimi: ReturnType<typeof createKimi>;
   try {
@@ -301,7 +313,7 @@ async function handleCreateSession(
       workDir,
       ...(payload.model ? { model: payload.model } : {}),
       thinking,
-      yoloMode,
+      yoloMode: sdkYolo,
       env: envVars,
     });
   } catch (err) {
@@ -321,7 +333,8 @@ async function handleCreateSession(
     projectName,
     model: payload.model ?? null,
     thinking,
-    yoloMode,
+    yoloMode: sdkYolo,
+    approvalMode,
     status: 'active',
     kimiSessionId,
     title: null,
@@ -333,6 +346,7 @@ async function handleCreateSession(
     workDir,
     kimiSessionId,
     kimiSession: kimi,
+    approvalMode,
   });
   deps.manager.attachWS(active, ws);
 
@@ -359,7 +373,8 @@ async function handleCreateSession(
   // restores the picker and the approval/thinking selectors to true state.
   const snap = emptySnapshot('active');
   snap.thinking = thinking;
-  snap.yoloMode = yoloMode;
+  snap.yoloMode = sdkYolo;
+  snap.approvalMode = approvalMode;
   snap.slashCommands = slashCommands;
   broadcastEvent<SnapshotPayload>(active, 'snapshot', snap, deps.manager);
   broadcastEvent<SlashCommandsPayload>(
@@ -402,20 +417,40 @@ async function handleSendMessage(
   // below spawns the turn, so this is the right moment to commit them.
   if (
     (payload.thinking !== undefined && typeof payload.thinking !== 'boolean') ||
-    (payload.yoloMode !== undefined && typeof payload.yoloMode !== 'boolean')
+    (payload.yoloMode !== undefined && typeof payload.yoloMode !== 'boolean') ||
+    (payload.approvalMode !== undefined && !VALID_APPROVAL_MODE.has(payload.approvalMode))
   ) {
     sendError(ws, 'bad_request', sessionId);
     return;
   }
-  const flagChanges: { thinking?: boolean; yoloMode?: boolean } = {};
+  // approvalMode is the source of truth. A client that sends only `yoloMode`
+  // (legacy composer) maps to a mode; the resolved mode then derives the SDK
+  // yolo flag. Omitting both leaves the session unchanged.
+  const nextMode: ApprovalMode | undefined =
+    payload.approvalMode ??
+    (payload.yoloMode !== undefined ? (payload.yoloMode ? 'yolo' : 'ask') : undefined);
+
+  const flagChanges: { thinking?: boolean; yoloMode?: boolean; approvalMode?: ApprovalMode } = {};
   if (payload.thinking !== undefined && payload.thinking !== active.kimiSession.thinking) {
     flagChanges.thinking = payload.thinking;
   }
-  if (payload.yoloMode !== undefined && payload.yoloMode !== active.kimiSession.yoloMode) {
-    flagChanges.yoloMode = payload.yoloMode;
+  if (nextMode !== undefined && nextMode !== active.approvalMode) {
+    flagChanges.approvalMode = nextMode;
   }
-  if (flagChanges.thinking !== undefined || flagChanges.yoloMode !== undefined) {
-    Object.assign(active.kimiSession, flagChanges);
+  const sdkYolo = nextMode === 'yolo';
+  if (nextMode !== undefined && sdkYolo !== active.kimiSession.yoloMode) {
+    flagChanges.yoloMode = sdkYolo;
+  }
+  if (
+    flagChanges.thinking !== undefined ||
+    flagChanges.yoloMode !== undefined ||
+    flagChanges.approvalMode !== undefined
+  ) {
+    // Mirror the SDK-facing flags onto the live session and the in-memory tier
+    // before prompt() spawns the turn. The DB write persists all three.
+    if (flagChanges.thinking !== undefined) active.kimiSession.thinking = flagChanges.thinking;
+    if (flagChanges.yoloMode !== undefined) active.kimiSession.yoloMode = flagChanges.yoloMode;
+    if (flagChanges.approvalMode !== undefined) active.approvalMode = flagChanges.approvalMode;
     await deps.db
       .update(schema.kimiSessions)
       .set(flagChanges)

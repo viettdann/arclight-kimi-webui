@@ -8,13 +8,21 @@ import {
   type Turn,
 } from '@moonshot-ai/kimi-agent-sdk';
 import { and, eq, sql } from 'drizzle-orm';
-import type { ApprovalRequestPayload, ErrorPayload, QuestionRequestPayload } from 'shared/types';
+import type {
+  ApprovalMode,
+  ApprovalRequestPayload,
+  ApprovalResponsePayload,
+  ErrorPayload,
+  QuestionRequestPayload,
+  ToolCallPayload,
+} from 'shared/types';
 import { type DB, db, schema } from '../db';
 import { env as defaultEnv } from '../env';
 import { logger } from '../lib/logger';
 import { broadcastEvent } from '../lib/ws-broadcast';
 import { SERVICE_NAME, SERVICE_VERSION } from '../version';
 import { createTranslatorState, translateStreamEvent } from '../ws/events';
+import { isAutoApprovable } from './approval-safe-tools';
 import { loadEnvForInjection } from './kimi-config/env-injection';
 import { kimiPaths } from './kimi-config/paths';
 import { resolveShareDir } from './kimi-config/share-dir';
@@ -309,9 +317,39 @@ export interface PumpDeps {
  *    refresh `sessions.totalTokens` + `lastActiveAt`,
  *    read `state.json#custom_title` and emit `title_update` if changed.
  */
+/**
+ * SDK `ToolCall.function.arguments` is a JSON string (or null). Tests inject it
+ * pre-parsed as an object. Normalize both to a plain value; malformed JSON
+ * yields null so screening treats it as "no usable args".
+ */
+function parseToolArgs(raw: unknown): unknown {
+  if (raw == null) return null;
+  if (typeof raw !== 'string') return raw;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+/** Pull a shell command string from a tool's parsed args (`cmd` or `command`). */
+function extractShellCommand(args: unknown): string | undefined {
+  if (args && typeof args === 'object') {
+    const rec = args as Record<string, unknown>;
+    const v = rec.command ?? rec.cmd;
+    if (typeof v === 'string') return v;
+  }
+  return undefined;
+}
+
 export async function pumpTurn(active: ActiveSession, turn: Turn, deps: PumpDeps): Promise<void> {
   const dbh = deps.db ?? db;
   const { manager } = deps;
+
+  // The auto tier needs the real tool name + arguments, which ride on `ToolCall`
+  // (not `ApprovalRequest`, whose `action` is a human label). ToolCall precedes
+  // its ApprovalRequest in-stream; remember each by tool_call_id for the turn.
+  const toolCalls = new Map<string, { name: string; args: unknown }>();
 
   try {
     for await (const ev of turn) {
@@ -322,16 +360,40 @@ export async function pumpTurn(active: ActiveSession, turn: Turn, deps: PumpDeps
         thinkPartIdx: active.liveThinkPartIdx,
         textPartIdx: active.liveTextPartIdx,
       });
+      let autoApproved = false;
       if (translated) {
         if (translated.type === 'turn_begin') {
           await clearPendingPrompt(active.sessionId, dbh);
+        } else if (translated.type === 'tool_call') {
+          const tc = translated.payload as ToolCallPayload;
+          toolCalls.set(tc.id, { name: tc.name, args: parseToolArgs(tc.arguments) });
         } else if (translated.type === 'approval_request') {
           const p = translated.payload as ApprovalRequestPayload;
-          active.pendingApprovals.set(p.requestId, {
-            requestId: p.requestId,
-            payload: p,
-            turn,
-          });
+          const tc = toolCalls.get(p.id);
+          const toolName = tc?.name ?? p.action;
+          const command = p.command ?? extractShellCommand(tc?.args);
+          if (
+            active.approvalMode === 'auto' &&
+            isAutoApprovable(toolName, { command, args: tc?.args })
+          ) {
+            // Auto tier: surface the request so the UI shows it, approve it
+            // server-side, then echo the response. The pair forms an audit
+            // trail of the auto-approved tool without a new event type.
+            broadcastEvent(active, 'approval_request', p, manager);
+            await turn.approve(p.requestId, 'approve');
+            const resp: ApprovalResponsePayload = {
+              requestId: p.requestId,
+              response: 'approve',
+            };
+            broadcastEvent(active, 'approval_response', resp, manager);
+            autoApproved = true;
+          } else {
+            active.pendingApprovals.set(p.requestId, {
+              requestId: p.requestId,
+              payload: p,
+              turn,
+            });
+          }
         } else if (translated.type === 'question_request') {
           const p = translated.payload as QuestionRequestPayload;
           active.pendingQuestions.set(p.requestId, {
@@ -341,7 +403,7 @@ export async function pumpTurn(active: ActiveSession, turn: Turn, deps: PumpDeps
             turn,
           });
         }
-        broadcastEvent(active, translated.type, translated.payload, manager);
+        if (!autoApproved) broadcastEvent(active, translated.type, translated.payload, manager);
       }
       updateLiveOverlay(active, ev);
       await maybeAppendWireDelta(active, dbh);
@@ -420,10 +482,7 @@ export async function pumpTurn(active: ActiveSession, turn: Turn, deps: PumpDeps
       })
       .where(eq(schema.kimiSessions.id, active.sessionId));
   } catch (err) {
-    logger.warn(
-      { err, sessionId: active.sessionId },
-      'pumpTurn: lastActive/tokens update failed',
-    );
+    logger.warn({ err, sessionId: active.sessionId }, 'pumpTurn: lastActive/tokens update failed');
   }
 
   // Read state.json once for both the custom_title sync (below) and the
@@ -598,6 +657,7 @@ export async function restoreFromBackup(args: RestoreFromBackupArgs): Promise<Ac
     workDir: localWorkDir,
     kimiSessionId,
     kimiSession: kimi,
+    approvalMode: sessRow.approvalMode as ApprovalMode,
     initialLiveTurnIdx,
   });
 }

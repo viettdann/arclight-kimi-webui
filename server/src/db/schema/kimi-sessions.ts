@@ -23,6 +23,7 @@ export const kimiSessions = pgTable(
     model: varchar('model', { length: 100 }),
     thinking: boolean('thinking').notNull().default(false),
     yoloMode: boolean('yoloMode').notNull().default(false),
+    approvalMode: text('approvalMode').notNull().default('ask'),
     status: varchar('status', { length: 20 }).notNull().default('active'),
     kimiSessionId: varchar('kimiSessionId', { length: 100 }),
     totalTokens: integer('totalTokens').notNull().default(0),
