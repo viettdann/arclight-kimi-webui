@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { serveStatic } from 'hono/bun';
 import type { HealthResponse } from 'shared/types';
 import { auth } from './auth';
 import { type AuthVariables, requireAllowed, sessionMiddleware } from './auth/middleware';
@@ -61,6 +62,13 @@ app.route('/api/files', filesRoutes);
 app.route('/api/projects', projectsRoutes);
 app.route('/api/sessions', createSessionsRouter({ db, manager: sessionManager, auditLog, env }));
 app.route('/api/config', createKimiConfigRouter({ db, shareDir: kimiShareDir }));
+
+// SPA mount — registered AFTER all /api routes so API paths match earlier
+// handlers; the catchall only fires for client-side router paths. Assets are
+// served from ./client/dist relative to CWD (the runner copies them there). In
+// dev the dir is absent and these fall through — Vite serves the frontend.
+app.use('/*', serveStatic({ root: './client/dist' }));
+app.get('/*', serveStatic({ root: './client/dist', path: 'index.html' }));
 
 await reconcileOnStartup({ db });
 

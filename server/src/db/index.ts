@@ -9,7 +9,9 @@ type PostgresSSL = NonNullable<postgres.Options<Record<string, never>>['ssl']>;
 
 // PGSSLROOTCERT is relative to the server CWD per design doc (e.g. ../certs/ca.crt).
 function buildSslOption(): PostgresSSL {
-  if (!env.PGSSLROOTCERT) return 'require';
+  // No cert configured → plain connection (e.g. Postgres co-located in the same
+  // compose network, no TLS). When a cert is given, verify the server against it.
+  if (!env.PGSSLROOTCERT) return false;
   let certPath = resolve(process.cwd(), env.PGSSLROOTCERT);
   if (!existsSync(certPath)) {
     // If running from root, env.PGSSLROOTCERT might be "../certs/ca.crt" but we are already in the root, so it should be "./certs/ca.crt"
