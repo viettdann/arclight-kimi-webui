@@ -506,5 +506,29 @@ export interface ProjectListResponse {
   projects: ProjectSummary[];
 }
 
+export interface OverviewResponse {
+  runtime: {
+    startedAt: string;
+    uptimeSec: number;
+    nodeVersion: string;
+    bunVersion: string;
+  };
+  db: {
+    ok: boolean;
+    latencyMs: number | null;
+    error?: string;
+  };
+  ws: {
+    clients: number;
+    sessions: number;
+  };
+  access: {
+    effective: boolean;
+    envDefault: boolean;
+    override: boolean | null;
+    allowlistCount: number;
+  };
+}
+
 // Re-export kimi-config types so `shared/types` entrypoint covers everything.
 export * from './types/kimi-config';

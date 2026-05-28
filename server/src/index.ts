@@ -10,6 +10,7 @@ import { createAccessRouter } from './routes/access';
 import filesRoutes from './routes/files';
 import { createKimiConfigRouter } from './routes/kimi-config';
 import { createMeRouter } from './routes/me';
+import { createOverviewRouter } from './routes/overview';
 import projectsRoutes from './routes/projects';
 import { createSessionsRouter } from './routes/sessions';
 import { bootstrap } from './services/kimi-config/bootstrap';
@@ -18,7 +19,7 @@ import { sessionManager } from './services/session-manager';
 import { SERVICE_VERSION } from './version';
 import { handleMessage } from './ws/handlers';
 import { startWsHeartbeat } from './ws/heartbeat';
-import { registerSocket, snapshot, unregisterSocket } from './ws/registry';
+import { registerSocket, snapshot, unregisterSocket, size as wsClientSize } from './ws/registry';
 import { handleWsUpgrade, type WSData } from './ws/upgrade';
 
 // Bootstrap: create share dir, seed/load config, render TOML.
@@ -56,8 +57,14 @@ app.use('/api/files/*', requireAllowed);
 app.use('/api/projects/*', requireAllowed);
 app.use('/api/sessions/*', requireAllowed);
 
+const startedAt = new Date();
+
 app.route('/api/me', createMeRouter({ db }));
 app.route('/api/admin/access', createAccessRouter({ db }));
+app.route(
+  '/api/admin/overview',
+  createOverviewRouter({ db, manager: sessionManager, wsClientCount: wsClientSize, startedAt }),
+);
 app.route('/api/files', filesRoutes);
 app.route('/api/projects', projectsRoutes);
 app.route('/api/sessions', createSessionsRouter({ db, manager: sessionManager, auditLog, env }));

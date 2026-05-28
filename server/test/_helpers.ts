@@ -300,6 +300,7 @@ export function makeFakeDb(): FakeDb {
         return makeSelectChain();
       },
     }),
+    execute: (_sql: unknown) => Promise.resolve([] as unknown[]),
   };
   return {
     db: fake as unknown as DB,

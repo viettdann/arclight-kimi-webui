@@ -1,9 +1,9 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router';
 import { Button } from '@/components/ui/button';
+import { showToast } from '../../components/toast-provider';
 import { useKimiConfigStore } from '../../lib/kimi-config-store';
 import { cn } from '../../lib/utils';
-import { showToast } from '../../components/toast-provider';
 
 interface NavItem {
   to: string;
@@ -38,15 +38,12 @@ export function SettingsView() {
   const saving = useKimiConfigStore((s) => s.saving);
   const testing = useKimiConfigStore((s) => s.testing);
   const testResult = useKimiConfigStore((s) => s.testResult);
-  const status = useKimiConfigStore((s) => s.status);
   const load = useKimiConfigStore((s) => s.load);
   const save = useKimiConfigStore((s) => s.save);
   const discard = useKimiConfigStore((s) => s.discard);
   const test = useKimiConfigStore((s) => s.test);
 
   const { pathname } = useLocation();
-  // Hide Test/Discard/Save chrome on routes that don't mutate kimi-config
-  // (Account, Access control). Match the active NavItem by URL prefix.
   const activeNav = NAV_ITEMS.find((item) => pathname.startsWith(`/settings/${item.to}`));
   const showEditChrome = activeNav?.hideEditChrome !== true;
 
@@ -56,6 +53,27 @@ export function SettingsView() {
       void load();
     }
   }, []);
+
+  // Surface load errors via toast (banner was removed).
+  useEffect(() => {
+    if (loadStatus === 'error' && loadError) {
+      showToast({ message: `Failed to load configuration: ${loadError}`, type: 'error' });
+    }
+  }, [loadStatus, loadError]);
+
+  // Surface test results via toast (banner was removed). Only fire when the
+  // testResult ref changes — testResult is mutated atomically by store.test().
+  const lastTestRef = useRef(testResult);
+  useEffect(() => {
+    if (testResult && testResult !== lastTestRef.current) {
+      lastTestRef.current = testResult;
+      showToast(
+        testResult.ok
+          ? { message: 'Test connection succeeded', type: 'info' }
+          : { message: `Test connection failed: ${testResult.error}`, type: 'error' },
+      );
+    }
+  }, [testResult]);
 
   async function handleSave() {
     const res = await save();
@@ -92,9 +110,7 @@ export function SettingsView() {
             }
           >
             <span className="block">{item.label}</span>
-            <span className="block text-xs text-muted-foreground mt-0.5">
-              {item.description}
-            </span>
+            <span className="block text-xs text-muted-foreground mt-0.5">{item.description}</span>
           </NavLink>
         ))}
       </aside>
@@ -163,38 +179,6 @@ export function SettingsView() {
           </header>
         )}
 
-        {/* Status banner */}
-        <div className="px-4 md:px-6 pt-4 space-y-2 shrink-0">
-          {loadStatus === 'error' && (
-            <Banner tone="error">
-              Failed to load configuration: {loadError ?? 'unknown error'}.{' '}
-              <button
-                type="button"
-                className="underline hover:no-underline"
-                onClick={() => void load()}
-              >
-                Retry
-              </button>
-            </Banner>
-          )}
-          {status && (
-            <Banner tone={status.ready ? 'success' : 'warning'}>
-              <strong className="font-semibold">
-                {status.ready ? 'Configuration ready' : 'Configuration incomplete'}.
-              </strong>{' '}
-              Auth mode: <code className="font-mono">{status.authMode}</code>
-              {status.missing.length > 0 && <> · Missing: {status.missing.join(', ')}</>}
-            </Banner>
-          )}
-          {testResult && (
-            <Banner tone={testResult.ok ? 'success' : 'error'}>
-              {testResult.ok
-                ? 'Test connection succeeded.'
-                : `Test connection failed: ${testResult.error}`}
-            </Banner>
-          )}
-        </div>
-
         {/* Active panel */}
         <div className="flex-1 overflow-y-auto px-4 md:px-6 py-6">
           {loadStatus === 'loading' || loadStatus === 'idle' ? (
@@ -206,27 +190,6 @@ export function SettingsView() {
           )}
         </div>
       </div>
-    </div>
-  );
-}
-
-function Banner({
-  tone,
-  children,
-}: {
-  tone: 'success' | 'warning' | 'error' | 'info';
-  children: React.ReactNode;
-}) {
-  const toneClass: Record<typeof tone, string> = {
-    success:
-      'border-emerald-500/40 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200',
-    warning: 'border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-200',
-    error: 'border-destructive/40 bg-destructive/10 text-destructive',
-    info: 'border-border bg-muted/40 text-foreground',
-  };
-  return (
-    <div className={cn('rounded-md border px-3 py-2 text-sm', toneClass[tone])}>
-      {children}
     </div>
   );
 }
