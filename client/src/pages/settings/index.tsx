@@ -15,13 +15,18 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
+  {
+    to: 'overview',
+    label: 'Overview',
+    description: 'System info & status',
+    hideEditChrome: true,
+  },
   { to: 'provider', label: 'Provider', description: 'API credentials & models' },
   { to: 'kimi', label: 'Kimi config', description: 'CLI behavior & integrations' },
-  { to: 'account', label: 'Account', description: 'Your signed-in identity', hideEditChrome: true },
   {
     to: 'access',
-    label: 'Access control',
-    description: 'Allowlist enforcement',
+    label: 'Members & access',
+    description: 'Identity & allowlist',
     hideEditChrome: true,
   },
 ];

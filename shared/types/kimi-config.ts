@@ -159,3 +159,22 @@ export interface KimiConfigTestResponse {
   ok: boolean;
   error?: string;
 }
+
+// Body for POST /api/config/test. Optional provider overrides let the client
+// test in-memory edits without saving first; apiKey === null (or omitted)
+// means "use the stored key".
+export type KimiConfigTestRequest = {
+  provider?: Omit<Partial<ProviderBlock>, 'apiKey'> & { apiKey?: string | null };
+};
+
+export interface KimiConfigRevealResponse {
+  apiKey: string;
+}
+
+export interface KimiConfigTomlResponse {
+  /** Empty string when the file does not exist or cannot be read. */
+  content: string;
+  exists: boolean;
+  /** Absolute on-disk path the server checked. */
+  path: string;
+}

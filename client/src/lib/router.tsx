@@ -2,7 +2,6 @@ import { createBrowserRouter, Navigate } from 'react-router';
 import { RequireAdmin } from '../components/require-admin';
 import { RequireAuth } from '../components/require-auth';
 import { AccessControlPanel } from '../components/settings/access-control-panel';
-import { AccountPanel } from '../components/settings/account-panel';
 import { KimiAgentPanel } from '../components/settings/kimi-agent-panel';
 import { KimiBackgroundPanel } from '../components/settings/kimi-background-panel';
 import { KimiDefaultsPanel } from '../components/settings/kimi-defaults-panel';
@@ -10,6 +9,7 @@ import { KimiHooksPanel } from '../components/settings/kimi-hooks-panel';
 import { KimiRawTomlPanel } from '../components/settings/kimi-raw-toml-panel';
 import { KimiSection } from '../components/settings/kimi-section';
 import { KimiServicesPanel } from '../components/settings/kimi-services-panel';
+import { OverviewPanel } from '../components/settings/overview-panel';
 import { ProviderPanel } from '../components/settings/provider-panel';
 import { Shell } from '../pages/app';
 import { ChatView } from '../pages/chat-view';
@@ -33,7 +33,8 @@ export const router = createBrowserRouter([
           {
             element: <SettingsView />,
             children: [
-              { index: true, element: <Navigate to="provider" replace /> },
+              { index: true, element: <Navigate to="overview" replace /> },
+              { path: 'overview', element: <OverviewPanel /> },
               { path: 'provider', element: <ProviderPanel /> },
               {
                 path: 'kimi',
@@ -48,7 +49,6 @@ export const router = createBrowserRouter([
                   { path: 'raw-toml', element: <KimiRawTomlPanel /> },
                 ],
               },
-              { path: 'account', element: <AccountPanel /> },
               { path: 'access', element: <AccessControlPanel /> },
             ],
           },

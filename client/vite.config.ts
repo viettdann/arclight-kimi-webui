@@ -12,11 +12,12 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react(), tailwindcss(), Icons({ compiler: 'jsx', jsx: 'react' })],
     resolve: {
-      alias: {
-        '@': path.resolve(__dirname, 'src'),
-        '@shared': path.resolve(__dirname, '../shared'),
-        shared: path.resolve(__dirname, '../shared/index.ts'),
-      },
+      alias: [
+        { find: '@', replacement: path.resolve(__dirname, 'src') },
+        { find: '@shared', replacement: path.resolve(__dirname, '../shared') },
+        { find: /^shared\/(.*)$/, replacement: path.resolve(__dirname, '../shared') + '/$1' },
+        { find: /^shared$/, replacement: path.resolve(__dirname, '../shared/index.ts') },
+      ],
     },
     server: {
       port: 5173,

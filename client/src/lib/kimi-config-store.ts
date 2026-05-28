@@ -2,6 +2,7 @@ import type {
   KimiConfigDTO,
   KimiConfigPatchDTO,
   KimiConfigStatusResponse,
+  KimiConfigTestRequest,
   KimiConfigTestResponse,
   ModelEntry,
 } from 'shared/types/kimi-config';
@@ -10,6 +11,7 @@ import {
   fetchConfig,
   fetchConfigStatus,
   patchConfig,
+  revealApiKey as apiRevealApiKey,
   testConfigConnection,
 } from '../api/kimi-config';
 
@@ -38,6 +40,8 @@ interface KimiConfigState {
    */
   replaceKey: boolean;
   loadError: string | null;
+  /** Raw apiKey fetched on demand for the "Reveal" toggle. Cleared on load/save. */
+  revealedApiKey: string | null;
 
   /** Fetch once and cache. Idempotent — chat-input mounts call this. */
   ensureLoaded: () => void;
@@ -50,8 +54,13 @@ interface KimiConfigState {
   setReplaceKey: (v: boolean) => void;
   save: () => Promise<{ ok: boolean; error?: string }>;
   discard: () => Promise<void>;
+  /** Test using current in-memory provider edits (apiKey=null when !replaceKey). */
   test: () => Promise<void>;
   clearTestResult: () => void;
+  /** Fetch raw apiKey from server and cache it locally. */
+  revealApiKey: () => Promise<{ ok: boolean; error?: string }>;
+  /** Clear the locally cached raw apiKey. */
+  hideApiKey: () => void;
 }
 
 function deepMerge<T>(base: T, patch: DeepPartial<T>): T {
@@ -89,6 +98,7 @@ export const useKimiConfigStore = create<KimiConfigState>((set, get) => ({
   testResult: null,
   replaceKey: false,
   loadError: null,
+  revealedApiKey: null,
 
   ensureLoaded: () => {
     if (get().loadStatus !== 'idle') return;
@@ -106,6 +116,7 @@ export const useKimiConfigStore = create<KimiConfigState>((set, get) => ({
         dirty: false,
         replaceKey: false,
         testResult: null,
+        revealedApiKey: null,
       });
     } catch (e) {
       set({
@@ -159,6 +170,7 @@ export const useKimiConfigStore = create<KimiConfigState>((set, get) => ({
         dirty: false,
         replaceKey: false,
         saving: false,
+        revealedApiKey: null,
       });
       return { ok: true };
     } catch (e) {
@@ -172,9 +184,20 @@ export const useKimiConfigStore = create<KimiConfigState>((set, get) => ({
   },
 
   test: async () => {
+    const { config, replaceKey } = get();
     set({ testing: true, testResult: null });
     try {
-      const res = await testConfigConnection();
+      // Mirror the save() contract: only send apiKey when the user explicitly
+      // typed a new one (Replace mode). Otherwise null → server uses stored.
+      const payload: KimiConfigTestRequest = config
+        ? {
+            provider: {
+              ...config.provider,
+              apiKey: replaceKey ? config.provider.apiKey : null,
+            },
+          }
+        : {};
+      const res = await testConfigConnection(payload);
       set({ testResult: res, testing: false });
     } catch (e) {
       set({
@@ -186,6 +209,20 @@ export const useKimiConfigStore = create<KimiConfigState>((set, get) => ({
 
   clearTestResult: () => {
     set({ testResult: null });
+  },
+
+  revealApiKey: async () => {
+    try {
+      const { apiKey } = await apiRevealApiKey();
+      set({ revealedApiKey: apiKey });
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : 'Reveal failed' };
+    }
+  },
+
+  hideApiKey: () => {
+    set({ revealedApiKey: null });
   },
 }));
 

@@ -1,9 +1,14 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { Hono } from 'hono';
 import type {
   KimiConfigDTO,
   KimiConfigPatchDTO,
+  KimiConfigRevealResponse,
   KimiConfigStatusResponse,
+  KimiConfigTestRequest,
   KimiConfigTestResponse,
+  KimiConfigTomlResponse,
 } from 'shared/types';
 import { isProviderType, type KimiConfigRow } from 'shared/types/kimi-config';
 import { type AuthVariables, requireAdmin } from '../auth/middleware';
@@ -11,6 +16,7 @@ import type { DB } from '../db';
 import { kimiConfig } from '../db/schema';
 import { getKimiConfig } from '../services/kimi-config/get-kimi-config';
 import { maskConfigDTO } from '../services/kimi-config/mask';
+import { resolveShareDir } from '../services/kimi-config/share-dir';
 import { computeConfigStatus } from '../services/kimi-config/status';
 import { type FetchFn, testConnection } from '../services/kimi-config/test-connection';
 import { writeConfigToml } from '../services/kimi-config/write-toml';
@@ -75,9 +81,57 @@ export function createKimiConfigRouter(
 
   router.post('/test', async (c) => {
     const row = await getKimiConfig(db);
-    const result = await testConnection(row, deps.fetchFn);
+
+    // Body is optional. When present, treat it as an override of the in-memory
+    // edits the user has not yet saved. Same apiKey rule as PATCH:
+    //   provider.apiKey === null (or omitted) → keep persisted key.
+    let body: KimiConfigTestRequest = {};
+    try {
+      const raw = await c.req.text();
+      if (raw.length > 0) body = JSON.parse(raw) as KimiConfigTestRequest;
+    } catch {
+      return c.json({ ok: false, error: 'invalid_body' } satisfies KimiConfigTestResponse);
+    }
+    if (body.provider?.type !== undefined && !isProviderType(body.provider.type)) {
+      return c.json({ ok: false, error: 'invalid_provider_type' } satisfies KimiConfigTestResponse);
+    }
+
+    const merged: KimiConfigRow = body.provider
+      ? {
+          ...row,
+          provider: {
+            ...row.provider,
+            ...body.provider,
+            apiKey:
+              body.provider.apiKey === null || body.provider.apiKey === undefined
+                ? row.provider.apiKey
+                : body.provider.apiKey,
+          },
+        }
+      : row;
+
+    const result = await testConnection(merged, deps.fetchFn);
     const response: KimiConfigTestResponse = result;
     return c.json(response);
+  });
+
+  router.get('/reveal-api-key', async (c) => {
+    const row = await getKimiConfig(db);
+    const response: KimiConfigRevealResponse = { apiKey: row.provider.apiKey };
+    return c.json(response);
+  });
+
+  router.get('/toml', async (c) => {
+    const dir = deps.shareDir ?? resolveShareDir();
+    const tomlPath = path.join(dir, 'config.toml');
+    try {
+      const content = readFileSync(tomlPath, 'utf8');
+      const response: KimiConfigTomlResponse = { content, exists: true, path: tomlPath };
+      return c.json(response);
+    } catch {
+      const response: KimiConfigTomlResponse = { content: '', exists: false, path: tomlPath };
+      return c.json(response);
+    }
   });
 
   // Force-render .kimi/config.toml from the current DB row. Useful when the

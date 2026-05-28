@@ -278,6 +278,117 @@ describe('POST /api/config/test', () => {
       rmSync(shareDir, { recursive: true, force: true });
     }
   });
+
+  it('uses stored apiKey when override provider.apiKey is null', async () => {
+    const fake = makeFakeDb();
+    fake.selectQueue.push([makeFakeKimiConfigRow('sk-stored')]);
+
+    let seenAuth = '';
+    const stubFetch = (async (_url: string, init?: RequestInit) => {
+      seenAuth = String((init?.headers as Record<string, string>).Authorization ?? '');
+      return new Response(JSON.stringify({ data: [] }), { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const { app, shareDir } = buildApp(fake, stubFetch);
+    try {
+      const res = await app.request('/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: { apiKey: null, baseUrl: 'https://override.example' } }),
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { ok: boolean };
+      expect(body.ok).toBe(true);
+      expect(seenAuth).toBe('Bearer sk-stored');
+    } finally {
+      rmSync(shareDir, { recursive: true, force: true });
+    }
+  });
+
+  it('uses override apiKey when provided in body', async () => {
+    const fake = makeFakeDb();
+    fake.selectQueue.push([makeFakeKimiConfigRow('sk-stored')]);
+
+    let seenAuth = '';
+    let seenUrl = '';
+    const stubFetch = (async (url: string, init?: RequestInit) => {
+      seenUrl = url;
+      seenAuth = String((init?.headers as Record<string, string>).Authorization ?? '');
+      return new Response(JSON.stringify({ data: [] }), { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const { app, shareDir } = buildApp(fake, stubFetch);
+    try {
+      const res = await app.request('/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: { apiKey: 'sk-new', baseUrl: 'https://override.example' },
+        }),
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { ok: boolean };
+      expect(body.ok).toBe(true);
+      expect(seenAuth).toBe('Bearer sk-new');
+      expect(seenUrl).toBe('https://override.example/v1/models');
+    } finally {
+      rmSync(shareDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('GET /api/config/reveal-api-key', () => {
+  it('returns the raw stored apiKey unmasked', async () => {
+    const fake = makeFakeDb();
+    fake.selectQueue.push([makeFakeKimiConfigRow('sk-secret-12345')]);
+
+    const { app, shareDir } = buildApp(fake);
+    try {
+      const res = await app.request('/reveal-api-key', { method: 'GET' });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { apiKey: string };
+      expect(body.apiKey).toBe('sk-secret-12345');
+    } finally {
+      rmSync(shareDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('GET /api/config/toml', () => {
+  it('returns exists=false when the file does not exist', async () => {
+    const fake = makeFakeDb();
+    const { app, shareDir } = buildApp(fake);
+    try {
+      const res = await app.request('/toml', { method: 'GET' });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { content: string; exists: boolean; path: string };
+      expect(body.exists).toBe(false);
+      expect(body.content).toBe('');
+      expect(body.path).toBe(path.join(shareDir, 'config.toml'));
+    } finally {
+      rmSync(shareDir, { recursive: true, force: true });
+    }
+  });
+
+  it('returns file content after sync-toml writes it', async () => {
+    const fake = makeFakeDb();
+    fake.selectQueue.push([makeFakeKimiConfigRow('sk-toml-read')]);
+    fake.selectQueue.push([makeFakeKimiConfigRow('sk-toml-read')]);
+
+    const { app, shareDir } = buildApp(fake);
+    try {
+      const syncRes = await app.request('/sync-toml', { method: 'POST' });
+      expect(syncRes.status).toBe(200);
+
+      const res = await app.request('/toml', { method: 'GET' });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { content: string; exists: boolean; path: string };
+      expect(body.exists).toBe(true);
+      expect(body.content).toContain('[providers."managed:kimi-code"]');
+    } finally {
+      rmSync(shareDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('POST /api/config/sync-toml', () => {

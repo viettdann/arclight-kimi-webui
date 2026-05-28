@@ -1,22 +1,85 @@
+import { useEffect, useState } from 'react';
+import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Section } from '@/components/ui/section';
 import { Textarea } from '@/components/ui/textarea';
+import { fetchConfigToml } from '../../api/kimi-config';
 import { useKimiConfigStore } from '../../lib/kimi-config-store';
 
 export function KimiRawTomlPanel() {
   const config = useKimiConfigStore((s) => s.config);
-  const status = useKimiConfigStore((s) => s.status);
   const patch = useKimiConfigStore((s) => s.patch);
+
+  const [toml, setToml] = useState<{ content: string; exists: boolean; path: string } | null>(
+    null,
+  );
+  const [loadingToml, setLoadingToml] = useState(false);
+  const [tomlError, setTomlError] = useState<string | null>(null);
+
+  async function loadToml() {
+    setLoadingToml(true);
+    setTomlError(null);
+    try {
+      setToml(await fetchConfigToml());
+    } catch (e) {
+      setTomlError(e instanceof Error ? e.message : 'Failed to read config.toml');
+    } finally {
+      setLoadingToml(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadToml();
+  }, []);
+
   if (!config) return null;
 
   return (
     <div className="space-y-6">
       <Section
-        title="Raw TOML override"
-        description="Appended verbatim to the generated .kimi/config.toml. Use sparingly."
+        title="Current .kimi/config.toml"
+        description={
+          toml?.path
+            ? `Read from ${toml.path}. Read-only snapshot of what's on disk now.`
+            : 'Read-only snapshot of what is on disk now.'
+        }
+        actions={
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => void loadToml()}
+            disabled={loadingToml}
+          >
+            {loadingToml ? 'Reading…' : 'Refresh'}
+          </Button>
+        }
+      >
+        {tomlError ? (
+          <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            {tomlError}
+          </p>
+        ) : toml && !toml.exists ? (
+          <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+            File does not exist yet. Save any change (or run sync) to materialise it.
+          </p>
+        ) : (
+          <Textarea
+            value={toml?.content ?? ''}
+            rows={16}
+            spellCheck={false}
+            readOnly
+            className="font-mono"
+          />
+        )}
+      </Section>
+
+      <Section
+        title="Extra TOML"
+        description="Appended verbatim to the end of .kimi/config.toml. Cannot override fields already emitted above — redefining an existing key is a TOML parse error."
       >
         <div className="space-y-1.5">
-          <Label htmlFor="toml-override">Extra TOML</Label>
+          <Label htmlFor="toml-override">Append at end of file</Label>
           <Textarea
             id="toml-override"
             value={config.extraTomlOverride}
@@ -28,48 +91,6 @@ export function KimiRawTomlPanel() {
           />
         </div>
       </Section>
-
-      {status?.system && (
-        <Section
-          title="System info (read-only)"
-          description="Process-level constants resolved at server startup."
-        >
-          <dl className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-            <SystemRow label="Workspace root" value={status.system.workspaceRoot} mono />
-            <SystemRow
-              label="Max upload"
-              value={`${(status.system.maxUploadBytes / (1024 * 1024)).toFixed(0)} MB (${status.system.maxUploadBytes.toLocaleString()} bytes)`}
-            />
-            <SystemRow label="Log level" value={status.system.logLevel} />
-            <SystemRow label="Port" value={`:${status.system.port}`} mono />
-            <SystemRow label="Node env" value={status.system.nodeEnv} />
-          </dl>
-        </Section>
-      )}
-    </div>
-  );
-}
-
-function SystemRow({
-  label,
-  value,
-  mono = false,
-}: {
-  label: string;
-  value: string;
-  mono?: boolean;
-}) {
-  return (
-    <div className="rounded-md border border-border bg-muted/30 px-3 py-2">
-      <dt className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-        {label}
-      </dt>
-      <dd
-        className={`mt-1 text-sm ${mono ? 'font-mono' : ''} text-foreground break-all`}
-        title={value}
-      >
-        {value}
-      </dd>
     </div>
   );
 }

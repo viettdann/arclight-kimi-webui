@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { isProviderType, PROVIDER_TYPES, type ProviderType } from 'shared/types/kimi-config';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Section } from '@/components/ui/section';
 import { Select } from '@/components/ui/select';
+import { showToast } from '../../components/toast-provider';
 import { useKimiConfigStore } from '../../lib/kimi-config-store';
 import { KeyValueEditor } from './key-value-editor';
 import { ModelsPanel } from './models-panel';
@@ -24,10 +25,40 @@ export function ProviderPanel() {
   const patch = useKimiConfigStore((s) => s.patch);
   const replaceKey = useKimiConfigStore((s) => s.replaceKey);
   const setReplaceKey = useKimiConfigStore((s) => s.setReplaceKey);
-  const [revealKey, setRevealKey] = useState(false);
+  const revealedApiKey = useKimiConfigStore((s) => s.revealedApiKey);
+  const revealApiKey = useKimiConfigStore((s) => s.revealApiKey);
+  const hideApiKey = useKimiConfigStore((s) => s.hideApiKey);
+  // Reveal/Hide toggle while typing a new key (Replace mode): plain UI password ↔ text.
+  const [showRawInput, setShowRawInput] = useState(false);
+  // Captured masked value at the moment user clicked "Replace", restored on Cancel.
+  const stashedMaskedKey = useRef<string>('');
 
   if (!config) return <PanelSkeleton />;
   const p = config.provider;
+
+  async function handleReveal() {
+    const res = await revealApiKey();
+    if (!res.ok) showToast({ message: res.error ?? 'Reveal failed', type: 'error' });
+  }
+
+  function enterReplace() {
+    stashedMaskedKey.current = p.apiKey;
+    patch({ provider: { apiKey: '' } });
+    setReplaceKey(true);
+    setShowRawInput(true);
+    hideApiKey();
+  }
+
+  function cancelReplace() {
+    patch({ provider: { apiKey: stashedMaskedKey.current } });
+    stashedMaskedKey.current = '';
+    setReplaceKey(false);
+    setShowRawInput(false);
+  }
+
+  // Display value used by the readonly view (no Replace in progress):
+  //   raw if revealed, otherwise the masked string the server returned.
+  const displayValue = revealedApiKey ?? p.apiKey;
 
   return (
     <div className="space-y-6">
@@ -71,46 +102,61 @@ export function ProviderPanel() {
               placeholder="https://api.example.com/v1"
               onChange={(e) => patch({ provider: { baseUrl: e.target.value } })}
             />
-            <p className="text-xs text-muted-foreground">
-              Test Connection probes <code className="font-mono">{'{baseUrl}'}/v1/models</code> —
-              trailing <code className="font-mono">/v1</code> is auto-appended if missing.
-            </p>
           </div>
           <div className="md:col-span-2 space-y-1.5">
             <Label htmlFor="provider-apiKey">API key</Label>
             <div className="flex gap-2">
-              <Input
-                id="provider-apiKey"
-                type={revealKey ? 'text' : 'password'}
-                value={p.apiKey}
-                onChange={(e) => patch({ provider: { apiKey: e.target.value } })}
-                placeholder={replaceKey ? 'Enter new API key' : '••••••••'}
-                disabled={!replaceKey && p.apiKey === ''}
-              />
+              {replaceKey ? (
+                <Input
+                  id="provider-apiKey"
+                  type={showRawInput ? 'text' : 'password'}
+                  value={p.apiKey}
+                  onChange={(e) => patch({ provider: { apiKey: e.target.value } })}
+                  placeholder="Enter new API key"
+                  autoFocus
+                />
+              ) : (
+                <Input
+                  id="provider-apiKey"
+                  type="text"
+                  value={displayValue}
+                  readOnly
+                  placeholder={p.apiKey === '' ? '(no key configured)' : undefined}
+                  className="font-mono"
+                />
+              )}
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={() => setRevealKey((v) => !v)}
+                disabled={!replaceKey && p.apiKey === ''}
+                onClick={() => {
+                  if (replaceKey) {
+                    setShowRawInput((v) => !v);
+                  } else if (revealedApiKey !== null) {
+                    hideApiKey();
+                  } else {
+                    void handleReveal();
+                  }
+                }}
               >
-                {revealKey ? 'Hide' : 'Reveal'}
+                {replaceKey
+                  ? showRawInput
+                    ? 'Hide'
+                    : 'Reveal'
+                  : revealedApiKey !== null
+                    ? 'Hide'
+                    : 'Reveal'}
               </Button>
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={() => {
-                  const next = !replaceKey;
-                  setReplaceKey(next);
-                  if (next) setRevealKey(true);
-                }}
+                onClick={() => (replaceKey ? cancelReplace() : enterReplace())}
               >
                 {replaceKey ? 'Cancel' : 'Replace'}
               </Button>
             </div>
-            <p className="text-xs text-muted-foreground">
-              Existing key is left unchanged on save unless <strong>Replace</strong> is engaged.
-            </p>
           </div>
         </div>
 

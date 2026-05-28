@@ -1,8 +1,6 @@
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Section } from '@/components/ui/section';
-import { Select } from '@/components/ui/select';
 import { useKimiConfigStore } from '../../lib/kimi-config-store';
 import { Toggle } from './toggle';
 
@@ -32,63 +30,6 @@ export function KimiDefaultsPanel() {
             checked={d.yolo}
             onChange={(v) => patch({ defaults: { yolo: v } })}
           />
-          <Toggle
-            label="Plan mode"
-            description="Force the agent to write a plan before editing."
-            checked={d.planMode}
-            onChange={(v) => patch({ defaults: { planMode: v } })}
-          />
-          <Toggle
-            label="Show thinking stream"
-            description="Display the reasoning trace in the chat view."
-            checked={d.showThinkingStream}
-            onChange={(v) => patch({ defaults: { showThinkingStream: v } })}
-          />
-          <Toggle
-            label="Skip AFK prompt injection"
-            description="Don't auto-enhance prompts after idle periods."
-            checked={d.skipAfkPromptInjection}
-            onChange={(v) => patch({ defaults: { skipAfkPromptInjection: v } })}
-          />
-          <Toggle
-            label="Telemetry"
-            description="Allow upstream Kimi CLI telemetry."
-            checked={d.telemetry}
-            onChange={(v) => patch({ defaults: { telemetry: v } })}
-          />
-        </div>
-      </Section>
-
-      <Section
-        title="Editor & terminal UX"
-        description="Settings that affect the Kimi CLI terminal experience."
-      >
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="space-y-1.5">
-            <Label htmlFor="default-editor">Default editor</Label>
-            <Input
-              id="default-editor"
-              value={d.editor}
-              placeholder="code, vim, nano…"
-              onChange={(e) => patch({ defaults: { editor: e.target.value } })}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="default-theme">Theme</Label>
-            <Select
-              id="default-theme"
-              value={d.theme}
-              onChange={(e) =>
-                patch({ defaults: { theme: e.target.value as 'dark' | 'light' } })
-              }
-            >
-              <option value="dark">Dark</option>
-              <option value="light">Light</option>
-            </Select>
-            <p className="text-xs text-muted-foreground">
-              Kimi CLI terminal theme — does not affect this webui.
-            </p>
-          </div>
         </div>
       </Section>
 
