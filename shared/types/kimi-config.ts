@@ -1,13 +1,20 @@
 // Kimi config types — mirror the CLI config.toml structure.
 // Server and client must agree on this surface verbatim.
 
-export type ProviderType =
-  | 'kimi'
-  | 'openai_legacy'
-  | 'openai_responses'
-  | 'anthropic'
-  | 'gemini'
-  | 'vertexai';
+export const PROVIDER_TYPES = [
+  'kimi',
+  'openai_legacy',
+  'openai_responses',
+  'anthropic',
+  'gemini',
+  'vertexai',
+] as const;
+
+export type ProviderType = (typeof PROVIDER_TYPES)[number];
+
+export function isProviderType(t: string): t is ProviderType {
+  return (PROVIDER_TYPES as readonly string[]).includes(t);
+}
 
 export type ModelCapability = 'thinking' | 'always_thinking' | 'image_in' | 'video_in';
 

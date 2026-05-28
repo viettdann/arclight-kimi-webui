@@ -85,7 +85,6 @@ describe('PATCH /api/config', () => {
   it('updates provider baseUrl and re-renders file', async () => {
     const fake = makeFakeDb();
     fake.selectQueue.push([makeFakeKimiConfigRow('sk-test1234')]);
-    fake.selectQueue.push([makeFakeKimiConfigRow('sk-test1234')]);
 
     const { app, shareDir } = buildApp(fake);
     try {
@@ -99,8 +98,10 @@ describe('PATCH /api/config', () => {
       expect(body.provider.baseUrl).toBe('https://new.example.com');
       expect(body.provider.apiKey).toBe('***1234');
 
-      const updateCall = fake.calls.find((c) => c.op === 'update');
-      expect(updateCall).toBeDefined();
+      // PATCH is implemented as `insert().onConflictDoUpdate(...)`; the fake DB
+      // records the call as a single `insert`.
+      const insertCall = fake.calls.find((c) => c.op === 'insert');
+      expect(insertCall).toBeDefined();
     } finally {
       rmSync(shareDir, { recursive: true, force: true });
     }
@@ -108,7 +109,6 @@ describe('PATCH /api/config', () => {
 
   it('leaves apiKey unchanged when null on PATCH', async () => {
     const fake = makeFakeDb();
-    fake.selectQueue.push([makeFakeKimiConfigRow('sk-test1234')]);
     fake.selectQueue.push([makeFakeKimiConfigRow('sk-test1234')]);
 
     const { app, shareDir } = buildApp(fake);
@@ -122,6 +122,9 @@ describe('PATCH /api/config', () => {
       const body = (await res.json()) as { provider: { apiKey: string; baseUrl: string } };
       expect(body.provider.apiKey).toBe('***1234');
       expect(body.provider.baseUrl).toBe('https://another.com');
+
+      const insertCall = fake.calls.find((c) => c.op === 'insert');
+      expect(insertCall).toBeDefined();
     } finally {
       rmSync(shareDir, { recursive: true, force: true });
     }
@@ -139,6 +142,51 @@ describe('PATCH /api/config', () => {
         body: JSON.stringify({ provider: { type: 'invalid' } }),
       });
       expect(res.status).toBe(400);
+    } finally {
+      rmSync(shareDir, { recursive: true, force: true });
+    }
+  });
+
+  it('PATCH on empty DB folds defaults + patch into the upsert', async () => {
+    const fake = makeFakeDb();
+    // First SELECT (PATCH path): no row present — getKimiConfig falls back to
+    // env/defaults. Second SELECT (subsequent GET): simulate the post-upsert
+    // row so the GET reflects the patched state.
+    fake.selectQueue.push([]);
+    fake.selectQueue.push([
+      {
+        ...makeFakeKimiConfigRow(''),
+        provider: {
+          ...DEFAULT_KIMI_CONFIG.provider,
+          baseUrl: 'https://patched.example.com',
+        },
+      },
+    ]);
+
+    const { app, shareDir } = buildApp(fake);
+    try {
+      const patchRes = await app.request('/', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: { baseUrl: 'https://patched.example.com' } }),
+      });
+      expect(patchRes.status).toBe(200);
+      const patchBody = (await patchRes.json()) as { provider: { baseUrl: string } };
+      expect(patchBody.provider.baseUrl).toBe('https://patched.example.com');
+
+      const insertCalls = fake.calls.filter((c) => c.op === 'insert');
+      expect(insertCalls).toHaveLength(1);
+      const inserted = insertCalls[0]?.values as {
+        id: number;
+        provider: { baseUrl: string };
+      };
+      expect(inserted.id).toBe(1);
+      expect(inserted.provider.baseUrl).toBe('https://patched.example.com');
+
+      const getRes = await app.request('/', { method: 'GET' });
+      expect(getRes.status).toBe(200);
+      const getBody = (await getRes.json()) as { provider: { baseUrl: string } };
+      expect(getBody.provider.baseUrl).toBe('https://patched.example.com');
     } finally {
       rmSync(shareDir, { recursive: true, force: true });
     }

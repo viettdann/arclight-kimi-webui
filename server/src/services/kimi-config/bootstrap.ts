@@ -3,7 +3,7 @@ import path from 'node:path';
 import type { KimiConfigRow } from 'shared/types/kimi-config';
 import type { DB } from '../../db';
 import { env } from '../../env';
-import { loadOrSeed } from './load-or-seed';
+import { getKimiConfig } from './get-kimi-config';
 import { resolveShareDir } from './share-dir';
 import { writeConfigToml } from './write-toml';
 
@@ -26,7 +26,7 @@ export async function bootstrap(
   mkdirSync(path.join(shareDir, 'sessions'), { mode: 0o700, recursive: true });
   mkdirSync(path.join(shareDir, 'credentials'), { mode: 0o700, recursive: true });
 
-  const row = await loadOrSeed(db);
+  const row = await getKimiConfig(db);
 
   const tomlPath = path.join(shareDir, 'config.toml');
   const shouldWrite = mode === 'always' || (mode === 'if-missing' && !existsSync(tomlPath));

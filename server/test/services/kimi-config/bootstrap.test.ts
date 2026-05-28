@@ -24,23 +24,9 @@ describe('bootstrap', () => {
 
   it('creates share dir tree and writes config.toml', async () => {
     const fake = makeFakeDb();
-    fake.selectQueue.push([]); // no existing config
-    fake.selectQueue.push([
-      {
-        id: 1,
-        defaults: DEFAULT_KIMI_CONFIG.defaults,
-        provider: DEFAULT_KIMI_CONFIG.provider,
-        models: DEFAULT_KIMI_CONFIG.models,
-        services: DEFAULT_KIMI_CONFIG.services,
-        loopControl: DEFAULT_KIMI_CONFIG.loopControl,
-        background: DEFAULT_KIMI_CONFIG.background,
-        notifications: DEFAULT_KIMI_CONFIG.notifications,
-        mcpClient: DEFAULT_KIMI_CONFIG.mcpClient,
-        hooks: DEFAULT_KIMI_CONFIG.hooks,
-        extraTomlOverride: '',
-        updatedAt: new Date(),
-      },
-    ]);
+    // No existing config row. getKimiConfig falls back to DEFAULT_KIMI_CONFIG
+    // (env absent in tests), so the rendered config.toml shows api_key = "".
+    fake.selectQueue.push([]);
 
     const { shareDir } = await bootstrap(fake.db, { shareDir: TMP_SHARE_DIR });
     expect(shareDir).toBe(TMP_SHARE_DIR);

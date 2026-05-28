@@ -22,7 +22,7 @@ import { eq } from 'drizzle-orm';
 import { type DB, db as defaultDb, schema } from '../db';
 import { logger } from '../lib/logger';
 import { broadcastEvent } from '../lib/ws-broadcast';
-import { loadOrSeed } from './kimi-config/load-or-seed';
+import { getKimiConfig } from './kimi-config/get-kimi-config';
 import { kimiPaths } from './kimi-config/paths';
 import type { ActiveSession, KimiSessionManager } from './session-manager';
 import { extractTitle, type ExtractedTitle, stateJsonPathFor } from './title';
@@ -388,7 +388,7 @@ export async function maybeGenerateTitleBackground(
 
 async function defaultLoadConfig(database: DB): Promise<TitleProviderConfig | null> {
   try {
-    const row = await loadOrSeed(database);
+    const row = await getKimiConfig(database);
     const alias = row.defaults.model;
     const modelEntry = row.models[alias];
     const apiModel = modelEntry?.model ?? alias;

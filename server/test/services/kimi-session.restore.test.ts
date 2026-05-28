@@ -242,10 +242,10 @@ describe('restoreFromBackup — cross-machine adoption', () => {
   it('disk empty, DB has non-empty blobs: materializes all 3 files post-transform and seeds kimi.json', async () => {
     const fake = makeFakeDb();
     fake.selectQueue.push([joinedRow({ workDir: '/legacy/abs/path' })]);
-    // loadEnvForInjection → loadOrSeed issues its own SELECT inside the
-    // parallel Promise.all; that shift happens before the session_files
-    // shift due to how Bun unwraps thenables. Push an empty row so loadOrSeed
-    // goes down its insert path without consuming our filesRow.
+    // loadEnvForInjection → getKimiConfig issues its own SELECT inside the
+    // parallel Promise.all; that shift happens before the session_files shift
+    // due to how Bun unwraps thenables. Push an empty row so getKimiConfig
+    // walks the merge-from-defaults path without consuming our filesRow.
     fake.selectQueue.push([]);
 
     const wireJsonl = '{"turn_begin":1}\n{"more":2}\n';
@@ -321,7 +321,7 @@ describe('restoreFromBackup — cross-machine adoption', () => {
     // payload (proves overwrite, not append).
     const fake1 = makeFakeDb();
     fake1.selectQueue.push([joinedRow({ workDir: '/legacy/abs/path' })]);
-    fake1.selectQueue.push([]); // loadOrSeed shift
+    fake1.selectQueue.push([]); // getKimiConfig shift (merge-from-defaults path)
     fake1.selectQueue.push([
       {
         sessionId: 'sess-1',
@@ -352,7 +352,7 @@ describe('restoreFromBackup — cross-machine adoption', () => {
     // Second restore with fresh blobs.
     const fake2 = makeFakeDb();
     fake2.selectQueue.push([joinedRow({ workDir: '/legacy/abs/path' })]);
-    fake2.selectQueue.push([]); // loadOrSeed shift
+    fake2.selectQueue.push([]); // getKimiConfig shift (merge-from-defaults path)
     fake2.selectQueue.push([
       {
         sessionId: 'sess-1',
@@ -386,7 +386,7 @@ describe('restoreFromBackup — cross-machine adoption', () => {
   it('resets wireByteOffset to byte length of restored wire blob', async () => {
     const fake = makeFakeDb();
     fake.selectQueue.push([joinedRow({ workDir: '/legacy/abs/path' })]);
-    fake.selectQueue.push([]); // loadOrSeed shift
+    fake.selectQueue.push([]); // getKimiConfig shift (merge-from-defaults path)
     const wireJsonl = 'restored-bytes-éà\n'; // multi-byte chars
     const expectedOffset = Buffer.byteLength(wireJsonl, 'utf8');
     fake.selectQueue.push([

@@ -1,4 +1,3 @@
-import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import type {
   KimiConfigDTO,
@@ -6,11 +5,11 @@ import type {
   KimiConfigStatusResponse,
   KimiConfigTestResponse,
 } from 'shared/types';
-import type { KimiConfigRow } from 'shared/types/kimi-config';
+import { isProviderType, type KimiConfigRow } from 'shared/types/kimi-config';
 import { type AuthVariables, requireAdmin } from '../auth/middleware';
 import type { DB } from '../db';
 import { kimiConfig } from '../db/schema';
-import { loadOrSeed } from '../services/kimi-config/load-or-seed';
+import { getKimiConfig } from '../services/kimi-config/get-kimi-config';
 import { maskConfigDTO } from '../services/kimi-config/mask';
 import { computeConfigStatus } from '../services/kimi-config/status';
 import { type FetchFn, testConnection } from '../services/kimi-config/test-connection';
@@ -23,12 +22,6 @@ export interface KimiConfigRouterDeps {
   shareDir?: string;
   /** Override the fetch used by POST /test. Defaults to global `fetch`. */
   fetchFn?: FetchFn;
-}
-
-function isValidProviderType(t: string): t is KimiConfigRow['provider']['type'] {
-  return ['kimi', 'openai_legacy', 'openai_responses', 'anthropic', 'gemini', 'vertexai'].includes(
-    t,
-  );
 }
 
 function applyPatch(row: KimiConfigRow, patch: KimiConfigPatchDTO): KimiConfigRow {
@@ -69,19 +62,19 @@ export function createKimiConfigRouter(
   router.use('*', requireAdmin);
 
   router.get('/', async (c) => {
-    const row = await loadOrSeed(db);
+    const row = await getKimiConfig(db);
     const dto: KimiConfigDTO = maskConfigDTO(row);
     return c.json(dto);
   });
 
   router.get('/status', async (c) => {
-    const row = await loadOrSeed(db);
+    const row = await getKimiConfig(db);
     const status: KimiConfigStatusResponse = computeConfigStatus(row);
     return c.json(status);
   });
 
   router.post('/test', async (c) => {
-    const row = await loadOrSeed(db);
+    const row = await getKimiConfig(db);
     const result = await testConnection(row, deps.fetchFn);
     const response: KimiConfigTestResponse = result;
     return c.json(response);
@@ -91,7 +84,7 @@ export function createKimiConfigRouter(
   // boot-time write policy is 'never' / 'if-missing' and the on-disk file has
   // drifted from DB.
   router.post('/sync-toml', async (c) => {
-    const row = await loadOrSeed(db);
+    const row = await getKimiConfig(db);
     writeConfigToml(row, deps.shareDir);
     return c.json({ ok: true });
   });
@@ -100,29 +93,35 @@ export function createKimiConfigRouter(
     const body = (await c.req.json()) as KimiConfigPatchDTO;
 
     // Validate provider.type if present
-    if (body.provider?.type !== undefined && !isValidProviderType(body.provider.type)) {
+    if (body.provider?.type !== undefined && !isProviderType(body.provider.type)) {
       return c.json({ error: 'invalid_provider_type' }, 400);
     }
 
-    const current = await loadOrSeed(db);
+    // Fold effective config (DB > env > defaults) into the patch. On an empty
+    // DB this materialises env-derived values plus the patch in a single upsert
+    // — the singleton `kimi_config_singleton` check pins id=1.
+    const current = await getKimiConfig(db);
     const next = applyPatch(current, body);
 
+    const values = {
+      id: 1,
+      defaults: next.defaults,
+      provider: next.provider,
+      models: next.models,
+      services: next.services,
+      loopControl: next.loopControl,
+      background: next.background,
+      notifications: next.notifications,
+      mcpClient: next.mcpClient,
+      hooks: next.hooks,
+      extraTomlOverride: next.extraTomlOverride,
+      updatedAt: new Date(next.updatedAt),
+    };
+    const { id: _id, ...updatable } = values;
     await db
-      .update(kimiConfig)
-      .set({
-        defaults: next.defaults,
-        provider: next.provider,
-        models: next.models,
-        services: next.services,
-        loopControl: next.loopControl,
-        background: next.background,
-        notifications: next.notifications,
-        mcpClient: next.mcpClient,
-        hooks: next.hooks,
-        extraTomlOverride: next.extraTomlOverride,
-        updatedAt: new Date(next.updatedAt),
-      })
-      .where(eq(kimiConfig.id, 1));
+      .insert(kimiConfig)
+      .values(values)
+      .onConflictDoUpdate({ target: kimiConfig.id, set: updatable });
 
     // Re-render TOML file after update
     writeConfigToml(next, deps.shareDir);

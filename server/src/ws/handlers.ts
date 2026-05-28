@@ -32,8 +32,8 @@ import { env } from '../env';
 import { auditLog as defaultAuditLog, logger } from '../lib/logger';
 import { slugifyProjectName } from '../lib/slug';
 import { broadcastEvent, sendDirect } from '../lib/ws-broadcast';
-import { loadEnvForInjection } from '../services/kimi-config/env-injection';
-import { loadOrSeed } from '../services/kimi-config/load-or-seed';
+import { buildEnvFromRow } from '../services/kimi-config/env';
+import { getKimiConfig } from '../services/kimi-config/get-kimi-config';
 import {
   createKimi,
   flushContextAndState,
@@ -288,17 +288,18 @@ async function handleCreateSession(
     return;
   }
 
-  const envVars = await loadEnvForInjection(deps.db);
-
-  // Resolve thinking/yolo: explicit payload wins, else fall back to the user's
-  // configured defaults (KimiConfig.defaults). Clients should not hardcode these.
-  let cfgDefaults: { thinking: boolean; yolo: boolean } | null = null;
+  // Single read of the singleton config row; both env injection and the
+  // thinking/yolo defaults derive from it. Avoids two SELECTs per create_session.
+  let cfgRow: Awaited<ReturnType<typeof getKimiConfig>> | null = null;
   try {
-    const cfg = await loadOrSeed(deps.db);
-    cfgDefaults = { thinking: cfg.defaults.thinking, yolo: cfg.defaults.yolo };
+    cfgRow = await getKimiConfig(deps.db);
   } catch {
-    // Config table may be absent in test fakes; fall through to `false`.
+    // Config table may be absent in test fakes; fall through to defaults.
   }
+  const envVars = cfgRow ? buildEnvFromRow(cfgRow) : {};
+  const cfgDefaults = cfgRow
+    ? { thinking: cfgRow.defaults.thinking, yolo: cfgRow.defaults.yolo }
+    : null;
   // Thinking is on by default: payload wins, else configured default, else true.
   const thinking = payload.thinking ?? cfgDefaults?.thinking ?? true;
   // approvalMode is the source of truth: explicit payload wins, else derive

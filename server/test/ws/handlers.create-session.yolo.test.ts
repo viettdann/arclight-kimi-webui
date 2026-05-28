@@ -203,8 +203,9 @@ describe('handleCreateSession — yoloMode plumbing', () => {
 
     expect(createKimiCalls.length).toBe(1);
     // Handler resolves yoloMode (payload ?? config default ?? false) and always
-    // forwards it. With no payload and a fake DB (loadOrSeed throws → caught),
-    // the resolved value is false.
+    // forwards it. With no payload and DB empty (`getKimiConfig` returns
+    // defaults), the resolved value is `DEFAULT_KIMI_CONFIG.defaults.yolo` =
+    // false.
     expect(createKimiCalls[0]?.yoloMode).toBe(false);
 
     const insertCall = fake.calls.find(

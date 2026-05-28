@@ -11,9 +11,9 @@
  */
 import { generateTitleViaAnthropic } from '../src/services/title-generate';
 import { db } from '../src/db';
-import { loadOrSeed } from '../src/services/kimi-config/load-or-seed';
+import { getKimiConfig } from '../src/services/kimi-config/get-kimi-config';
 
-const row = await loadOrSeed(db);
+const row = await getKimiConfig(db);
 const alias = row.defaults.model;
 const modelEntry = row.models[alias];
 const apiModel = modelEntry?.model ?? alias;

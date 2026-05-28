@@ -36,15 +36,15 @@ const envSchema = z.object({
   // - never:  never write at boot; rely on PATCH /api/config or POST /api/config/sync-toml
   KIMI_CONFIG_WRITE_TOML: z.enum(['if-missing', 'always', 'never']).default('if-missing'),
 
-  KIMI_SEED_PROVIDER_TYPE: z.string().optional(),
-  KIMI_SEED_PROVIDER_BASE_URL: z.string().optional(),
-  KIMI_SEED_PROVIDER_API_KEY: z.string().optional(),
-  KIMI_SEED_DEFAULT_MODEL: z.string().optional(),
-  KIMI_SEED_MODEL_PROVIDER: z.string().optional(),
-  KIMI_SEED_MODEL_NAME: z.string().optional(),
-  KIMI_SEED_MODEL_MAX_CONTEXT_SIZE: z.string().optional(),
-  KIMI_SEED_MODEL_CAPABILITIES: z.string().optional(),
-  KIMI_SEED_MODEL_DISPLAY_NAME: z.string().optional(),
+  KIMI_PROVIDER_TYPE: z.string().optional(),
+  KIMI_BASE_URL: z.string().optional(),
+  KIMI_API_KEY: z.string().optional(),
+  KIMI_DEFAULT_MODEL: z.string().optional(),
+  KIMI_MODEL_PROVIDER: z.string().optional(),
+  KIMI_MODEL_NAME: z.string().optional(),
+  KIMI_MODEL_MAX_CONTEXT_SIZE: z.string().optional(),
+  KIMI_MODEL_CAPABILITIES: z.string().optional(),
+  KIMI_MODEL_DISPLAY_NAME: z.string().optional(),
 });
 
 type ParsedEnv = z.infer<typeof envSchema>;
