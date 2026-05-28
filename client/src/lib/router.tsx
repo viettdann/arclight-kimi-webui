@@ -1,21 +1,59 @@
-import { createBrowserRouter } from 'react-router';
+import { createBrowserRouter, Navigate } from 'react-router';
+import { RequireAdmin } from '../components/require-admin';
 import { RequireAuth } from '../components/require-auth';
-import { AppShell } from '../pages/app';
-import { KimiConfigPage } from '../pages/settings/KimiConfigPage';
+import { AccessControlPanel } from '../components/settings/access-control-panel';
+import { AccountPanel } from '../components/settings/account-panel';
+import { KimiAgentPanel } from '../components/settings/kimi-agent-panel';
+import { KimiBackgroundPanel } from '../components/settings/kimi-background-panel';
+import { KimiDefaultsPanel } from '../components/settings/kimi-defaults-panel';
+import { KimiHooksPanel } from '../components/settings/kimi-hooks-panel';
+import { KimiRawTomlPanel } from '../components/settings/kimi-raw-toml-panel';
+import { KimiSection } from '../components/settings/kimi-section';
+import { KimiServicesPanel } from '../components/settings/kimi-services-panel';
+import { ProviderPanel } from '../components/settings/provider-panel';
+import { Shell } from '../pages/app';
+import { ChatView } from '../pages/chat-view';
+import { SettingsView } from '../pages/settings';
 
 export const router = createBrowserRouter([
-  { path: '/', element: <AppShell /> },
   {
-    path: '/session/:id/*',
-    element: <RequireAuth />,
-    children: [{ path: '*', element: <AppShell /> }],
-  },
-  {
-    path: '/settings',
-    element: (
-      <RequireAuth>
-        <KimiConfigPage />
-      </RequireAuth>
-    ),
+    path: '/',
+    element: <Shell />,
+    children: [
+      { index: true, element: <ChatView /> },
+      {
+        path: 'session/:id/*',
+        element: <RequireAuth />,
+        children: [{ index: true, element: <ChatView /> }],
+      },
+      {
+        path: 'settings',
+        element: <RequireAdmin />,
+        children: [
+          {
+            element: <SettingsView />,
+            children: [
+              { index: true, element: <Navigate to="provider" replace /> },
+              { path: 'provider', element: <ProviderPanel /> },
+              {
+                path: 'kimi',
+                element: <KimiSection />,
+                children: [
+                  { index: true, element: <Navigate to="defaults" replace /> },
+                  { path: 'defaults', element: <KimiDefaultsPanel /> },
+                  { path: 'services', element: <KimiServicesPanel /> },
+                  { path: 'agent', element: <KimiAgentPanel /> },
+                  { path: 'background', element: <KimiBackgroundPanel /> },
+                  { path: 'hooks', element: <KimiHooksPanel /> },
+                  { path: 'raw-toml', element: <KimiRawTomlPanel /> },
+                ],
+              },
+              { path: 'account', element: <AccountPanel /> },
+              { path: 'access', element: <AccessControlPanel /> },
+            ],
+          },
+        ],
+      },
+    ],
   },
 ]);

@@ -94,6 +94,7 @@ export function Sidebar({ isOpen, onClose, onLoginClick }: SidebarProps) {
   const navigate = useNavigate();
   const { id: openSessionId } = useParams<{ id: string }>();
   const status = useAuthStore((s) => s.status);
+  const isAdmin = useAuthStore((s) => s.status === 'authenticated' && s.user?.role === 'admin');
   const projects = useProjectsStore((s) => s.projects);
   const projectsStatus = useProjectsStore((s) => s.status);
   const fetchProjects = useProjectsStore((s) => s.fetch);
@@ -270,18 +271,20 @@ export function Sidebar({ isOpen, onClose, onLoginClick }: SidebarProps) {
             <Zap />
             Skills
           </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={() => {
-              onClose?.();
-              navigate('/settings');
-            }}
-            className="w-full justify-start gap-2 px-3 py-2 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground"
-          >
-            <Settings />
-            Settings
-          </Button>
+          {isAdmin && (
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => {
+                onClose?.();
+                navigate('/settings');
+              }}
+              className="w-full justify-start gap-2 px-3 py-2 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground"
+            >
+              <Settings />
+              Settings
+            </Button>
+          )}
         </nav>
 
         {showFiles && activeProjectName ? (

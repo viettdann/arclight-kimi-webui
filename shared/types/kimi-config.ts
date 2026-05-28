@@ -128,12 +128,19 @@ export interface KimiConfigDTO {
   updatedAt: string;
 }
 
-export type KimiConfigPatchDTO = Partial<
-  Omit<KimiConfigDTO, 'updatedAt'> & {
-    // apiKey=null means "leave unchanged" on PATCH
-    provider?: Partial<ProviderBlock> & { apiKey?: string | null };
-  }
->;
+// apiKey=null on provider means "leave unchanged" on PATCH.
+export type KimiConfigPatchDTO = {
+  defaults?: DefaultsBlock;
+  provider?: Omit<Partial<ProviderBlock>, 'apiKey'> & { apiKey?: string | null };
+  models?: Record<string, ModelEntry>;
+  services?: ServicesBlock;
+  loopControl?: LoopControlBlock;
+  background?: BackgroundBlock;
+  notifications?: NotificationsBlock;
+  mcpClient?: McpClientBlock;
+  hooks?: HookEntry[];
+  extraTomlOverride?: string;
+};
 
 export interface KimiConfigStatusResponse {
   ready: boolean;

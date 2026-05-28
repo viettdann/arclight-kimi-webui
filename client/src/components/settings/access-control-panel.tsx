@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react';
 import type { AccessControlResponse, AllowedEmailDTO } from 'shared/types';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Section } from '@/components/ui/section';
 import {
   addAllowedEmail,
   fetchAccessControl,
@@ -21,7 +24,7 @@ function overrideFromChoice(choice: OverrideChoice): boolean | null {
   return choice === 'on';
 }
 
-export function AccessControlTab() {
+export function AccessControlPanel() {
   const [control, setControl] = useState<AccessControlResponse | null>(null);
   const [emails, setEmails] = useState<AllowedEmailDTO[]>([]);
   const [loading, setLoading] = useState(true);
@@ -93,7 +96,7 @@ export function AccessControlTab() {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-16">
-        <div className="h-7 w-7 animate-spin rounded-full border-4 border-indigo-600 border-t-transparent" />
+        <div className="h-7 w-7 animate-spin rounded-full border-4 border-primary border-t-transparent" />
       </div>
     );
   }
@@ -111,35 +114,29 @@ export function AccessControlTab() {
   ];
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-200">
+    <div className="space-y-6">
       {error && (
-        <div className="rounded-lg border border-rose-100 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
           {error}
         </div>
       )}
 
-      {/* Toggle card */}
-      <section className="border border-slate-200 rounded-lg p-5 space-y-4 bg-white shadow-sm">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h2 className="text-sm font-semibold uppercase tracking-wider text-indigo-600">
-              Access Control
-            </h2>
-            <p className="text-xs text-slate-400 mt-1">
-              When on, only listed emails (and admins) may use the app.
-            </p>
-          </div>
+      <Section
+        title="Allowlist enforcement"
+        description="When on, only listed emails (and admins) may use the app."
+        actions={
           <span
             className={cn(
-              'shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold border',
+              'rounded-full px-2.5 py-0.5 text-xs font-semibold border',
               effective
-                ? 'bg-emerald-50 border-emerald-100 text-emerald-700'
-                : 'bg-slate-100 border-slate-200 text-slate-500',
+                ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-700 dark:text-emerald-300'
+                : 'bg-muted border-border text-muted-foreground',
             )}
           >
             {effective ? 'Enforcing' : 'Open'}
           </span>
-        </div>
+        }
+      >
         <div className="grid grid-cols-3 gap-2">
           {choices.map((opt) => (
             <button
@@ -150,41 +147,39 @@ export function AccessControlTab() {
               className={cn(
                 'rounded-lg border px-3 py-2.5 text-left transition-all disabled:opacity-50 cursor-pointer',
                 choice === opt.id
-                  ? 'border-indigo-300 bg-indigo-50 shadow-sm'
-                  : 'border-slate-200 bg-white hover:bg-slate-50',
+                  ? 'border-primary bg-primary/10 shadow-sm'
+                  : 'border-border bg-background hover:bg-muted/40',
               )}
             >
               <span
                 className={cn(
                   'block text-sm font-semibold',
-                  choice === opt.id ? 'text-indigo-700' : 'text-slate-700',
+                  choice === opt.id ? 'text-primary' : 'text-foreground',
                 )}
               >
                 {opt.label}
               </span>
-              <span className="block text-[10px] text-slate-400 mt-0.5">{opt.sublabel}</span>
+              <span className="block text-xs text-muted-foreground mt-0.5">{opt.sublabel}</span>
             </button>
           ))}
         </div>
-      </section>
+      </Section>
 
-      {/* Allowlist editor */}
-      <section className="border border-slate-200 rounded-lg p-5 space-y-4 bg-white shadow-sm">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-indigo-600">
-            Allowed Emails
-          </h2>
-          <span className="text-xs text-slate-400">{emails.length} listed</span>
-        </div>
-
+      <Section
+        title="Allowed emails"
+        description="Add and revoke individual addresses."
+        actions={
+          <span className="text-xs text-muted-foreground">{emails.length} listed</span>
+        }
+      >
         {!effective && (
-          <p className="rounded-md border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+          <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
             Access control is off — the allowlist is currently inactive.
           </p>
         )}
 
         <div className="flex gap-2">
-          <input
+          <Input
             type="email"
             value={newEmail}
             placeholder="name@company.com"
@@ -195,42 +190,44 @@ export function AccessControlTab() {
                 void handleAdd();
               }
             }}
-            className="flex-1 rounded-md border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-50 focus:bg-white transition-all placeholder-slate-400"
           />
-          <button
+          <Button
             type="button"
+            variant="default"
+            size="sm"
             onClick={handleAdd}
             disabled={adding || newEmail.trim() === ''}
-            className="px-4 py-2 text-xs font-semibold rounded-md bg-indigo-600 text-white hover:bg-indigo-700 active:bg-indigo-800 disabled:opacity-50 transition-all whitespace-nowrap cursor-pointer"
           >
             {adding ? 'Adding…' : 'Add'}
-          </button>
+          </Button>
         </div>
 
         {emails.length === 0 ? (
-          <p className="text-xs text-slate-400 italic text-center py-6 border border-dashed border-slate-200 rounded-lg">
-            No emails listed yet. Add one above.
+          <p className="text-xs italic text-muted-foreground border border-dashed border-border rounded-md py-6 text-center">
+            No emails listed yet.
           </p>
         ) : (
-          <ul className="divide-y divide-slate-100 border border-slate-100 rounded-lg overflow-hidden">
+          <ul className="divide-y divide-border rounded-md border border-border overflow-hidden">
             {emails.map((e) => (
               <li
                 key={e.email}
-                className="flex items-center justify-between px-3 py-2.5 hover:bg-slate-50 transition-colors"
+                className="flex items-center justify-between px-3 py-2 hover:bg-muted/40 transition-colors"
               >
-                <span className="font-mono text-sm text-slate-700 truncate">{e.email}</span>
-                <button
+                <span className="font-mono text-sm truncate">{e.email}</span>
+                <Button
                   type="button"
+                  variant="ghost"
+                  size="xs"
                   onClick={() => handleRemove(e.email)}
-                  className="text-xs text-rose-600 hover:text-rose-800 hover:bg-rose-50 px-2.5 py-1 rounded font-medium transition-colors cursor-pointer shrink-0"
+                  className="text-destructive hover:text-destructive shrink-0"
                 >
                   Remove
-                </button>
+                </Button>
               </li>
             ))}
           </ul>
         )}
-      </section>
+      </Section>
     </div>
   );
 }
