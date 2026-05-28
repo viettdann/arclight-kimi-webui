@@ -64,6 +64,15 @@ function writeModels(row: KimiConfigRow): string[] {
     if (m.displayName !== undefined) {
       lines.push(`display_name = ${fmtStr(m.displayName)}`);
     }
+    if (m.temperature !== undefined) {
+      lines.push(`temperature = ${fmtNum(m.temperature)}`);
+    }
+    if (m.topP !== undefined) {
+      lines.push(`top_p = ${fmtNum(m.topP)}`);
+    }
+    if (m.maxTokens !== undefined) {
+      lines.push(`max_tokens = ${fmtNum(m.maxTokens)}`);
+    }
   }
   return lines;
 }
@@ -76,13 +85,6 @@ function writeProvider(row: KimiConfigRow, redactSecrets: boolean): string[] {
 
   const shouldRedact = redactSecrets && REDACT_TYPES.includes(p.type);
   lines.push(`api_key = ${shouldRedact ? '""' : fmtStr(p.apiKey)}`);
-
-  if (p.type === 'kimi') {
-    lines.push('');
-    lines.push(`[providers."${escapeToml(p.name)}".oauth]`);
-    lines.push('storage = "file"');
-    lines.push('key = "oauth/kimi-code"');
-  }
 
   if (Object.keys(p.env).length > 0) {
     lines.push('');
@@ -147,10 +149,6 @@ function writeServices(row: KimiConfigRow): string[] {
     lines.push('[services.moonshot_search]');
     lines.push(`base_url = ${fmtStr(s.baseUrl)}`);
     lines.push(`api_key = ${fmtStr(s.apiKey)}`);
-    lines.push('');
-    lines.push('[services.moonshot_search.oauth]');
-    lines.push('storage = "file"');
-    lines.push('key = "oauth/kimi-code"');
     if (s.customHeaders) {
       lines.push('');
       lines.push('[services.moonshot_search.custom_headers]');
@@ -165,10 +163,6 @@ function writeServices(row: KimiConfigRow): string[] {
     lines.push('[services.moonshot_fetch]');
     lines.push(`base_url = ${fmtStr(f.baseUrl)}`);
     lines.push(`api_key = ${fmtStr(f.apiKey)}`);
-    lines.push('');
-    lines.push('[services.moonshot_fetch.oauth]');
-    lines.push('storage = "file"');
-    lines.push('key = "oauth/kimi-code"');
     if (f.customHeaders) {
       lines.push('');
       lines.push('[services.moonshot_fetch.custom_headers]');

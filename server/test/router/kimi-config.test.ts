@@ -147,6 +147,25 @@ describe('PATCH /api/config', () => {
     }
   });
 
+  it('rejects gemini provider type as invalid (dropped from enum)', async () => {
+    const fake = makeFakeDb();
+    fake.selectQueue.push([makeFakeKimiConfigRow('sk-test')]);
+
+    const { app, shareDir } = buildApp(fake);
+    try {
+      const res = await app.request('/', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: { type: 'gemini' } }),
+      });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error?: string };
+      expect(body.error).toBe('invalid_provider_type');
+    } finally {
+      rmSync(shareDir, { recursive: true, force: true });
+    }
+  });
+
   it('PATCH on empty DB folds defaults + patch into the upsert', async () => {
     const fake = makeFakeDb();
     // First SELECT (PATCH path): no row present — getKimiConfig falls back to

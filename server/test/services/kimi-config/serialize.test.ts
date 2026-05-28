@@ -33,6 +33,36 @@ describe('renderToml', () => {
     expect(toml.endsWith('\n')).toBe(true);
   });
 
+  it('does not emit any oauth blocks or kimi-code oauth keys', () => {
+    const toml = renderToml(DEFAULT_KIMI_CONFIG);
+    expect(toml).not.toContain('[providers."managed:kimi-code".oauth]');
+    expect(toml).not.toContain('[services.moonshot_search.oauth]');
+    expect(toml).not.toContain('[services.moonshot_fetch.oauth]');
+    expect(toml).not.toContain('oauth/kimi-code');
+  });
+
+  it('emits temperature/top_p/max_tokens for a model when defined', () => {
+    const defaultId = DEFAULT_KIMI_CONFIG.defaults.model;
+    const baseEntry = DEFAULT_KIMI_CONFIG.models[defaultId];
+    if (!baseEntry) throw new Error('default model entry missing in fixture');
+    const row = {
+      ...DEFAULT_KIMI_CONFIG,
+      models: {
+        ...DEFAULT_KIMI_CONFIG.models,
+        [defaultId]: {
+          ...baseEntry,
+          temperature: 0.7,
+          topP: 0.95,
+          maxTokens: 8192,
+        },
+      },
+    };
+    const toml = renderToml(row);
+    expect(toml).toContain('temperature = 0.7');
+    expect(toml).toContain('top_p = 0.95');
+    expect(toml).toContain('max_tokens = 8192');
+  });
+
   it('redacts api_key for kimi provider when redactSecrets=true', () => {
     const row = {
       ...DEFAULT_KIMI_CONFIG,

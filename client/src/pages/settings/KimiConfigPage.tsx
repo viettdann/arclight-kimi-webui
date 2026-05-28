@@ -18,14 +18,7 @@ import {
 import { AccessControlTab } from '../../components/settings/access-control-tab';
 import { cn } from '../../lib/utils';
 
-const PROVIDER_TYPES: ProviderType[] = [
-  'kimi',
-  'openai_legacy',
-  'openai_responses',
-  'anthropic',
-  'gemini',
-  'vertexai',
-];
+const PROVIDER_TYPES: ProviderType[] = ['kimi', 'openai_legacy', 'openai_responses', 'anthropic'];
 
 const CAPABILITIES: ModelCapability[] = ['thinking', 'always_thinking', 'image_in', 'video_in'];
 

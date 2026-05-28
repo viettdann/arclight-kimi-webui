@@ -52,24 +52,48 @@ describe('buildEnvFromRow', () => {
     expect(env.KIMI_CLI_NO_AUTO_UPDATE).toBe('1');
   });
 
-  it('omits secret env for gemini provider', () => {
+  it('injects KIMI_MODEL_TEMPERATURE/TOP_P/MAX_TOKENS when set on kimi default model', () => {
+    const defaultId = DEFAULT_KIMI_CONFIG.defaults.model;
+    const baseEntry = DEFAULT_KIMI_CONFIG.models[defaultId];
+    if (!baseEntry) throw new Error('default model entry missing in fixture');
     const row = {
       ...DEFAULT_KIMI_CONFIG,
-      provider: { ...DEFAULT_KIMI_CONFIG.provider, type: 'gemini' as const, apiKey: 'sk-gem' },
+      models: {
+        ...DEFAULT_KIMI_CONFIG.models,
+        [defaultId]: {
+          ...baseEntry,
+          temperature: 0.7,
+          topP: 0.95,
+          maxTokens: 8192,
+        },
+      },
     };
     const env = buildEnvFromRow(row);
-    expect(env.KIMI_API_KEY).toBeUndefined();
-    expect(env.OPENAI_API_KEY).toBeUndefined();
+    expect(env.KIMI_MODEL_TEMPERATURE).toBe('0.7');
+    expect(env.KIMI_MODEL_TOP_P).toBe('0.95');
+    expect(env.KIMI_MODEL_MAX_TOKENS).toBe('8192');
   });
 
-  it('omits secret env for vertexai provider', () => {
+  it('does not inject KIMI_MODEL_* params for non-kimi providers', () => {
+    const defaultId = DEFAULT_KIMI_CONFIG.defaults.model;
+    const baseEntry = DEFAULT_KIMI_CONFIG.models[defaultId];
+    if (!baseEntry) throw new Error('default model entry missing in fixture');
     const row = {
       ...DEFAULT_KIMI_CONFIG,
-      provider: { ...DEFAULT_KIMI_CONFIG.provider, type: 'vertexai' as const, apiKey: 'sk-vtx' },
+      provider: {
+        ...DEFAULT_KIMI_CONFIG.provider,
+        type: 'openai_legacy' as const,
+        apiKey: 'sk-openai',
+      },
+      models: {
+        ...DEFAULT_KIMI_CONFIG.models,
+        [defaultId]: { ...baseEntry, temperature: 0.5 },
+      },
     };
     const env = buildEnvFromRow(row);
-    expect(env.KIMI_API_KEY).toBeUndefined();
-    expect(env.OPENAI_API_KEY).toBeUndefined();
+    expect(env.KIMI_MODEL_TEMPERATURE).toBeUndefined();
+    expect(env.KIMI_MODEL_TOP_P).toBeUndefined();
+    expect(env.KIMI_MODEL_MAX_TOKENS).toBeUndefined();
   });
 
   it('merges provider.env last-write-wins', () => {

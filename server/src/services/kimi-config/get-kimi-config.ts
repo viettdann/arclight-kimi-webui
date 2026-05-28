@@ -3,6 +3,7 @@ import { isProviderType, type KimiConfigRow, type ProviderType } from 'shared/ty
 import type { DB } from '../../db';
 import { kimiConfig } from '../../db/schema';
 import { env } from '../../env';
+import { logger } from '../../lib/logger';
 import { DEFAULT_KIMI_CONFIG } from './defaults';
 
 // Read the singleton kimi_config row. Never writes. Never throws on a missing
@@ -28,10 +29,22 @@ function mapRow(row: {
   extraTomlOverride: string;
   updatedAt: Date;
 }): KimiConfigRow {
+  const rawProvider = row.provider as KimiConfigRow['provider'];
+  // Defensive coercion for legacy rows persisted under the old enum
+  // (gemini / vertexai). Clone instead of mutating the raw row in place so
+  // callers that retain references to the source object aren't surprised.
+  let provider = rawProvider;
+  if (rawProvider && !isProviderType(rawProvider.type)) {
+    logger.warn(
+      { legacyType: rawProvider.type },
+      'kimi-config: legacy provider.type coerced to kimi on read',
+    );
+    provider = { ...rawProvider, type: 'kimi' };
+  }
   return {
     id: row.id,
     defaults: row.defaults as KimiConfigRow['defaults'],
-    provider: row.provider as KimiConfigRow['provider'],
+    provider,
     models: row.models as KimiConfigRow['models'],
     services: row.services as KimiConfigRow['services'],
     loopControl: row.loopControl as KimiConfigRow['loopControl'],

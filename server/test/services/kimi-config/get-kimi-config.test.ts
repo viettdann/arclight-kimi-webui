@@ -4,7 +4,11 @@ import { makeFakeDb } from '../../_helpers';
 // Stubs the env module so tests can toggle KIMI_* values between cases.
 // `getKimiConfig` reads `env.KIMI_*` lazily inside `buildPartialFromEnv`, so
 // mutating this object between tests works without re-importing.
-const envStub: Record<string, string | undefined> = {};
+//
+// LOG_LEVEL must be seeded before any import that transitively loads
+// `src/lib/logger.ts`; pino reads `env.LOG_LEVEL` at module-eval time and
+// throws on `undefined`.
+const envStub: Record<string, string | undefined> = { LOG_LEVEL: 'silent' };
 
 mock.module('../../../src/env', () => ({
   env: envStub,
@@ -15,7 +19,7 @@ const { DEFAULT_KIMI_CONFIG } = await import('../../../src/services/kimi-config/
 
 beforeEach(() => {
   for (const key of Object.keys(envStub)) {
-    delete envStub[key];
+    if (key !== 'LOG_LEVEL') delete envStub[key];
   }
 });
 
@@ -81,6 +85,34 @@ describe('getKimiConfig', () => {
 
     expect(fake.calls.find((c) => c.op === 'insert')).toBeUndefined();
     expect(fake.calls.find((c) => c.op === 'update')).toBeUndefined();
+  });
+
+  it('coerces legacy provider.type values to kimi on read', async () => {
+    const fake = makeFakeDb();
+    const legacyRow = {
+      id: 1,
+      defaults: DEFAULT_KIMI_CONFIG.defaults,
+      provider: {
+        ...DEFAULT_KIMI_CONFIG.provider,
+        // Simulate a row persisted under the old enum.
+        type: 'gemini' as unknown as 'kimi',
+        apiKey: 'sk-legacy',
+      },
+      models: DEFAULT_KIMI_CONFIG.models,
+      services: DEFAULT_KIMI_CONFIG.services,
+      loopControl: DEFAULT_KIMI_CONFIG.loopControl,
+      background: DEFAULT_KIMI_CONFIG.background,
+      notifications: DEFAULT_KIMI_CONFIG.notifications,
+      mcpClient: DEFAULT_KIMI_CONFIG.mcpClient,
+      hooks: DEFAULT_KIMI_CONFIG.hooks,
+      extraTomlOverride: '',
+      updatedAt: new Date('2024-01-01'),
+    };
+    fake.selectQueue.push([legacyRow]);
+
+    const row = await getKimiConfig(fake.db);
+    expect(row.provider.type).toBe('kimi');
+    expect(row.provider.apiKey).toBe('sk-legacy');
   });
 
   it('DB empty, env absent → returns DEFAULT_KIMI_CONFIG, no insert', async () => {

@@ -1,14 +1,7 @@
 // Kimi config types — mirror the CLI config.toml structure.
 // Server and client must agree on this surface verbatim.
 
-export const PROVIDER_TYPES = [
-  'kimi',
-  'openai_legacy',
-  'openai_responses',
-  'anthropic',
-  'gemini',
-  'vertexai',
-] as const;
+export const PROVIDER_TYPES = ['kimi', 'openai_legacy', 'openai_responses', 'anthropic'] as const;
 
 export type ProviderType = (typeof PROVIDER_TYPES)[number];
 
@@ -44,9 +37,16 @@ export interface ProviderBlock {
 export interface ModelEntry {
   provider: string;
   model: string;
+  /** Model's total context window (prompt + completion). */
   maxContextSize: number;
   capabilities: ModelCapability[];
   displayName?: string;
+  /** Sampling temperature. */
+  temperature?: number;
+  /** Nucleus sampling cutoff. */
+  topP?: number;
+  /** Per-response generation cap (output tokens only — distinct from `maxContextSize`). */
+  maxTokens?: number;
 }
 
 export interface ServiceEntry {

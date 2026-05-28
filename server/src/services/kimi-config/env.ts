@@ -12,13 +12,21 @@ export function buildEnvFromRow(row: KimiConfigRow): Record<string, string> {
       env.KIMI_MODEL_NAME = defaultModel.model;
       env.KIMI_MODEL_MAX_CONTEXT_SIZE = String(defaultModel.maxContextSize);
       env.KIMI_MODEL_CAPABILITIES = defaultModel.capabilities.join(',');
+      if (defaultModel.temperature !== undefined) {
+        env.KIMI_MODEL_TEMPERATURE = String(defaultModel.temperature);
+      }
+      if (defaultModel.topP !== undefined) {
+        env.KIMI_MODEL_TOP_P = String(defaultModel.topP);
+      }
+      if (defaultModel.maxTokens !== undefined) {
+        env.KIMI_MODEL_MAX_TOKENS = String(defaultModel.maxTokens);
+      }
     }
   } else if (p.type === 'openai_legacy' || p.type === 'openai_responses') {
     env.OPENAI_API_KEY = p.apiKey;
     env.OPENAI_BASE_URL = p.baseUrl;
-  } else if (p.type === 'anthropic' || p.type === 'gemini' || p.type === 'vertexai') {
-    // No secret env vars for these providers
   }
+  // anthropic: no secret env vars — config file is the only source.
 
   env.KIMI_CLI_NO_AUTO_UPDATE = '1';
 
