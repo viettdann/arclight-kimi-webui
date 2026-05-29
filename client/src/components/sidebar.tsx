@@ -151,14 +151,19 @@ function AuthSection({ onLoginClick, onClose }: { onLoginClick: () => void; onCl
 
 const REFRESH_TRIGGER_TYPES = new Set<WSMessageType>([
   'snapshot',
-  'session_state',
+  'session_created',
   'title_update',
   'project_adopted',
 ]);
 // Cheap pre-filter so the streaming hot path (text_delta, thinking_delta, …)
 // avoids JSON.parse on every frame. We only parse when the raw frame contains
 // at least one trigger-type literal.
-const REFRESH_RAW_HINTS = ['"snapshot"', '"session_state"', '"title_update"', '"project_adopted"'];
+const REFRESH_RAW_HINTS = [
+  '"snapshot"',
+  '"session_created"',
+  '"title_update"',
+  '"project_adopted"',
+];
 
 export function Sidebar({ isOpen, onClose, onLoginClick }: SidebarProps) {
   const { id: openSessionId } = useParams<{ id: string }>();
@@ -201,10 +206,10 @@ export function Sidebar({ isOpen, onClose, onLoginClick }: SidebarProps) {
   }, [status]);
 
   // WS message subscription → debounced sessions + projects refresh on
-  // session-mutating events. Projects refresh only on events that can flip a
-  // project's origin (`session_state` covers cascade-via-resume, `project_adopted`
-  // covers explicit whole-project adoption); `snapshot`/`title_update` never
-  // change the project set.
+  // session-mutating events. Projects refresh only on events that can change the
+  // project set (`session_created` may surface a project's first session,
+  // `project_adopted` covers explicit whole-project adoption); `snapshot`/
+  // `title_update` never change the project set.
   useEffect(() => {
     if (status !== 'authenticated') return;
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -230,7 +235,7 @@ export function Sidebar({ isOpen, onClose, onLoginClick }: SidebarProps) {
         return;
       }
       if (!type || !REFRESH_TRIGGER_TYPES.has(type as WSMessageType)) return;
-      if (type === 'session_state' || type === 'project_adopted') projectsDirty = true;
+      if (type === 'session_created' || type === 'project_adopted') projectsDirty = true;
       if (timer !== null) clearTimeout(timer);
       timer = setTimeout(() => {
         timer = null;

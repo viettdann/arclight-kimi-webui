@@ -566,7 +566,7 @@ export async function restoreFromBackup(args: RestoreFromBackupArgs): Promise<Ac
     .innerJoin(schema.user, eq(schema.user.id, schema.kimiSessions.userId))
     .where(eq(schema.kimiSessions.id, args.sessionId))
     .limit(1);
-  if (!joined || joined.session.status === 'closed') {
+  if (!joined) {
     throw new Error('not_found');
   }
   const sessRow = joined.session;

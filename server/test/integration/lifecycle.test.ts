@@ -32,9 +32,9 @@ describe('Integration — Lifecycle', () => {
       }),
     );
 
-    // Verify snapshot and session state broadcasted
+    // Verify snapshot and session_created broadcasted
     const parsedMessages = ws.parsed();
-    expect(parsedMessages.some((m) => m.type === 'session_state')).toBe(true);
+    expect(parsedMessages.some((m) => m.type === 'session_created')).toBe(true);
     const snapshotMsg = parsedMessages.find((m) => m.type === 'snapshot');
     expect(snapshotMsg).toBeDefined();
 

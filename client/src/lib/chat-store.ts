@@ -3,7 +3,6 @@ import type {
   ApprovalMode,
   Block,
   DisplayBlock,
-  SessionStatus,
   SlashCommand,
   SlashCommandsPayload,
   SnapshotPayload,
@@ -13,7 +12,6 @@ import { create } from 'zustand';
 
 export interface ChatSessionState {
   blocks: Block[];
-  status: SessionStatus;
   tokenUsage: number | null;
   contextUsage: number | null;
   title: string | null;
@@ -44,7 +42,6 @@ interface ChatStore {
 
 const createDefaultSessionState = (): ChatSessionState => ({
   blocks: [],
-  status: 'idle',
   tokenUsage: null,
   contextUsage: null,
   title: null,
@@ -345,7 +342,6 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       const sessions = { ...state.sessions };
       sessions[sessionId] = {
         blocks: payload.blocks,
-        status: payload.status,
         tokenUsage: payload.totalTokens,
         contextUsage: null,
         title: payload.title,
@@ -524,11 +520,6 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         }
         case 'error':
           session.isTurnInProgress = false;
-          break;
-        case 'session_state':
-          if (payload?.state) {
-            session.status = payload.state;
-          }
           break;
         default:
           break;

@@ -1,13 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import { eq } from 'drizzle-orm';
-import type {
-  ApprovalMode,
-  QuestionItemDTO,
-  SessionStatus,
-  SlashCommand,
-  SnapshotPayload,
-} from 'shared/types';
+import type { ApprovalMode, QuestionItemDTO, SlashCommand, SnapshotPayload } from 'shared/types';
 import { type DB, db, schema } from '../db';
 import { kimiPaths } from './kimi-config/paths';
 import { peekPendingPrompt } from './pending-prompts';
@@ -61,7 +55,6 @@ export async function buildSnapshot(args: BuildSnapshotArgs): Promise<SnapshotPa
 
   return {
     blocks,
-    status: sessRow.status as SessionStatus,
     totalTokens: sessRow.totalTokens,
     title: sessRow.title,
     pendingPrompt: pending
@@ -87,10 +80,9 @@ export async function buildSnapshot(args: BuildSnapshotArgs): Promise<SnapshotPa
  * any future addition to `SnapshotPayload` only needs to update the type and
  * `buildSnapshot` — broadcast callers stay correct automatically.
  */
-export function emptySnapshot(status: SessionStatus): SnapshotPayload {
+export function emptySnapshot(): SnapshotPayload {
   return {
     blocks: [],
-    status,
     totalTokens: 0,
     title: null,
     pendingPrompt: null,

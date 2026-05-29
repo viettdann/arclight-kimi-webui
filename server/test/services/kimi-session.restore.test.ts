@@ -470,29 +470,4 @@ describe('restoreFromBackup — cross-machine adoption', () => {
     );
     expect(log).toBeDefined();
   });
-
-  it('closed row: throws not_found', async () => {
-    const fake = makeFakeDb();
-    fake.selectQueue.push([
-      {
-        ...joinedRow({}),
-        session: { ...joinedRow({}).session, status: 'closed' },
-      },
-    ]);
-
-    const factory = (args: CreateKimiArgs): Session =>
-      stubSession({ sessionId: 'kimi-x', workDir: args.workDir });
-
-    const manager = new KimiSessionManager();
-    await expect(
-      restoreFromBackup({
-        sessionId: 'sess-1',
-        manager,
-        db: fake.db,
-        env: { WORKSPACE_ROOT: workspaceRoot },
-        shareDir: tmpShareDir,
-        createKimiFn: factory,
-      }),
-    ).rejects.toThrow('not_found');
-  });
 });

@@ -37,7 +37,7 @@ export type WSMessageType =
   | 'compaction_end'
   | 'steer_input'
   | 'turn_end'
-  | 'session_state'
+  | 'session_created'
   | 'title_update'
   | 'project_adopted'
   | 'slash_commands'
@@ -50,12 +50,9 @@ export type WSMessageType =
   | 'approve_tool'
   | 'answer_question'
   | 'interrupt_turn'
-  | 'close_session'
   | 'adopt_project';
 
 // ─────────────────────────── Domain types ───────────────────────────
-
-export type SessionStatus = 'active' | 'idle' | 'closed';
 
 export const APPROVAL_MODES = ['ask', 'auto', 'yolo'] as const;
 export type ApprovalMode = (typeof APPROVAL_MODES)[number];
@@ -157,7 +154,6 @@ export interface SessionListItem {
   title: string | null;
   model: string | null;
   thinking: boolean;
-  status: SessionStatus;
   totalTokens: number;
   createdAt: string;
   lastActiveAt: string;
@@ -200,7 +196,6 @@ export interface SlashCommand {
 
 export interface SnapshotPayload {
   blocks: Block[];
-  status: SessionStatus;
   totalTokens: number;
   title: string | null;
   pendingPrompt: { text: string; enqueuedAt: string } | null;
@@ -345,14 +340,11 @@ export interface TurnEndPayload {
   steps: number;
 }
 
-/** Origin of a `session_state` transition. Set when `state === 'closed'`. */
-export type SessionStateReason = 'ws' | 'rest' | 'system';
-
-export interface SessionStatePayload {
-  state: SessionStatus;
-  /** Origin of close. Present iff state === 'closed'. */
-  reason?: SessionStateReason;
-}
+/**
+ * Broadcast when a session is created so other connected clients refresh their
+ * session list. Carries no body — the envelope's `sessionId` is the signal.
+ */
+export type SessionCreatedPayload = Record<string, never>;
 
 export interface TitleUpdatePayload {
   title: string;

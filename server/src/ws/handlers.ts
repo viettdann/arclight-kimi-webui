@@ -15,7 +15,7 @@ import type {
   ReplayDonePayload,
   ResumeSessionPayload,
   SendMessagePayload,
-  SessionStatePayload,
+  SessionCreatedPayload,
   SlashCommand,
   SlashCommandsPayload,
   SnapshotPayload,
@@ -42,7 +42,6 @@ import {
 } from '../services/kimi-session';
 import { clearPendingPrompt, enqueuePendingPrompt } from '../services/pending-prompts';
 import { adoptProjectForUser, ProjectNotFoundError } from '../services/projects';
-import { closeActiveSession } from '../services/session-lifecycle';
 import {
   type ActiveSession,
   sessionManager as defaultManager,
@@ -243,9 +242,6 @@ export async function handleMessage(ws: WS, raw: string | Buffer): Promise<void>
       case 'interrupt_turn':
         await handleInterruptTurn(ws, sessionId);
         return;
-      case 'close_session':
-        await handleCloseSession(ws, sessionId);
-        return;
       case 'adopt_project':
         await handleAdoptProject(ws, parsed.payload as AdoptProjectPayload | undefined);
         return;
@@ -337,7 +333,6 @@ async function handleCreateSession(
     thinking,
     yoloMode: sdkYolo,
     approvalMode,
-    status: 'active',
     kimiSessionId,
     title: null,
   });
@@ -370,10 +365,10 @@ async function handleCreateSession(
     // picker stays empty
   }
 
-  broadcastEvent<SessionStatePayload>(active, 'session_state', { state: 'active' }, deps.manager);
+  broadcastEvent<SessionCreatedPayload>(active, 'session_created', {}, deps.manager);
   // Carry the resolved flags + slashCommands in the snapshot so reload/resume
   // restores the picker and the approval/thinking selectors to true state.
-  const snap = emptySnapshot('active');
+  const snap = emptySnapshot();
   snap.thinking = thinking;
   snap.yoloMode = sdkYolo;
   snap.approvalMode = approvalMode;
@@ -616,26 +611,6 @@ async function handleInterruptTurn(ws: WS, sessionId: string): Promise<void> {
     }
     throw err;
   }
-}
-
-async function handleCloseSession(ws: WS, sessionId: string): Promise<void> {
-  if (!sessionId) {
-    sendError(ws, 'bad_request');
-    return;
-  }
-  const active = deps.manager.getForUser(ws.data.userId, sessionId);
-  if (!active) {
-    sendError(ws, 'not_found', sessionId);
-    return;
-  }
-  // Defer to the shared lifecycle helper — same teardown order as REST.
-  // Helper does NOT close attached sockets; clients receive
-  // `session_state{closed, reason:'ws'}` and decide whether to drop the socket.
-  await closeActiveSession(
-    active,
-    { manager: deps.manager, db: deps.db, auditLog: deps.auditLog },
-    { reason: 'ws' },
-  );
 }
 
 // ─────────────────────────── 5b handlers ───────────────────────────

@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import * as realFsPromises from 'node:fs/promises';
 import type { Session } from '@moonshot-ai/kimi-agent-sdk';
-import type { ReplayDonePayload, SnapshotPayload, WSMessage } from 'shared/types';
+import type { ReplayDonePayload, WSMessage } from 'shared/types';
 import type { DB } from '../src/db';
 import { broadcastEvent } from '../src/lib/ws-broadcast';
 import { type ActiveSession, KimiSessionManager } from '../src/services/session-manager';
@@ -156,8 +156,6 @@ describe('subscribe — in-memory active', () => {
 
     const types = ws.parsed().map((m) => m.type);
     expect(types).toEqual(['snapshot', 'replay_done']);
-    const snap = ws.parsed()[0];
-    expect((snap?.payload as SnapshotPayload).status).toBe('active');
   });
 
   it('lastSeq beyond buffer capacity → snapshot fallback', async () => {

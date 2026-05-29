@@ -86,7 +86,6 @@ describe('buildSnapshot', () => {
     expect(snapshot).not.toBeNull();
     expect(snapshot?.title).toBe('Mock Session Title');
     expect(snapshot?.totalTokens).toBe(50);
-    expect(snapshot?.status).toBe('active');
     expect(snapshot?.approvalMode).toBe('auto');
     // No `currentTurn` was attached to the active session in this test, so
     // resume should report no in-flight turn.

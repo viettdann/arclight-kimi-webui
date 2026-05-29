@@ -1,6 +1,8 @@
 import { pino, stdSerializers } from 'pino';
-import type { SessionStateReason } from 'shared/types';
 import { env } from '../env';
+
+/** Which path triggered an audited teardown/delete. */
+export type AuditSource = 'ws' | 'rest' | 'system';
 
 // Only attach the pino-pretty worker transport in dev. In test mode we want
 // plain JSON on stdout (no worker_threads) so that bun's test runner can
@@ -75,7 +77,6 @@ export type AuditAction =
   | 'upload'
   | 'write'
   | 'download'
-  | 'session_close'
   | 'session_delete'
   | 'project_create';
 
@@ -84,8 +85,8 @@ export interface AuditEvent {
   action: AuditAction;
   path: string;
   bytes: number;
-  /** For `session_close` / `session_delete`: which path triggered the action. */
-  source?: SessionStateReason;
+  /** For `session_delete`: which path triggered the action. */
+  source?: AuditSource;
 }
 
 const auditLogger = logger.child({ audit: true });

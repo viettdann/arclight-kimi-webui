@@ -1,55 +1,41 @@
-import { eq } from 'drizzle-orm';
-import type { SessionStatePayload, SessionStateReason } from 'shared/types';
-import { type DB, db as defaultDb, schema } from '../db';
-import { auditLog as defaultAuditLog, logger } from '../lib/logger';
-import { broadcastEvent } from '../lib/ws-broadcast';
+import { type DB, db as defaultDb } from '../db';
+import { logger } from '../lib/logger';
 import { appendWireDelta, flushContextAndState } from './kimi-session';
 import type { ActiveSession, KimiSessionManager } from './session-manager';
 
-// Single source of truth for session teardown. Both the REST `POST
-// /api/sessions/:id/close` route and the WS `close_session` handler must funnel
-// through `closeActiveSession` so concurrency, audit, and broadcast semantics
-// stay identical.
+// Single source of truth for tearing an in-memory session down. Both the REST
+// `DELETE /api/sessions/:id` route and project deletion funnel through
+// `teardownActiveSession` so concurrency and backup semantics stay identical.
 //
-// Helper does NOT close attached WebSocket connections. Clients receive
-// `session_state{state:'closed', reason}` and decide whether to drop the socket
-// or subscribe to another session — a single socket may be attached to many
-// sessions, and closing it would kill the others.
+// Teardown flushes the final backup (so the transcript stays resumable from the
+// DB), closes the SDK, and frees the in-memory slot. It does NOT delete the row
+// — that is the caller's job. It does NOT close attached WebSocket connections;
+// a single socket may be attached to many sessions, and closing it would kill
+// the others.
 
-export interface CloseDeps {
+export interface TeardownDeps {
   manager: KimiSessionManager;
   db?: DB;
-  auditLog?: typeof defaultAuditLog;
-}
-
-export interface CloseOpts {
-  reason: SessionStateReason;
 }
 
 /**
  * Idempotent teardown of an in-memory session. Step-by-step:
- *   1. Race guard: `manager.tryBeginClose(id)` — atomic claim. Loser bails;
- *      audit/broadcast are skipped (winner emits them).
+ *   1. Race guard: `manager.tryBeginClose(id)` — atomic claim. Loser bails.
  *   2. Best-effort `currentTurn?.interrupt()` — stop pump emitting more events.
  *   3. `await active.backupMutex` — let the last in-flight backup finish.
- *   4. Best-effort `kimiSession.close()` — release SDK + fs handle.
- *   5. DB: `sessions.status := 'closed'` (durable).
- *   6. Broadcast `session_state{closed, reason}` — buffer-stamped seq is the
- *      highest of this session because pump is dead.
- *   7. Audit log `{action:'session_close', source:reason, path:sessionId}`.
- *   8. `manager.unregister(id)` — free in-memory slot.
+ *   4. Flush wire + context/state to DB so the session stays resumable.
+ *   5. Best-effort `kimiSession.close()` — release SDK + fs handle.
+ *   6. `manager.unregister(id)` — free in-memory slot.
  *
- * `kimiSession.close()` is called exactly once across REST + WS races because
+ * `kimiSession.close()` runs exactly once across concurrent callers because
  * `tryBeginClose` lets only one path through.
  */
-export async function closeActiveSession(
+export async function teardownActiveSession(
   active: ActiveSession,
-  deps: CloseDeps,
-  opts: CloseOpts,
+  deps: TeardownDeps,
 ): Promise<void> {
   const { manager } = deps;
   const dbh = deps.db ?? defaultDb;
-  const audit = deps.auditLog ?? defaultAuditLog;
 
   // Synchronous race claim — flips `active.closing` before the first await
   // below. Concurrent losers (or retries after unregister) observe `false`
@@ -65,7 +51,7 @@ export async function closeActiveSession(
   }
 
   // Drain backup. Catch defensively — pump always reassigns backupMutex to a
-  // never-rejecting promise, but a stale chain shouldn't take down close.
+  // never-rejecting promise, but a stale chain shouldn't take down teardown.
   try {
     await active.backupMutex;
   } catch {
@@ -78,7 +64,7 @@ export async function closeActiveSession(
   } catch (err) {
     logger.error(
       { err, sessionId: active.sessionId },
-      'Failed to flush wire or context/state on close',
+      'Failed to flush wire or context/state on teardown',
     );
   }
 
@@ -87,28 +73,6 @@ export async function closeActiveSession(
   } catch {
     // best-effort — SDK may already be torn down
   }
-
-  await dbh
-    .update(schema.kimiSessions)
-    .set({ status: 'closed' })
-    .where(eq(schema.kimiSessions.id, active.sessionId));
-
-  // Broadcast last so seq is the highest event of this session. Pump is dead
-  // (interrupt + iterator drained), so no more events can race past this.
-  broadcastEvent<SessionStatePayload>(
-    active,
-    'session_state',
-    { state: 'closed', reason: opts.reason },
-    manager,
-  );
-
-  audit({
-    userId: active.userId,
-    action: 'session_close',
-    path: active.sessionId,
-    bytes: 0,
-    source: opts.reason,
-  });
 
   manager.unregister(active.sessionId);
 }

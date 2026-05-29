@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import * as path from 'node:path';
-import { and, eq, isNotNull, sql } from 'drizzle-orm';
+import { eq, isNotNull, sql } from 'drizzle-orm';
 import { type DB, schema } from '../db';
 import { logger } from '../lib/logger';
 import { kimiPaths } from './kimi-config/paths';
@@ -58,18 +58,16 @@ export async function catchUpWireBackup(args: {
 export async function reconcileOnStartup({ db }: { db: DB }): Promise<void> {
   logger.info('Running reconcileOnStartup...');
 
-  const activeSessions = await db
+  const sessions = await db
     .select({
       id: schema.kimiSessions.id,
       workDir: schema.kimiSessions.workDir,
       kimiSessionId: schema.kimiSessions.kimiSessionId,
     })
     .from(schema.kimiSessions)
-    .where(
-      and(eq(schema.kimiSessions.status, 'active'), isNotNull(schema.kimiSessions.kimiSessionId)),
-    );
+    .where(isNotNull(schema.kimiSessions.kimiSessionId));
 
-  for (const row of activeSessions) {
+  for (const row of sessions) {
     if (!row.kimiSessionId) continue;
     const dir = kimiPaths().sessionDir(row.workDir, row.kimiSessionId);
     const wirePath = path.join(dir, 'wire.jsonl');
@@ -90,20 +88,18 @@ export async function reconcileOnStartup({ db }: { db: DB }): Promise<void> {
       fileRow != null && (fileRow.wireLen > 0 || fileRow.ctxLen > 0 || fileRow.stateLen > 0);
 
     if (!diskExists && !dbHasBackup) {
-      // Zombie: row says active but neither disk wire nor DB backup exists.
-      // Close it so listings stop surfacing an unresumable session.
-      await db
-        .update(schema.kimiSessions)
-        .set({ status: 'closed' })
-        .where(eq(schema.kimiSessions.id, row.id));
-      logger.warn({ sessionId: row.id }, 'zombie session pruned (no wire on disk or DB)');
+      // Zombie: a row with no wire on disk and no DB backup is unresumable —
+      // there is no transcript to restore. Delete it (session_files cascades)
+      // so it stops surfacing in listings as a dead, unopenable session.
+      await db.delete(schema.kimiSessions).where(eq(schema.kimiSessions.id, row.id));
+      logger.warn({ sessionId: row.id }, 'zombie session deleted (no wire on disk or DB)');
       continue;
     }
 
     if (!diskExists) {
       // Disk gone but DB has backup — leave it for lazy restoreFromBackup.
       // Cross-machine: foreign rows from another machine's `WORKSPACE_ROOT`
-      // also land here. They stay `active`; adoption happens at first WS attach.
+      // also land here. Adoption happens at first WS attach.
       continue;
     }
 

@@ -2,25 +2,20 @@ import { rm } from 'node:fs/promises';
 import path from 'node:path';
 import { and, desc, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
-import type { SessionListItem, SessionListResponse, SessionStatus } from 'shared/types';
+import type { SessionListItem, SessionListResponse } from 'shared/types';
 import { slug } from '../auth';
 import { type AuthVariables, requireAuth } from '../auth/middleware';
 import { type DB, db as defaultDb, schema } from '../db';
 import { env as defaultEnv, type Env } from '../env';
 import { auditLog as defaultAuditLog, logger } from '../lib/logger';
 import { kimiPaths } from '../services/kimi-config/paths';
-import { closeActiveSession } from '../services/session-lifecycle';
+import { teardownActiveSession } from '../services/session-lifecycle';
 import {
   sessionManager as defaultManager,
   type KimiSessionManager,
 } from '../services/session-manager';
 
-const VALID_STATUSES: ReadonlySet<SessionStatus> = new Set(['active', 'idle', 'closed']);
 const SESSIONS_LIST_LIMIT = 200;
-
-function isStatus(v: string | undefined): v is SessionStatus {
-  return v != null && VALID_STATUSES.has(v as SessionStatus);
-}
 
 export interface SessionsRouterDeps {
   db: DB;
@@ -36,7 +31,6 @@ export interface SessionsRouterDeps {
  *
  * Endpoints:
  *   GET  /            list sessions for current user (LIMIT 200, sorted desc)
- *   POST /:id/close   teardown session (in-memory or DB-only); idempotent
  *   DELETE /:id       teardown if needed, remove disk dir, DELETE row
  *
  * Cross-user / unknown ids return 404 to avoid leaking existence.
@@ -55,16 +49,10 @@ export function createSessionsRouter(deps: SessionsRouterDeps): Hono<{ Variables
     const user = c.var.user;
     if (user == null) return c.json({ error: 'unauthorized' }, 401);
 
-    const statusQ = c.req.query('status');
-    const conditions = [eq(schema.kimiSessions.userId, user.id)];
-    if (isStatus(statusQ)) {
-      conditions.push(eq(schema.kimiSessions.status, statusQ));
-    }
-
     const rows = await db
       .select()
       .from(schema.kimiSessions)
-      .where(and(...conditions))
+      .where(eq(schema.kimiSessions.userId, user.id))
       .orderBy(desc(schema.kimiSessions.lastActiveAt))
       .limit(SESSIONS_LIST_LIMIT);
 
@@ -84,9 +72,6 @@ export function createSessionsRouter(deps: SessionsRouterDeps): Hono<{ Variables
         title: r.title,
         model: r.model,
         thinking: r.thinking,
-        status: (VALID_STATUSES.has(r.status as SessionStatus)
-          ? r.status
-          : 'closed') as SessionStatus,
         totalTokens: r.totalTokens,
         projectName: r.projectName,
         createdAt: r.createdAt.toISOString(),
@@ -98,51 +83,10 @@ export function createSessionsRouter(deps: SessionsRouterDeps): Hono<{ Variables
     return c.json(body);
   });
 
-  // POST /:id/close — single source of truth is `closeActiveSession`. If the
-  // session is in memory, the helper does the full teardown (interrupt → drain
-  // backup → SDK close → DB closed → broadcast → audit → unregister). Otherwise
-  // a single owner-scoped UPDATE...RETURNING handles both 200-idempotent and
-  // 404-miss without leaking existence: empty `returning` ⇒ row absent or
-  // owned by another user, both surfaced as 404.
-  sessions.post('/:id/close', async (c) => {
-    const user = c.var.user;
-    if (user == null) return c.json({ error: 'unauthorized' }, 401);
-    const id = c.req.param('id');
-
-    const active = manager.getForUser(user.id, id);
-    if (active != null) {
-      await closeActiveSession(active, { manager, db, auditLog }, { reason: 'rest' });
-      return c.json({ ok: true });
-    }
-
-    // DB-only path: one round-trip. Re-running on an already-closed row still
-    // matches the WHERE clause and returns the id, so idempotent calls return
-    // 200 without requiring an explicit `status != 'closed'` short-circuit.
-    const updated = await db
-      .update(schema.kimiSessions)
-      .set({ status: 'closed' })
-      .where(and(eq(schema.kimiSessions.id, id), eq(schema.kimiSessions.userId, user.id)))
-      .returning({ id: schema.kimiSessions.id });
-
-    if (updated.length === 0) {
-      return c.json({ error: 'not_found' }, 404);
-    }
-
-    auditLog({
-      userId: user.id,
-      action: 'session_close',
-      path: id,
-      bytes: 0,
-      source: 'rest',
-    });
-
-    return c.json({ ok: true });
-  });
-
-  // DELETE /:id — hard delete. If in memory, run the full close teardown first
-  // so the SDK is shut down and any in-flight backup drains. Then remove the
-  // Kimi session dir on disk (best-effort) and DELETE the row. `session_files`
-  // is removed via ON DELETE CASCADE.
+  // DELETE /:id — hard delete. If in memory, tear the session down first so the
+  // SDK is shut down and any in-flight backup drains. Then remove the Kimi
+  // session dir on disk (best-effort) and DELETE the row. `session_files` is
+  // removed via ON DELETE CASCADE.
   sessions.delete('/:id', async (c) => {
     const user = c.var.user;
     if (user == null) return c.json({ error: 'unauthorized' }, 401);
@@ -162,7 +106,7 @@ export function createSessionsRouter(deps: SessionsRouterDeps): Hono<{ Variables
 
     const active = manager.getForUser(user.id, id);
     if (active != null) {
-      await closeActiveSession(active, { manager, db, auditLog }, { reason: 'rest' });
+      await teardownActiveSession(active, { manager, db });
     }
 
     if (row.kimiSessionId) {

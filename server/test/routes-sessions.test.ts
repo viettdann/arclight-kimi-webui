@@ -1,16 +1,15 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { describe, expect, it } from 'bun:test';
 import path from 'node:path';
 import type { Session } from '@moonshot-ai/kimi-agent-sdk';
 import { getTableName } from 'drizzle-orm';
 import { Hono } from 'hono';
-import type { SessionListItem, WSMessage } from 'shared/types';
+import type { SessionListItem } from 'shared/types';
 import type { AuthVariables } from '../src/auth/middleware';
 import type { DB } from '../src/db';
 import type { AuditEvent } from '../src/lib/logger';
 import { createSessionsRouter } from '../src/routes/sessions';
 import { type ActiveSession, KimiSessionManager } from '../src/services/session-manager';
-import { handleMessage, setHandlerDeps } from '../src/ws/handlers';
-import { asWS, FakeWS, stubSession } from './_helpers';
+import { stubSession } from './_helpers';
 
 // `routes-sessions.test.ts` covers the GET list shape + LIMIT and the entire
 // POST close matrix (in-memory teardown, DB-only path, idempotent, cross-user
@@ -244,7 +243,6 @@ const aliceRow = (
   title: overrides.title ?? null,
   model: overrides.model ?? null,
   thinking: overrides.thinking ?? false,
-  status: overrides.status ?? 'active',
   kimiSessionId: 'kimi-alice-1',
   totalTokens: overrides.totalTokens ?? 0,
   createdAt: new Date('2026-04-30T00:00:00Z'),
@@ -278,27 +276,6 @@ describe('GET /api/sessions', () => {
     expect(sel?.whereCalls).toBe(1);
     expect(sel?.orderByCalls).toBe(1);
     expect(sel?.limit).toBe(200);
-  });
-
-  it('honours ?status= filter (status=closed adds the second condition)', async () => {
-    const audit: AuditEvent[] = [];
-    const fake = makeRecordingDb();
-    fake.selectQueue.push([aliceRow({ id: 's-closed', status: 'closed' })]);
-    const manager = new KimiSessionManager();
-    const app = buildApp({
-      user: { id: 'alice', email: 'alice@example.com' },
-      db: fake.db,
-      manager,
-      audit,
-    });
-
-    const res = await app.request('/api/sessions?status=closed');
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { sessions: SessionListItem[] };
-    expect(body.sessions[0]?.status).toBe('closed');
-    // The status filter still uses the chain shape; we don't introspect the
-    // composite where here — only the limit cap is asserted in the basic test.
-    expect(fake.selectCalls[0]?.limit).toBe(200);
   });
 
   it('rejects unauthenticated requests with 401', async () => {
@@ -402,261 +379,6 @@ describe('GET /api/sessions — origin + localWorkDir', () => {
   });
 });
 
-// ─────────────────────────── POST /api/sessions/:id/close ───────────────────────────
-
-describe('POST /api/sessions/:id/close — in-memory path', () => {
-  it('runs full teardown via closeActiveSession: SDK close, DB closed, broadcast, unregister, audit', async () => {
-    const audit: AuditEvent[] = [];
-    const fake = makeRecordingDb();
-    const manager = new KimiSessionManager();
-    const stub = makeStubKimi();
-    const active = registerActive(manager, 'sess-A', 'alice', stub.asSession);
-
-    // Attach a fake socket so we can confirm `session_state{closed}` reached it
-    // and that the helper did NOT close the socket.
-    const ws = new FakeWS('alice');
-    manager.attachWS(active, asWS(ws));
-
-    const app = buildApp({
-      user: { id: 'alice', email: 'alice@example.com' },
-      db: fake.db,
-      manager,
-      audit,
-    });
-
-    const res = await app.request('/api/sessions/sess-A/close', { method: 'POST' });
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true });
-
-    // SDK close called exactly once.
-    expect(stub.closeCalls).toBe(1);
-
-    // DB durable update happened on the kimi_sessions table.
-    expect(
-      fake.updateCalls.some(
-        (u) =>
-          u.table === 'kimi_sessions' && (u.set as Record<string, unknown>).status === 'closed',
-      ),
-    ).toBe(true);
-
-    // Broadcast hit the socket with session_state{closed, reason:'rest'}.
-    const msgs = ws.parsed();
-    const stateMsg = msgs.find((m) => m.type === 'session_state') as
-      | WSMessage<{ state: string; reason?: string }>
-      | undefined;
-    expect(stateMsg?.payload).toEqual({ state: 'closed', reason: 'rest' });
-
-    // Helper does NOT close attached sockets.
-    expect(ws.closeCalls).toEqual([]);
-    expect(ws.readyState).toBe(1);
-
-    // Manager freed the slot.
-    expect(manager.hasSession('sess-A')).toBe(false);
-
-    // Audit emitted with action=session_close, source=rest.
-    expect(audit).toContainEqual({
-      userId: 'alice',
-      action: 'session_close',
-      path: 'sess-A',
-      bytes: 0,
-      source: 'rest',
-    });
-  });
-
-  it('cross-user 404: alice cannot close bob session, no leak, no teardown', async () => {
-    const audit: AuditEvent[] = [];
-    const fake = makeRecordingDb();
-    // DB-only fallback: WHERE id+userId yields no row for alice → empty
-    // returning array → 404.
-    fake.updateReturningQueue.push([]);
-    const manager = new KimiSessionManager();
-    const stub = makeStubKimi();
-    registerActive(manager, 'sess-B', 'bob', stub.asSession);
-
-    const app = buildApp({
-      user: { id: 'alice', email: 'alice@example.com' },
-      db: fake.db,
-      manager,
-      audit,
-    });
-
-    const res = await app.request('/api/sessions/sess-B/close', { method: 'POST' });
-    expect(res.status).toBe(404);
-    expect(stub.closeCalls).toBe(0);
-    expect(manager.hasSession('sess-B')).toBe(true);
-    expect(audit).toEqual([]);
-  });
-
-  it('idempotent: second call after teardown still returns 200', async () => {
-    const audit: AuditEvent[] = [];
-    const fake = makeRecordingDb();
-    const manager = new KimiSessionManager();
-    const stub = makeStubKimi();
-    registerActive(manager, 'sess-A', 'alice', stub.asSession);
-
-    const app = buildApp({
-      user: { id: 'alice', email: 'alice@example.com' },
-      db: fake.db,
-      manager,
-      audit,
-    });
-
-    // 1st call → in-memory teardown.
-    const r1 = await app.request('/api/sessions/sess-A/close', { method: 'POST' });
-    expect(r1.status).toBe(200);
-    expect(stub.closeCalls).toBe(1);
-
-    // 2nd call: not in memory anymore → DB-only UPDATE...RETURNING. The row
-    // still matches the WHERE clause (same id+userId) so returning yields one
-    // id → 200 idempotent. The status no-op is harmless.
-    fake.updateReturningQueue.push([{ id: 'sess-A' }]);
-    const r2 = await app.request('/api/sessions/sess-A/close', { method: 'POST' });
-    expect(r2.status).toBe(200);
-    expect(await r2.json()).toEqual({ ok: true });
-
-    // SDK close not called twice.
-    expect(stub.closeCalls).toBe(1);
-    // Two audits total (one per call).
-    expect(audit.filter((e) => e.action === 'session_close')).toHaveLength(2);
-  });
-});
-
-describe('POST /api/sessions/:id/close — DB-only path', () => {
-  it('returns 200 + audit when row exists and is not in memory', async () => {
-    const audit: AuditEvent[] = [];
-    const fake = makeRecordingDb();
-    fake.updateReturningQueue.push([{ id: 'sess-X' }]);
-    const manager = new KimiSessionManager();
-    const app = buildApp({
-      user: { id: 'alice', email: 'alice@example.com' },
-      db: fake.db,
-      manager,
-      audit,
-    });
-
-    const res = await app.request('/api/sessions/sess-X/close', { method: 'POST' });
-    expect(res.status).toBe(200);
-
-    // Single round-trip: one UPDATE on kimi_sessions setting status='closed'.
-    expect(fake.updateCalls).toHaveLength(1);
-    const upd = fake.updateCalls[0];
-    expect(upd?.table).toBe('kimi_sessions');
-    expect((upd?.set as Record<string, unknown>).status).toBe('closed');
-    expect(upd?.returned).toEqual([{ id: 'sess-X' }]);
-
-    expect(audit).toContainEqual({
-      userId: 'alice',
-      action: 'session_close',
-      path: 'sess-X',
-      bytes: 0,
-      source: 'rest',
-    });
-  });
-
-  it('returns 404 when row is missing (UPDATE returns empty, no audit)', async () => {
-    const audit: AuditEvent[] = [];
-    const fake = makeRecordingDb();
-    fake.updateReturningQueue.push([]);
-    const manager = new KimiSessionManager();
-    const app = buildApp({
-      user: { id: 'alice', email: 'alice@example.com' },
-      db: fake.db,
-      manager,
-      audit,
-    });
-
-    const res = await app.request('/api/sessions/missing/close', { method: 'POST' });
-    expect(res.status).toBe(404);
-    // Update was attempted but returned empty — no audit emitted.
-    expect(audit).toEqual([]);
-  });
-});
-
-// ─────────────────────────── WS close_session ───────────────────────────
-
-describe('WS close_session handler', () => {
-  let manager: KimiSessionManager;
-  let audit: AuditEvent[];
-
-  beforeEach(() => {
-    manager = new KimiSessionManager();
-    audit = [];
-    const fake = makeRecordingDb();
-    setHandlerDeps({
-      manager,
-      db: fake.db,
-      auditLog: (e) => audit.push(e),
-    });
-  });
-
-  afterEach(() => {
-    setHandlerDeps(null);
-  });
-
-  it('emits session_state{closed, reason:"ws"} and keeps the socket open', async () => {
-    const stub = makeStubKimi();
-    const active = registerActive(manager, 'sess-A', 'alice', stub.asSession);
-    const ws = new FakeWS('alice');
-    manager.attachWS(active, asWS(ws));
-
-    await handleMessage(asWS(ws), JSON.stringify({ type: 'close_session', sessionId: 'sess-A' }));
-
-    const stateMsg = ws.parsed().find((m) => m.type === 'session_state') as
-      | WSMessage<{ state: string; reason?: string }>
-      | undefined;
-    expect(stateMsg?.payload).toEqual({ state: 'closed', reason: 'ws' });
-
-    // Socket NOT closed by handler — clients may share the socket across many
-    // sessions, so closing it would kill the others.
-    expect(ws.closeCalls).toEqual([]);
-    expect(ws.readyState).toBe(1);
-
-    expect(stub.closeCalls).toBe(1);
-    expect(manager.hasSession('sess-A')).toBe(false);
-
-    expect(audit).toContainEqual({
-      userId: 'alice',
-      action: 'session_close',
-      path: 'sess-A',
-      bytes: 0,
-      source: 'ws',
-    });
-  });
-
-  it('REST close + WS close race → exactly one teardown, kimiSession.close called once', async () => {
-    const stub = makeStubKimi();
-    const active = registerActive(manager, 'sess-A', 'alice', stub.asSession);
-
-    const ws = new FakeWS('alice');
-    manager.attachWS(active, asWS(ws));
-
-    // Build a REST app that shares the same manager + audit sink.
-    const fakeRest = makeRecordingDb();
-    const app = buildApp({
-      user: { id: 'alice', email: 'alice@example.com' },
-      db: fakeRest.db,
-      manager,
-      audit,
-    });
-
-    // Race: fire REST close and WS close concurrently. The first to reach
-    // `manager.hasSession` wins; the other exits silently via the helper guard.
-    await Promise.all([
-      app.request('/api/sessions/sess-A/close', { method: 'POST' }),
-      handleMessage(asWS(ws), JSON.stringify({ type: 'close_session', sessionId: 'sess-A' })),
-    ]);
-
-    // SDK close called exactly once across both racing paths.
-    expect(stub.closeCalls).toBe(1);
-    expect(manager.hasSession('sess-A')).toBe(false);
-
-    // Exactly one session_close audit entry on the winning path. The losing
-    // path bails before audit.
-    const closeAudits = audit.filter((e) => e.action === 'session_close');
-    expect(closeAudits).toHaveLength(1);
-  });
-});
-
 // ─────────────────────────── DELETE /api/sessions/:id ───────────────────────────
 
 describe('DELETE /api/sessions/:id', () => {
@@ -687,11 +409,9 @@ describe('DELETE /api/sessions/:id', () => {
       bytes: 0,
       source: 'rest',
     });
-    // No close audit on DB-only path — session wasn't in memory.
-    expect(audit.some((e) => e.action === 'session_close')).toBe(false);
   });
 
-  it('in-memory path: closes session first, then deletes; 2 audits', async () => {
+  it('in-memory path: tears the session down first, then deletes', async () => {
     const audit: AuditEvent[] = [];
     const fake = makeRecordingDb();
     fake.selectQueue.push([{ workDir: '/tmp/work', kimiSessionId: 'kimi-sess-A' }]);
@@ -709,16 +429,15 @@ describe('DELETE /api/sessions/:id', () => {
     const res = await app.request('/api/sessions/sess-A', { method: 'DELETE' });
     expect(res.status).toBe(200);
 
-    // SDK was closed exactly once (via closeActiveSession).
+    // SDK was closed exactly once (via teardownActiveSession).
     expect(stub.closeCalls).toBe(1);
     // Manager freed the slot.
     expect(manager.hasSession('sess-A')).toBe(false);
     // DB delete fired.
     expect(fake.deleteCalls).toHaveLength(1);
 
-    // Audit: close + delete, in that order.
+    // Teardown itself does not audit; only the delete is audited.
     const actions = audit.map((e) => e.action);
-    expect(actions).toContain('session_close');
     expect(actions).toContain('session_delete');
   });
 

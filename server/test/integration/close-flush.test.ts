@@ -1,67 +1,65 @@
 import { describe, expect, it } from 'bun:test';
+import type { Session } from '@moonshot-ai/kimi-agent-sdk';
+import { teardownActiveSession } from '../../src/services/session-lifecycle';
 import { KimiSessionManager } from '../../src/services/session-manager';
-import { handleMessage, setHandlerDeps } from '../../src/ws/handlers';
-import { asWS, FakeWS, makeFakeDb, stubSession } from '../_helpers';
+import { makeFakeDb, stubSession } from '../_helpers';
 
-describe('Integration — Close & Flush', () => {
-  it('correctly shuts down, flushes, updates database status, and unregisters session', async () => {
+describe('Integration — teardownActiveSession', () => {
+  it('closes the SDK and unregisters the session from memory', async () => {
     const fake = makeFakeDb();
     const manager = new KimiSessionManager();
 
-    // Select queue for close active session SELECT row in handleCloseSession/getForUser
-    fake.selectQueue.push([
-      {
-        id: 'sess-close-1',
-        userId: 'alice',
-        workDir: '/tmp/work',
-        kimiSessionId: 'kimi-x',
-        status: 'active',
+    let closed = false;
+    const kimiSession = {
+      ...(stubSession({ sessionId: 'kimi-x', workDir: '/tmp/work' }) as object),
+      close: async () => {
+        closed = true;
       },
-    ]);
+    } as unknown as Session;
 
     const active = manager.register({
       sessionId: 'sess-close-1',
       userId: 'alice',
       workDir: '/tmp/work',
       kimiSessionId: 'kimi-x',
-      kimiSession: stubSession(),
+      kimiSession,
     });
 
-    setHandlerDeps({
-      manager,
-      db: fake.db,
-      createKimi: (() => stubSession()) as any,
-    });
+    expect(manager.peek('sess-close-1')).not.toBeNull();
 
-    const ws = new FakeWS('alice');
-    manager.attachWS(active, asWS(ws));
+    await teardownActiveSession(active, { manager, db: fake.db });
 
-    // Send close message
-    await handleMessage(
-      asWS(ws),
-      JSON.stringify({
-        type: 'close_session',
-        sessionId: 'sess-close-1',
-      }),
-    );
-
-    // Verify DB update is called to set status to 'closed'
-    const updateCall = fake.calls.find(
-      (c) => c.op === 'update' && (c.values as any).status === 'closed',
-    );
-    expect(updateCall).toBeDefined();
-
-    // Verify WS got the closed event
-    const closedEvent = ws
-      .parsed()
-      .find((m) => m.type === 'session_state' && (m.payload as any).state === 'closed');
-    expect(closedEvent).toBeDefined();
-    expect((closedEvent?.payload as any).reason).toBe('ws');
-
-    // Verify unregistered from memory
+    // SDK was closed and the in-memory slot freed.
+    expect(closed).toBe(true);
     expect(manager.peek('sess-close-1')).toBeNull();
+  });
 
-    // Clean up
-    setHandlerDeps(null);
+  it('is idempotent across concurrent callers (SDK closed once)', async () => {
+    const fake = makeFakeDb();
+    const manager = new KimiSessionManager();
+
+    let closeCount = 0;
+    const kimiSession = {
+      ...(stubSession({ sessionId: 'kimi-y', workDir: '/tmp/work' }) as object),
+      close: async () => {
+        closeCount += 1;
+      },
+    } as unknown as Session;
+
+    const active = manager.register({
+      sessionId: 'sess-close-2',
+      userId: 'alice',
+      workDir: '/tmp/work',
+      kimiSessionId: 'kimi-y',
+      kimiSession,
+    });
+
+    await Promise.all([
+      teardownActiveSession(active, { manager, db: fake.db }),
+      teardownActiveSession(active, { manager, db: fake.db }),
+    ]);
+
+    expect(closeCount).toBe(1);
+    expect(manager.peek('sess-close-2')).toBeNull();
   });
 });

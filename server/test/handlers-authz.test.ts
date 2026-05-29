@@ -117,13 +117,6 @@ describe('handlers authz — cross-user access returns not_found uniformly', () 
     expect(bob.lastError()?.payload.code).toBe('not_found');
   });
 
-  it('close_session from foreign user → not_found', async () => {
-    registerOwnedSession('alice', 'sess-A');
-    const bob = new FakeWS('bob');
-    await send(bob, { type: 'close_session', sessionId: 'sess-A' });
-    expect(bob.lastError()?.payload.code).toBe('not_found');
-  });
-
   it('subscribe to foreign session → not_found', async () => {
     registerOwnedSession('alice', 'sess-A');
     const bob = new FakeWS('bob');

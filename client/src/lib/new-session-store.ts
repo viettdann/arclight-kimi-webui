@@ -15,7 +15,7 @@ import { sendWS } from './ws-send';
 
 // Auto-clear a stuck in-flight flag if the server never produces the session
 // (e.g. create failed server-side). The list refreshes on a 500ms debounce
-// after `session_state`, so normal completion clears well under this.
+// after `session_created`, so normal completion clears well under this.
 const SAFETY_MS = 8000;
 
 interface NewSessionState {
@@ -34,9 +34,9 @@ const baseline = new Map<string, number>();
 // projectName → safety timer handle.
 const timers = new Map<string, ReturnType<typeof setTimeout>>();
 
-/** A session that was created but never used: no title, no tokens, not closed. */
+/** A session that was created but never used: no title, no tokens. */
 function isUnused(s: SessionListItem): boolean {
-  return s.status !== 'closed' && s.title === null && s.totalTokens === 0;
+  return s.title === null && s.totalTokens === 0;
 }
 
 function existingUnused(projectName: string): SessionListItem | undefined {

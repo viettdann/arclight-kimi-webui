@@ -63,13 +63,6 @@ export function SessionRow({ session }: SessionRowProps) {
     }
   };
 
-  const statusColor =
-    session.status === 'active'
-      ? 'bg-green-500'
-      : session.status === 'idle'
-        ? 'bg-muted-foreground'
-        : 'bg-muted-foreground/40';
-
   const tooltip = isForeign
     ? `Foreign session — last seen at ${session.workDir}\nWill be restored into ${session.localWorkDir}`
     : title;
@@ -82,9 +75,8 @@ export function SessionRow({ session }: SessionRowProps) {
           variant="ghost"
           onClick={handleClick}
           title={tooltip}
-          className="w-full justify-start gap-2 px-3 py-1.5 pr-9 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground"
+          className="w-full justify-start px-3 py-1.5 pr-9 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground"
         >
-          <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusColor}`} aria-hidden />
           <span className="truncate">{title}</span>
         </Button>
         <div className="absolute right-1.5 opacity-100 transition-opacity md:opacity-0 md:group-hover/session-row:opacity-100 md:group-focus-within/session-row:opacity-100">

@@ -24,7 +24,6 @@ export const kimiSessions = pgTable(
     thinking: boolean('thinking').notNull().default(false),
     yoloMode: boolean('yoloMode').notNull().default(false),
     approvalMode: text('approvalMode').notNull().default('ask'),
-    status: varchar('status', { length: 20 }).notNull().default('active'),
     kimiSessionId: varchar('kimiSessionId', { length: 100 }),
     totalTokens: integer('totalTokens').notNull().default(0),
     createdAt: timestamp('createdAt', { mode: 'date' }).notNull().defaultNow(),
@@ -32,7 +31,7 @@ export const kimiSessions = pgTable(
     pendingPrompt: text('pendingPrompt'),
     pendingEnqueuedAt: timestamp('pendingEnqueuedAt', { mode: 'date' }),
   },
-  (t) => [index('kimi_sessions_user_idx').on(t.userId, t.status, t.lastActiveAt.desc())],
+  (t) => [index('kimi_sessions_user_idx').on(t.userId, t.lastActiveAt.desc())],
 );
 
 export const kimiSessionFiles = pgTable('kimi_session_files', {
