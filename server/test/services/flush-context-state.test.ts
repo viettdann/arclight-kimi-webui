@@ -1,8 +1,8 @@
 import { afterAll, describe, expect, it, mock } from 'bun:test';
-import { makeFakeDb, stubSession } from '../_helpers';
+import * as realFsPromises from 'node:fs/promises';
 import { flushContextAndState } from '../../src/services/kimi-session';
 import { KimiSessionManager } from '../../src/services/session-manager';
-import * as realFsPromises from 'node:fs/promises';
+import { makeFakeDb, stubSession } from '../_helpers';
 
 // Snapshot real export before `mock.module` swaps the namespace.
 const originalReadFile = realFsPromises.readFile;

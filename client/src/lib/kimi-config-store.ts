@@ -8,10 +8,10 @@ import type {
 } from 'shared/types/kimi-config';
 import { create } from 'zustand';
 import {
+  revealApiKey as apiRevealApiKey,
   fetchConfig,
   fetchConfigStatus,
   patchConfig,
-  revealApiKey as apiRevealApiKey,
   testConfigConnection,
 } from '../api/kimi-config';
 

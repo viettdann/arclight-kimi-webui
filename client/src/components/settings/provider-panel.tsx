@@ -14,8 +14,7 @@ const TYPE_HINTS: Record<ProviderType, string> = {
   kimi: 'Kimi API platforms (Kimi Code, platform.kimi.com, platform.kimi.ai). API key required (`sk-...`).',
   openai_legacy:
     'OpenAI Chat Completions API and compatible providers (DeepSeek, Mistral, local OpenAI-compatible servers).',
-  openai_responses:
-    'OpenAI Responses API (newer format) and compatible providers.',
+  openai_responses: 'OpenAI Responses API (newer format) and compatible providers.',
   anthropic:
     'Anthropic Claude API and compatible providers (e.g. proxies using Anthropic schema). Environment variable overrides are not supported — config file is the only source.',
 };
@@ -62,10 +61,7 @@ export function ProviderPanel() {
 
   return (
     <div className="space-y-6">
-      <Section
-        title="Credentials"
-        description="Configure the upstream API the agent calls."
-      >
+      <Section title="Credentials" description="Configure the upstream API the agent calls.">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-1.5">
             <Label htmlFor="provider-type">Provider type</Label>

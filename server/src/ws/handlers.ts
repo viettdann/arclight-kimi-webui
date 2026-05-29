@@ -3,7 +3,6 @@ import path from 'node:path';
 import { CliErrorCodes, getErrorCode } from '@moonshot-ai/kimi-agent-sdk';
 import type { ServerWebSocket } from 'bun';
 import { eq } from 'drizzle-orm';
-import { APPROVAL_MODES } from 'shared/types';
 import type {
   AdoptProjectPayload,
   AnswerQuestionPayload,
@@ -25,6 +24,7 @@ import type {
   WSMessage,
   WSMessageType,
 } from 'shared/types';
+import { APPROVAL_MODES } from 'shared/types';
 import { validateAuthSession } from '../auth/session-check';
 import { type DB, db, schema } from '../db';
 import { logDbError } from '../db/errors';

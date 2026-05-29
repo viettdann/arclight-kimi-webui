@@ -10,9 +10,7 @@ export function KimiRawTomlPanel() {
   const config = useKimiConfigStore((s) => s.config);
   const patch = useKimiConfigStore((s) => s.patch);
 
-  const [toml, setToml] = useState<{ content: string; exists: boolean; path: string } | null>(
-    null,
-  );
+  const [toml, setToml] = useState<{ content: string; exists: boolean; path: string } | null>(null);
   const [loadingToml, setLoadingToml] = useState(false);
   const [tomlError, setTomlError] = useState<string | null>(null);
 
@@ -28,6 +26,7 @@ export function KimiRawTomlPanel() {
     }
   }
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: one-shot on mount
   useEffect(() => {
     void loadToml();
   }, []);

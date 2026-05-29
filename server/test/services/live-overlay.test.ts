@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'bun:test';
+import type { StreamEvent } from '@moonshot-ai/kimi-agent-sdk';
 import { updateLiveOverlay } from '../../src/services/kimi-session';
 import { KimiSessionManager } from '../../src/services/session-manager';
 import { stubSession } from '../_helpers';
-import type { StreamEvent } from '@moonshot-ai/kimi-agent-sdk';
 
 describe('updateLiveOverlay', () => {
   it('handles TurnBegin and resets properties', () => {

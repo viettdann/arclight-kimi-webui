@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'bun:test';
-import { makeFakeDb, stubSession, FakeWS, asWS } from '../_helpers';
-import { handleMessage, setHandlerDeps } from '../../src/ws/handlers';
-import { KimiSessionManager } from '../../src/services/session-manager';
 import type { Session } from '@moonshot-ai/kimi-agent-sdk';
+import { KimiSessionManager } from '../../src/services/session-manager';
+import { handleMessage, setHandlerDeps } from '../../src/ws/handlers';
+import { asWS, FakeWS, makeFakeDb, stubSession } from '../_helpers';
 
 describe('Integration — Lifecycle', () => {
   it('handles the entire session lifecycle: creation, message pumping, and closing', async () => {

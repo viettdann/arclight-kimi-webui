@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'bun:test';
-import { makeFakeDb } from '../_helpers';
 import {
-  enqueuePendingPrompt,
   clearPendingPrompt,
+  enqueuePendingPrompt,
   peekPendingPrompt,
 } from '../../src/services/pending-prompts';
+import { makeFakeDb } from '../_helpers';
 
 describe('pending-prompts DB logic', () => {
   it('enqueuePendingPrompt constructs correct update query', async () => {

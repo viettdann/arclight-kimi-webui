@@ -1,4 +1,3 @@
-import type { ComponentType, SVGProps } from 'react';
 import {
   Database,
   File,
@@ -18,6 +17,7 @@ import {
   Settings,
   Terminal,
 } from 'lucide-react';
+import type { ComponentType, SVGProps } from 'react';
 
 // Material Icon Theme — brand-correct icons for file manager.
 // unplugin-icons compiles each `~icons/<set>/<name>` import to a React component;

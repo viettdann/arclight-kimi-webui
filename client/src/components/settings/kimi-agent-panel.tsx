@@ -14,10 +14,7 @@ export function KimiAgentPanel() {
   }
 
   return (
-    <Section
-      title="Agent loop controls"
-      description="Safety limits applied to every agent turn."
-    >
+    <Section title="Agent loop controls" description="Safety limits applied to every agent turn.">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         <NumberField
           label="Max steps per turn"
@@ -68,4 +65,3 @@ export function KimiAgentPanel() {
     </Section>
   );
 }
-

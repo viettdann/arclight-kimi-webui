@@ -8,11 +8,11 @@ import type {
 } from 'shared/types';
 import { slug } from '../auth';
 import { type AuthVariables, requireAuth } from '../auth/middleware';
-import { db as defaultDb, type DB } from '../db';
+import { type DB, db as defaultDb } from '../db';
 import { env as defaultEnv, type Env } from '../env';
-import { slugifyProjectName } from '../lib/slug';
 import { auditLog as defaultAuditLog } from '../lib/logger';
 import { resolveUserPath } from '../lib/path-guard';
+import { slugifyProjectName } from '../lib/slug';
 import { listProjectsForUser } from '../services/projects';
 
 export interface ProjectsRoutesDeps {

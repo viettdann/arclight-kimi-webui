@@ -13,10 +13,7 @@ export function KimiDefaultsPanel() {
 
   return (
     <div className="space-y-6">
-      <Section
-        title="AI behavior"
-        description="Default flags applied to every new session."
-      >
+      <Section title="AI behavior" description="Default flags applied to every new session.">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <Toggle
             label="Thinking mode"
@@ -33,10 +30,7 @@ export function KimiDefaultsPanel() {
         </div>
       </Section>
 
-      <Section
-        title="Skills"
-        description="Where the agent looks for skill definitions."
-      >
+      <Section title="Skills" description="Where the agent looks for skill definitions.">
         <Toggle
           label="Merge all available skills"
           description="Combine global and workspace-local skill registries."
@@ -108,4 +102,3 @@ export function KimiDefaultsPanel() {
     </div>
   );
 }
-

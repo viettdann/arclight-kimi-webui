@@ -1,8 +1,8 @@
 import { ShieldAlert } from 'lucide-react';
 import { useEffect, useMemo, useRef } from 'react';
 import { useParams } from 'react-router';
-import { Button } from '@/components/ui/button';
 import type { Block } from 'shared/types';
+import { Button } from '@/components/ui/button';
 import { useChatStore } from '../lib/chat-store';
 import { sendWS } from '../lib/ws-send';
 import { readArgString } from './blocks/timeline/types';

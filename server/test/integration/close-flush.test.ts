@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
-import { makeFakeDb, stubSession, FakeWS, asWS } from '../_helpers';
-import { handleMessage, setHandlerDeps } from '../../src/ws/handlers';
 import { KimiSessionManager } from '../../src/services/session-manager';
+import { handleMessage, setHandlerDeps } from '../../src/ws/handlers';
+import { asWS, FakeWS, makeFakeDb, stubSession } from '../_helpers';
 
 describe('Integration — Close & Flush', () => {
   it('correctly shuts down, flushes, updates database status, and unregisters session', async () => {

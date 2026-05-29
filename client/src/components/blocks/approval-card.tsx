@@ -1,4 +1,4 @@
-import { ShieldAlert, ShieldCheck, ShieldX, ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight, ShieldAlert, ShieldCheck, ShieldX } from 'lucide-react';
 import { useState } from 'react';
 import { useParams } from 'react-router';
 import { Button } from '@/components/ui/button';
@@ -27,7 +27,6 @@ export function ApprovalCard({ requestId, action, description, resolution }: App
   };
 
   const isApproved = effective === 'approve' || effective === 'approve_for_session';
-  const isRejected = effective === 'reject';
 
   // Khi đã xử lý duyệt hoặc từ chối, hiển thị dạng inline xám tối giản có thể thu gọn/mở rộng
   if (effective) {

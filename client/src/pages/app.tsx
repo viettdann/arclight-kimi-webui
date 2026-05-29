@@ -24,9 +24,7 @@ export function Shell() {
 
   // Narrow selector — only re-render when the active session's title actually
   // changes (not on every unrelated sessions-store mutation).
-  const sessionTitle = useSessionsStore(
-    (s) => s.sessions.find((x) => x.id === sessionId)?.title,
-  );
+  const sessionTitle = useSessionsStore((s) => s.sessions.find((x) => x.id === sessionId)?.title);
 
   useEffect(() => {
     if (status === 'authenticated') {

@@ -1,4 +1,6 @@
 #!/usr/bin/env bun
+import { db } from '../src/db';
+import { getKimiConfig } from '../src/services/kimi-config/get-kimi-config';
 /**
  * Probe the title-generation path end-to-end against the live Kimi backend.
  *
@@ -10,8 +12,6 @@
  *   bun server/scripts/kimi-title-probe.ts
  */
 import { generateTitleViaAnthropic } from '../src/services/title-generate';
-import { db } from '../src/db';
-import { getKimiConfig } from '../src/services/kimi-config/get-kimi-config';
 
 const row = await getKimiConfig(db);
 const alias = row.defaults.model;

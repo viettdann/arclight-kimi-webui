@@ -1,7 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it, mock } from 'bun:test';
-import { makeFakeDb } from '../_helpers';
 import * as realFsPromises from 'node:fs/promises';
 import * as realLogger from '../../src/lib/logger';
+import { makeFakeDb } from '../_helpers';
 
 let mockWireSize = 0;
 let mockWireContent = '';

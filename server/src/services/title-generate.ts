@@ -25,7 +25,7 @@ import { broadcastEvent } from '../lib/ws-broadcast';
 import { getKimiConfig } from './kimi-config/get-kimi-config';
 import { kimiPaths } from './kimi-config/paths';
 import type { ActiveSession, KimiSessionManager } from './session-manager';
-import { extractTitle, type ExtractedTitle, stateJsonPathFor } from './title';
+import { type ExtractedTitle, extractTitle, stateJsonPathFor } from './title';
 
 const TITLE_MAX_CHARS = 50;
 const SYSTEM_PROMPT =

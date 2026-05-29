@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
-import type { Session } from '@moonshot-ai/kimi-agent-sdk';
 import * as realFsPromises from 'node:fs/promises';
+import type { Session } from '@moonshot-ai/kimi-agent-sdk';
 import type { ReplayDonePayload, SnapshotPayload, WSMessage } from 'shared/types';
 import type { DB } from '../src/db';
 import { broadcastEvent } from '../src/lib/ws-broadcast';
