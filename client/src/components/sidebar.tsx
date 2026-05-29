@@ -320,23 +320,25 @@ export function Sidebar({ isOpen, onClose, onLoginClick }: SidebarProps) {
           <FileManagementView projectName={activeProjectName} />
         ) : (
           <div className="flex flex-1 flex-col px-3 py-2 min-h-0">
-            <div className="mb-2 flex items-center justify-between px-3">
+            <div className="mb-2 px-3">
               <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Project list
+                Projects
               </span>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-xs"
-                onClick={() => {
-                  onClose?.();
-                  setNewProjectOpen(true);
-                }}
-                aria-label="Add project"
-              >
-                <Plus />
-              </Button>
             </div>
+
+            {/* Creating a project is the entry point for every other action, so the
+                primary CTA stays pinned and full-width above the (scrollable) list. */}
+            <Button
+              type="button"
+              onClick={() => {
+                onClose?.();
+                setNewProjectOpen(true);
+              }}
+              className="mb-2 w-full gap-2"
+            >
+              <Plus />
+              New project
+            </Button>
 
             <div className="flex flex-1 flex-col overflow-y-auto">
               {projectsStatus === 'loading' ? (
@@ -360,12 +362,9 @@ export function Sidebar({ isOpen, onClose, onLoginClick }: SidebarProps) {
                   </Button>
                 </div>
               ) : projects.length === 0 ? (
-                <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
-                  <div className="rounded-full bg-muted p-3">
-                    <Plus className="h-5 w-5 text-muted-foreground" />
-                  </div>
-                  <p className="text-sm text-muted-foreground">No projects yet</p>
-                </div>
+                <p className="px-3 py-1 text-sm text-muted-foreground">
+                  No projects yet — create your first one above.
+                </p>
               ) : (
                 <div className="flex flex-col gap-0.5">
                   {localProjects.length === 0 && foreignProjects.length > 0 ? (
