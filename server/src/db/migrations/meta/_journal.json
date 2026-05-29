@@ -5,50 +5,8 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1779645404918,
+      "when": 1780043015864,
       "tag": "0000_genesis",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1779724965000,
-      "tag": "0001_session_cross_machine_restore",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1779726945000,
-      "tag": "0002_rename_sessions_to_kimi_sessions",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "7",
-      "when": 1779868725861,
-      "tag": "0003_add_approval_mode",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "7",
-      "when": 1779897070709,
-      "tag": "0004_add_access_control",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "7",
-      "when": 1780029248501,
-      "tag": "0005_add_git_credentials",
-      "breakpoints": true
-    },
-    {
-      "idx": 6,
-      "version": "7",
-      "when": 1780039426395,
-      "tag": "0006_drop_session_status",
       "breakpoints": true
     }
   ]

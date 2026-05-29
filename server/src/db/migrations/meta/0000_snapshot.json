@@ -1,9 +1,67 @@
 {
-  "id": "622aa44c-49f8-4246-bc05-523ac34796bd",
+  "id": "c5f1fc14-2d96-45ae-b69b-b23c03e2e6c7",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
+    "public.access_control": {
+      "name": "access_control",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "enabled": {
+          "name": "enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.allowed_email": {
+      "name": "allowed_email",
+      "schema": "",
+      "columns": {
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.account": {
       "name": "account",
       "schema": "",
@@ -366,6 +424,94 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.git_credentials": {
+      "name": "git_credentials",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "label": {
+          "name": "label",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "provider": {
+          "name": "provider",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "token": {
+          "name": "token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "git_credentials_user_idx": {
+          "name": "git_credentials_user_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "git_credentials_user_id_user_id_fk": {
+          "name": "git_credentials_user_id_user_id_fk",
+          "tableFrom": "git_credentials",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.kimi_config": {
       "name": "kimi_config",
       "schema": "",
@@ -458,20 +604,14 @@
       },
       "isRLSEnabled": false
     },
-    "public.session_files": {
-      "name": "session_files",
+    "public.kimi_session_files": {
+      "name": "kimi_session_files",
       "schema": "",
       "columns": {
         "sessionId": {
           "name": "sessionId",
           "type": "uuid",
           "primaryKey": true,
-          "notNull": true
-        },
-        "workDirHash": {
-          "name": "workDirHash",
-          "type": "varchar(32)",
-          "primaryKey": false,
           "notNull": true
         },
         "wireJsonl": {
@@ -512,10 +652,10 @@
       },
       "indexes": {},
       "foreignKeys": {
-        "session_files_sessionId_sessions_id_fk": {
-          "name": "session_files_sessionId_sessions_id_fk",
-          "tableFrom": "session_files",
-          "tableTo": "sessions",
+        "kimi_session_files_sessionId_kimi_sessions_id_fk": {
+          "name": "kimi_session_files_sessionId_kimi_sessions_id_fk",
+          "tableFrom": "kimi_session_files",
+          "tableTo": "kimi_sessions",
           "columnsFrom": [
             "sessionId"
           ],
@@ -532,8 +672,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.sessions": {
-      "name": "sessions",
+    "public.kimi_sessions": {
+      "name": "kimi_sessions",
       "schema": "",
       "columns": {
         "id": {
@@ -552,6 +692,12 @@
         "workDir": {
           "name": "workDir",
           "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "projectName": {
+          "name": "projectName",
+          "type": "varchar(255)",
           "primaryKey": false,
           "notNull": true
         },
@@ -581,12 +727,12 @@
           "notNull": true,
           "default": false
         },
-        "status": {
-          "name": "status",
-          "type": "varchar(20)",
+        "approvalMode": {
+          "name": "approvalMode",
+          "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "default": "'active'"
+          "default": "'ask'"
         },
         "kimiSessionId": {
           "name": "kimiSessionId",
@@ -629,17 +775,11 @@
         }
       },
       "indexes": {
-        "sessions_user_idx": {
-          "name": "sessions_user_idx",
+        "kimi_sessions_user_idx": {
+          "name": "kimi_sessions_user_idx",
           "columns": [
             {
               "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "status",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -658,9 +798,9 @@
         }
       },
       "foreignKeys": {
-        "sessions_user_id_user_id_fk": {
-          "name": "sessions_user_id_user_id_fk",
-          "tableFrom": "sessions",
+        "kimi_sessions_user_id_user_id_fk": {
+          "name": "kimi_sessions_user_id_user_id_fk",
+          "tableFrom": "kimi_sessions",
           "tableTo": "user",
           "columnsFrom": [
             "user_id"
