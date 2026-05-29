@@ -26,6 +26,7 @@ const envSchema = z.object({
 
   WORKSPACE_ROOT: z.string().optional(),
   MAX_UPLOAD_BYTES: z.coerce.number().int().positive().default(104_857_600),
+  GIT_CLONE_TIMEOUT_MS: z.coerce.number().int().positive().default(120000),
 
   KIMI_SHARE_DIR: z.string().optional(),
   KIMI_CLI_NO_AUTO_UPDATE: z.string().optional(),

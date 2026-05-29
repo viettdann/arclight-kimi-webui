@@ -1,4 +1,5 @@
 import { createBrowserRouter, Navigate } from 'react-router';
+import { GitCredentialsPanel } from '../components/preferences/git-credentials-panel';
 import { RequireAdmin } from '../components/require-admin';
 import { RequireAuth } from '../components/require-auth';
 import { AccessControlPanel } from '../components/settings/access-control-panel';
@@ -13,6 +14,7 @@ import { OverviewPanel } from '../components/settings/overview-panel';
 import { ProviderPanel } from '../components/settings/provider-panel';
 import { Shell } from '../pages/app';
 import { ChatView } from '../pages/chat-view';
+import { PreferencesView } from '../pages/preferences';
 import { SettingsView } from '../pages/settings';
 
 export const router = createBrowserRouter([
@@ -50,6 +52,19 @@ export const router = createBrowserRouter([
                 ],
               },
               { path: 'access', element: <AccessControlPanel /> },
+            ],
+          },
+        ],
+      },
+      {
+        path: 'preferences',
+        element: <RequireAuth />,
+        children: [
+          {
+            element: <PreferencesView />,
+            children: [
+              { index: true, element: <Navigate to="git-credentials" replace /> },
+              { path: 'git-credentials', element: <GitCredentialsPanel /> },
             ],
           },
         ],

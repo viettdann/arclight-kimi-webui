@@ -1,6 +1,8 @@
 // Kimi WebUI shared contract — copied from design doc.
 // Server and client must agree on this surface verbatim.
 
+import type { GitProvider } from './types/git-credentials';
+
 // ─────────────────────────── WebSocket envelope ───────────────────────────
 
 export interface WSMessage<T = unknown> {
@@ -496,8 +498,19 @@ export interface ProjectSummary {
   origin: 'local' | 'foreign';
 }
 
+/** Clone source for project creation. Token is supplied either by a saved
+ *  per-user credential (`credentialId`) or inline (`inlineToken` + `provider`). */
+export interface GitCloneSource {
+  type: 'clone';
+  url: string;
+  credentialId?: string; // use a saved credential of the current user
+  inlineToken?: string; // one-shot token (not persisted)
+  provider?: GitProvider; // required when using inlineToken
+}
+
 export interface ProjectCreateRequest {
-  name: string;
+  name?: string; // required in blank mode; optional in clone mode (derived from repo)
+  source?: { type: 'blank' } | GitCloneSource; // absent = blank
 }
 
 export type ProjectCreateResponse = ProjectSummary;
@@ -530,5 +543,7 @@ export interface OverviewResponse {
   };
 }
 
+// Re-export git-credential types so `shared/types` entrypoint covers everything.
+export * from './types/git-credentials';
 // Re-export kimi-config types so `shared/types` entrypoint covers everything.
 export * from './types/kimi-config';

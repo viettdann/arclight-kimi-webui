@@ -8,6 +8,7 @@ import { env } from './env';
 import { auditLog, logger } from './lib/logger';
 import { createAccessRouter } from './routes/access';
 import filesRoutes from './routes/files';
+import { createGitCredentialsRouter } from './routes/git-credentials';
 import { createKimiConfigRouter } from './routes/kimi-config';
 import { createMeRouter } from './routes/me';
 import { createOverviewRouter } from './routes/overview';
@@ -56,6 +57,7 @@ app.get('/api/health', (c) => {
 app.use('/api/files/*', requireAllowed);
 app.use('/api/projects/*', requireAllowed);
 app.use('/api/sessions/*', requireAllowed);
+app.use('/api/git-credentials/*', requireAllowed);
 
 const startedAt = new Date();
 
@@ -69,6 +71,7 @@ app.route('/api/files', filesRoutes);
 app.route('/api/projects', projectsRoutes);
 app.route('/api/sessions', createSessionsRouter({ db, manager: sessionManager, auditLog, env }));
 app.route('/api/config', createKimiConfigRouter({ db, shareDir: kimiShareDir }));
+app.route('/api/git-credentials', createGitCredentialsRouter({ db }));
 
 // SPA mount — registered AFTER all /api routes so API paths match earlier
 // handlers; the catchall only fires for client-side router paths. Assets are

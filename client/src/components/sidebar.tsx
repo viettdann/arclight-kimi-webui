@@ -1,4 +1,4 @@
-import { LogOut, Plus, Settings, SquarePen, Zap } from 'lucide-react';
+import { KeyRound, LogOut, Plus, Settings, SquarePen, Zap } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import type { WSMessageType } from 'shared/types';
@@ -270,6 +270,18 @@ export function Sidebar({ isOpen, onClose, onLoginClick }: SidebarProps) {
           >
             <Zap />
             Skills
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => {
+              onClose?.();
+              navigate('/preferences');
+            }}
+            className="w-full justify-start gap-2 px-3 py-2 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground"
+          >
+            <KeyRound />
+            Preferences
           </Button>
           {isAdmin && (
             <Button

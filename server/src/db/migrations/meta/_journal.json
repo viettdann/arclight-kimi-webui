@@ -36,6 +36,13 @@
       "when": 1779897070709,
       "tag": "0004_add_access_control",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1780029248501,
+      "tag": "0005_add_git_credentials",
+      "breakpoints": true
     }
   ]
 }

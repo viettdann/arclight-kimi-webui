@@ -27,7 +27,10 @@ interface ProjectsState {
   error: string | null;
   expanded: Record<string, boolean>;
   fetch: () => Promise<void>;
-  create: (name: string) => Promise<ProjectSummary>;
+  create: (opts: {
+    name?: string;
+    source?: ProjectCreateRequest['source'];
+  }) => Promise<ProjectSummary>;
   toggleExpanded: (name: string) => void;
 }
 
@@ -52,8 +55,8 @@ export const useProjectsStore = create<ProjectsState>((set) => ({
     }
   },
 
-  create: async (name: string): Promise<ProjectSummary> => {
-    const req: ProjectCreateRequest = { name };
+  create: async (opts): Promise<ProjectSummary> => {
+    const req: ProjectCreateRequest = { name: opts.name, source: opts.source };
     const res = await authFetch('/api/projects', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -68,6 +71,14 @@ export const useProjectsStore = create<ProjectsState>((set) => ({
           code = errBody.error;
           if (errBody.error === 'invalid_name') message = 'Invalid project name';
           else if (errBody.error === 'unauthorized') message = 'Not signed in';
+          else if (errBody.error === 'invalid_url') message = 'Invalid repository URL';
+          else if (errBody.error === 'unsupported_scheme')
+            message = 'SSH URLs are not supported — use an HTTPS URL';
+          else if (errBody.error === 'credential_not_found')
+            message = 'Selected credential not found';
+          else if (errBody.error === 'invalid_provider') message = 'Invalid provider';
+          else if (errBody.error === 'clone_failed') message = 'Clone failed';
+          else if (errBody.error === 'clone_timeout') message = 'Clone timed out';
           else message = errBody.error;
         }
       } catch {
