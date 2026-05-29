@@ -253,6 +253,11 @@ export function Sidebar({ isOpen, onClose, onLoginClick }: SidebarProps) {
 
   const triggerNewTask = useCallback(() => {
     onClose?.(); // Đóng sidebar drawer
+    // Creating a task creates/picks a project — both require an account.
+    if (status !== 'authenticated') {
+      onLoginClick();
+      return;
+    }
     const list = useProjectsStore.getState().projects;
     const locals = list.filter((p) => p.origin === 'local');
     const hasForeign = list.some((p) => p.origin === 'foreign');
@@ -270,7 +275,7 @@ export function Sidebar({ isOpen, onClose, onLoginClick }: SidebarProps) {
       return;
     }
     setPickerOpen(true);
-  }, [onClose]);
+  }, [onClose, status, onLoginClick]);
 
   // Memoize so ProjectRow receives a stable bucket reference per project name
   // and bails out of unrelated re-renders (modal open/close, auth churn).
@@ -312,6 +317,10 @@ export function Sidebar({ isOpen, onClose, onLoginClick }: SidebarProps) {
             variant="ghost"
             onClick={() => {
               onClose?.();
+              if (status !== 'authenticated') {
+                onLoginClick();
+                return;
+              }
               setSkillsOpen(true);
             }}
             className="w-full justify-start gap-2 px-3 py-2 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground"
@@ -332,18 +341,21 @@ export function Sidebar({ isOpen, onClose, onLoginClick }: SidebarProps) {
             </div>
 
             {/* Creating a project is the entry point for every other action, so the
-                primary CTA stays pinned and full-width above the (scrollable) list. */}
-            <Button
-              type="button"
-              onClick={() => {
-                onClose?.();
-                setNewProjectOpen(true);
-              }}
-              className="mb-2 w-full gap-2"
-            >
-              <Plus />
-              New project
-            </Button>
+                primary CTA stays pinned and full-width above the (scrollable) list.
+                Hidden while logged out — there's no account to create against yet. */}
+            {status === 'authenticated' && (
+              <Button
+                type="button"
+                onClick={() => {
+                  onClose?.();
+                  setNewProjectOpen(true);
+                }}
+                className="mb-2 w-full gap-2"
+              >
+                <Plus />
+                New project
+              </Button>
+            )}
 
             <div className="flex flex-1 flex-col overflow-y-auto">
               {projectsStatus === 'loading' ? (
@@ -368,7 +380,9 @@ export function Sidebar({ isOpen, onClose, onLoginClick }: SidebarProps) {
                 </div>
               ) : projects.length === 0 ? (
                 <p className="px-3 py-1 text-sm text-muted-foreground">
-                  No projects yet — create your first one above.
+                  {status === 'authenticated'
+                    ? 'No projects yet — create your first one above.'
+                    : 'Log in to create projects and start tasks.'}
                 </p>
               ) : (
                 <div className="flex flex-col gap-0.5">

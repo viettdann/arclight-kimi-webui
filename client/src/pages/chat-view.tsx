@@ -110,16 +110,23 @@ export function ChatView() {
           jump on drag start. */}
       <div className="flex min-w-0 flex-1 flex-col">
         {sessionId ? (
-          <Transcript />
+          <>
+            <Transcript />
+            <div className="relative shrink-0">
+              <PendingApprovalDock />
+              <ChatInput />
+            </div>
+          </>
         ) : (
+          // Welcome: hero + cards + input live in ONE vertically-centered
+          // stack. Keeping the input as a bottom-pinned sibling left a dead
+          // gap in the middle; grouping it under the cards mirrors the
+          // reference layout and reads as a single balanced unit.
           <div className="flex flex-1 flex-col justify-start md:justify-center overflow-y-auto">
             <WelcomeScreen />
+            <ChatInput />
           </div>
         )}
-        <div className="relative shrink-0">
-          {sessionId && <PendingApprovalDock />}
-          <ChatInput />
-        </div>
       </div>
 
       {/* Editor panel. Desktop: right column with a drag handle. Mobile:

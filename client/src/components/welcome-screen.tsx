@@ -1,39 +1,40 @@
-import { Database, Globe, PenTool, Search } from 'lucide-react';
-
 const features = [
   {
-    icon: Globe,
+    image: '/showcase/web-reading.png',
     title: 'Web Reading',
-    description: 'Browse and extract insights from any web page in real time.',
+    description: 'Read and summarize any web page in real time.',
   },
   {
-    icon: Search,
+    image: '/showcase/research-analysis.png',
     title: 'Research and Analysis',
-    description: 'Deep-dive into topics with structured research workflows.',
+    description: 'Structured deep-dives into any topic.',
   },
   {
-    icon: Database,
+    image: '/showcase/data-mining.png',
     title: 'Data Mining',
-    description: 'Discover patterns and extract value from large datasets.',
+    description: 'Find patterns across large datasets.',
   },
   {
-    icon: PenTool,
+    image: '/showcase/content-creation.png',
     title: 'Content Creation',
-    description: 'Draft, edit, and polish content with AI assistance.',
+    description: 'Draft, edit, and polish with AI.',
   },
 ];
 
 export function WelcomeScreen() {
   return (
-    <div className="flex flex-col items-center justify-center px-6 py-6 md:py-12">
+    <div className="flex flex-col items-center px-6 pt-10 pb-6">
       <div className="max-w-3xl text-center">
         <div className="flex items-center justify-center gap-3">
-          <h1 className="text-4xl font-bold tracking-tight gradient-text">More Than Coding</h1>
+          <h1 className="text-4xl font-bold tracking-tight md:text-5xl">
+            <span className="text-foreground">More Than </span>
+            <span className="gradient-text">Coding</span>
+          </h1>
           <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-semibold text-primary">
             BETA
           </span>
         </div>
-        <p className="mt-3 text-base text-muted-foreground">
+        <p className="mt-4 text-base text-muted-foreground">
           Your AI-powered workspace for research, analysis, and creation.
         </p>
       </div>
@@ -42,13 +43,16 @@ export function WelcomeScreen() {
         {features.map((feature) => (
           <div
             key={feature.title}
-            className="group flex flex-col rounded-xl border border-border bg-card p-5 transition-all hover:-translate-y-0.5 hover:shadow-md cursor-default"
+            className="flex min-h-[176px] flex-col rounded-2xl border border-border bg-card p-6 transition-colors hover:border-primary/30 hover:bg-accent/30 cursor-default"
           >
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <feature.icon className="h-5 w-5" />
-            </div>
-            <h3 className="mt-3 text-sm font-semibold">{feature.title}</h3>
-            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+            <img
+              src={feature.image}
+              alt={feature.title}
+              className="h-12 w-12 object-contain"
+              loading="lazy"
+            />
+            <h3 className="mt-5 text-sm font-semibold">{feature.title}</h3>
+            <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
               {feature.description}
             </p>
           </div>
