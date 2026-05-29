@@ -1,31 +1,4 @@
-import { cpp } from '@codemirror/lang-cpp';
-import { css } from '@codemirror/lang-css';
-import { go } from '@codemirror/lang-go';
-import { html } from '@codemirror/lang-html';
-import { java } from '@codemirror/lang-java';
-import { javascript } from '@codemirror/lang-javascript';
-import { json } from '@codemirror/lang-json';
-import { markdown } from '@codemirror/lang-markdown';
-import { php } from '@codemirror/lang-php';
-import { python } from '@codemirror/lang-python';
-import { rust } from '@codemirror/lang-rust';
-import { sql } from '@codemirror/lang-sql';
-import { xml } from '@codemirror/lang-xml';
-import { yaml } from '@codemirror/lang-yaml';
-import { StreamLanguage } from '@codemirror/language';
-import { csharp, kotlin, scala } from '@codemirror/legacy-modes/mode/clike';
-import { clojure } from '@codemirror/legacy-modes/mode/clojure';
-import { dockerFile } from '@codemirror/legacy-modes/mode/dockerfile';
-import { lua } from '@codemirror/legacy-modes/mode/lua';
-import { nginx } from '@codemirror/legacy-modes/mode/nginx';
-import { powerShell } from '@codemirror/legacy-modes/mode/powershell';
-import { properties } from '@codemirror/legacy-modes/mode/properties';
-import { ruby } from '@codemirror/legacy-modes/mode/ruby';
-import { shell } from '@codemirror/legacy-modes/mode/shell';
-import { swift } from '@codemirror/legacy-modes/mode/swift';
-import { toml } from '@codemirror/legacy-modes/mode/toml';
 import CodeMirror, { EditorView, type Extension } from '@uiw/react-codemirror';
-import { hcl } from 'codemirror-lang-hcl';
 import { Code2, Download, Eye, FileWarning, Loader2, Save, WrapText, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
@@ -41,138 +14,10 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { authFetch, parseError } from '../lib/auth-fetch';
+import { languageForFilename } from '../lib/code-language';
 import { getFileIcon } from '../lib/file-icons';
 import { useOpenFileStore } from '../lib/open-file-store';
 import { FrontmatterTable, markdownComponents, splitFrontmatter } from './blocks/markdown';
-
-const stream = (parser: Parameters<typeof StreamLanguage.define>[0]): Extension =>
-  StreamLanguage.define(parser);
-
-// Filenames that carry no (useful) extension but map to a known language.
-function langByBasename(lc: string): Extension[] | null {
-  if (lc === 'dockerfile' || lc.endsWith('.dockerfile')) return [stream(dockerFile)];
-  if (lc === 'makefile' || lc === 'gnumakefile') return []; // no good mode; plain text
-  if (lc === '.gitignore' || lc === '.dockerignore' || lc === '.npmignore') return [];
-  if (lc === '.env' || lc.startsWith('.env.')) return [stream(properties)];
-  if (lc === 'nginx.conf' || lc.endsWith('.nginx')) return [stream(nginx)];
-  return null;
-}
-
-// Language detection by filename/extension. Unknown → plain text (no extension).
-function langExtension(name: string): Extension[] {
-  const lc = name.toLowerCase();
-  const byName = langByBasename(lc);
-  if (byName != null) return byName;
-
-  const dot = lc.lastIndexOf('.');
-  const ext = dot < 0 ? '' : lc.slice(dot + 1);
-  switch (ext) {
-    case 'js':
-    case 'jsx':
-    case 'mjs':
-    case 'cjs':
-      return [javascript()];
-    case 'ts':
-    case 'tsx':
-      return [javascript({ typescript: true, jsx: ext === 'tsx' })];
-    case 'html':
-    case 'htm':
-      return [html()];
-    case 'css':
-      return [css()];
-    case 'json':
-    case 'jsonc':
-      return [json()];
-    case 'md':
-    case 'markdown':
-      return [markdown()];
-    case 'py':
-    case 'pyi':
-      return [python()];
-
-    // Official lang-* packages.
-    case 'yml':
-    case 'yaml':
-      return [yaml()];
-    case 'go':
-      return [go()];
-    case 'rs':
-      return [rust()];
-    case 'java':
-      return [java()];
-    case 'c':
-    case 'h':
-    case 'cc':
-    case 'cpp':
-    case 'cxx':
-    case 'hpp':
-    case 'hh':
-      return [cpp()];
-    case 'php':
-      return [php()];
-    case 'sql':
-      return [sql()];
-    case 'xml':
-    case 'svg':
-    case 'xsd':
-    case 'xsl':
-    case 'plist':
-    case 'csproj':
-    case 'vbproj':
-    case 'props':
-    case 'targets':
-    case 'slnx': // new XML-based VS solution format (.sln is not XML → plain text)
-      return [xml()];
-
-    // HCL / Terraform (codemirror-lang-hcl).
-    case 'tf':
-    case 'tfvars':
-    case 'hcl':
-      return [hcl()];
-
-    // legacy-modes (StreamLanguage).
-    case 'sh':
-    case 'bash':
-    case 'zsh':
-    case 'ksh':
-      return [stream(shell)];
-    case 'cs':
-    case 'csx':
-      return [stream(csharp)];
-    case 'kt':
-    case 'kts':
-      return [stream(kotlin)];
-    case 'scala':
-    case 'sc':
-      return [stream(scala)];
-    case 'rb':
-      return [stream(ruby)];
-    case 'swift':
-      return [stream(swift)];
-    case 'lua':
-      return [stream(lua)];
-    case 'clj':
-    case 'cljs':
-    case 'cljc':
-    case 'edn':
-      return [stream(clojure)];
-    case 'ps1':
-    case 'psm1':
-    case 'psd1':
-      return [stream(powerShell)];
-    case 'toml':
-      return [stream(toml)];
-    case 'ini':
-    case 'cfg':
-    case 'conf':
-    case 'properties':
-    case 'editorconfig':
-      return [stream(properties)];
-
-    default:
-      return [];
-  }
-}
 
 function isMarkdown(name: string): boolean {
   const lc = name.toLowerCase();
@@ -219,7 +64,8 @@ function EditorBody({ path, name }: PanelInner) {
 
   // Language extension (per filename) plus optional line wrapping.
   const extensions = useMemo(() => {
-    const exts = langExtension(name);
+    const lang = languageForFilename(name);
+    const exts: Extension[] = lang ? [lang] : [];
     if (wrap) exts.push(EditorView.lineWrapping);
     return exts;
   }, [name, wrap]);

@@ -32,6 +32,7 @@
         "@codemirror/language": "^6.12.3",
         "@codemirror/legacy-modes": "^6.5.3",
         "@fontsource-variable/geist": "^5.2.9",
+        "@lezer/highlight": "^1.2.3",
         "@tanstack/react-query": "5.100.14",
         "@uiw/react-codemirror": "^4",
         "better-auth": "1.6.11",

@@ -1,12 +1,59 @@
 import yaml from 'js-yaml';
 import { Check, Copy, FileCode } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { Components } from 'react-markdown';
 
+/**
+ * True while the surrounding markdown is still streaming in. Code blocks defer
+ * highlighting until the block is complete — re-parsing a block that grows on
+ * every token is wasted work.
+ */
+export const MarkdownStreamingContext = createContext(false);
+
+// Lazy-loaded highlighter, shared across all code blocks so the Lezer grammars
+// stay out of the initial bundle and load exactly once.
+type HighlightModule = typeof import('@/lib/highlight-code');
+let highlightModule: HighlightModule | null = null;
+let highlightModulePromise: Promise<HighlightModule> | null = null;
+function loadHighlightModule(): Promise<HighlightModule> {
+  highlightModulePromise ??= import('@/lib/highlight-code').then((m) => {
+    highlightModule = m;
+    return m;
+  });
+  return highlightModulePromise;
+}
+
 export function CodeBlock({ code, language }: { code: string; language: string }) {
+  const streaming = useContext(MarkdownStreamingContext);
   const [copied, setCopied] = useState(false);
   const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => clearTimeout(resetTimer.current ?? undefined), []);
+
+  // Load grammars once the block is settled (not streaming). The block renders
+  // plain until the chunk resolves, then upgrades to highlighted markup.
+  const [ready, setReady] = useState(highlightModule != null);
+  useEffect(() => {
+    if (streaming) return;
+    if (highlightModule != null) {
+      setReady(true);
+      return;
+    }
+    let alive = true;
+    loadHighlightModule().then(() => {
+      if (alive) setReady(true);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [streaming]);
+
+  const html = useMemo(
+    () =>
+      ready && !streaming && highlightModule
+        ? highlightModule.highlightToHtml(code, language)
+        : null,
+    [ready, streaming, code, language],
+  );
 
   const handleCopy = () => {
     navigator.clipboard.writeText(code);
@@ -36,7 +83,14 @@ export function CodeBlock({ code, language }: { code: string; language: string }
         </button>
       </div>
       <div className="p-4 font-mono text-xs overflow-x-auto leading-relaxed select-text bg-muted/5 max-h-[30rem] scrollbar-thin">
-        <pre className="whitespace-pre-wrap break-words">{code}</pre>
+        <pre className="code-hl whitespace-pre-wrap break-words">
+          {html == null ? (
+            code
+          ) : (
+            // biome-ignore lint/security/noDangerouslySetInnerHtml: token spans are HTML-escaped in highlightToHtml
+            <code dangerouslySetInnerHTML={{ __html: html }} />
+          )}
+        </pre>
       </div>
     </div>
   );
@@ -53,13 +107,13 @@ export const markdownComponents: Components = {
   h2: ({ children, ...rest }) => (
     <h2
       {...rest}
-      className="text-xl font-semibold mt-5 mb-2.5 text-foreground font-sans border-b border-border/40 pb-1"
+      className="relative text-xl font-semibold mt-5 mb-2.5 text-foreground font-sans border-b-2 border-[var(--accent-wash)] pb-2 after:absolute after:left-0 after:-bottom-[2px] after:h-[2px] after:w-11 after:rounded-full after:bg-primary after:content-['']"
     >
       {children}
     </h2>
   ),
   h3: ({ children, ...rest }) => (
-    <h3 {...rest} className="text-lg font-semibold mt-4 mb-2 text-foreground font-sans">
+    <h3 {...rest} className="text-lg font-semibold mt-4 mb-2 text-primary font-sans">
       {children}
     </h3>
   ),
@@ -98,7 +152,7 @@ export const markdownComponents: Components = {
       href={href}
       target="_blank"
       rel="noreferrer noopener"
-      className="text-primary underline underline-offset-2 hover:text-primary/80 break-all"
+      className="text-primary underline underline-offset-2 hover:text-primary/80 hover:bg-[var(--accent-wash)] rounded-sm break-all transition-colors"
     >
       {children}
     </a>
@@ -106,7 +160,7 @@ export const markdownComponents: Components = {
   ul: ({ children, ...rest }) => (
     <ul
       {...rest}
-      className="list-disc pl-6 space-y-1.5 my-3 text-sm text-foreground/90 font-sans leading-relaxed"
+      className="list-disc marker:text-primary pl-6 space-y-1.5 my-3 text-sm text-foreground/90 font-sans leading-relaxed"
     >
       {children}
     </ul>
@@ -114,7 +168,7 @@ export const markdownComponents: Components = {
   ol: ({ children, ...rest }) => (
     <ol
       {...rest}
-      className="list-decimal pl-6 space-y-1.5 my-3 text-sm text-foreground/90 font-sans leading-relaxed"
+      className="list-decimal marker:font-semibold marker:text-primary pl-6 space-y-1.5 my-3 text-sm text-foreground/90 font-sans leading-relaxed"
     >
       {children}
     </ol>
@@ -127,7 +181,7 @@ export const markdownComponents: Components = {
   blockquote: ({ children, ...rest }) => (
     <blockquote
       {...rest}
-      className="border-l-4 border-primary/50 pl-4 py-1.5 my-4 italic text-muted-foreground bg-muted/10 rounded-r-md"
+      className="border-l-4 border-primary pl-4 py-2 my-4 text-foreground/90 bg-[var(--quote-bg)] rounded-r-lg [&_strong]:text-primary"
     >
       {children}
     </blockquote>
@@ -141,12 +195,12 @@ export const markdownComponents: Components = {
     </div>
   ),
   thead: ({ children, ...rest }) => (
-    <thead {...rest} className="bg-muted/30 text-xs uppercase tracking-wide text-muted-foreground">
+    <thead {...rest} className="bg-[var(--accent-wash)] text-foreground">
       {children}
     </thead>
   ),
   th: ({ children, ...rest }) => (
-    <th {...rest} className="px-3 py-2 text-left font-semibold border-b border-border/60">
+    <th {...rest} className="px-3 py-2 text-left font-semibold border-b-2 border-primary/30">
       {children}
     </th>
   ),
