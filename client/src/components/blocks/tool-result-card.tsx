@@ -6,7 +6,7 @@ import { DisplayBlockRegistry } from '../display-blocks/display-block-registry';
 interface ToolResultCardProps {
   toolCallId: string;
   toolName: string;
-  output: any;
+  output: unknown;
   message: string | null;
   displayBlocks: DisplayBlockType[];
   isError: boolean;
@@ -101,6 +101,7 @@ export function ToolResultCard({
       {hasDisplayBlocks && (
         <div className="flex flex-col gap-3">
           {displayBlocks.map((block, idx) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: static tool-result blocks, never reordered
             <DisplayBlockRegistry key={idx} block={block} />
           ))}
         </div>

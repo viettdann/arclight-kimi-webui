@@ -69,8 +69,8 @@ export function KimiHooksPanel() {
         ) : (
           <div className="space-y-3">
             {config.hooks.map((h, i) => (
-              // biome-ignore lint/suspicious/noArrayIndexKey: stable admin index
               <div
+                // biome-ignore lint/suspicious/noArrayIndexKey: stable admin index
                 key={i}
                 className="grid grid-cols-1 md:grid-cols-12 gap-3 rounded-md border border-border bg-background p-3 items-end"
               >

@@ -108,14 +108,17 @@ export function emptySnapshot(status: SessionStatus): SnapshotPayload {
   };
 }
 
-async function readWireBytesPreferringDisk(sessRow: any, dbh: DB): Promise<string> {
+async function readWireBytesPreferringDisk(
+  sessRow: typeof schema.kimiSessions.$inferSelect,
+  dbh: DB,
+): Promise<string> {
   if (sessRow.kimiSessionId) {
     const dir = kimiPaths().sessionDir(sessRow.workDir, sessRow.kimiSessionId);
     const wirePath = path.join(dir, 'wire.jsonl');
     try {
       return await readFile(wirePath, 'utf8');
-    } catch (err: any) {
-      if (err.code !== 'ENOENT') {
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
         throw err;
       }
     }

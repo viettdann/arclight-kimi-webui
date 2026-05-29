@@ -70,7 +70,7 @@ describe('Integration — Crash Recovery', () => {
   it('correctly catches up when DB lags behind disk wire size', async () => {
     const fake = makeFakeDb();
 
-    mockWireContent = 'a'.repeat(50) + 'CRASH_RECOVERY_DELTA\n';
+    mockWireContent = `${'a'.repeat(50)}CRASH_RECOVERY_DELTA\n`;
     mockWireSize = mockWireContent.length; // 71
 
     await catchUpWireBackup({

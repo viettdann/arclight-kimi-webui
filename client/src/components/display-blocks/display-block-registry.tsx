@@ -20,11 +20,6 @@ export function DisplayBlockRegistry({ block }: DisplayBlockRegistryProps) {
     case 'brief':
       return <BriefBlock text={block.text} />;
     default:
-      return (
-        <UnknownBlock
-          rawType={(block as any).rawType || block.type}
-          raw={(block as any).raw || (block as any)}
-        />
-      );
+      return <UnknownBlock rawType={block.rawType} raw={block.raw} />;
   }
 }

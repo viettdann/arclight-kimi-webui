@@ -69,7 +69,6 @@ function makeRecordingDb(): RecordingDb {
 
   const tableName = (t: unknown): string | undefined => {
     try {
-      // biome-ignore lint/suspicious/noExplicitAny: drizzle's PgTable type guard is structural
       return getTableName(t as any);
     } catch {
       return undefined;
@@ -200,7 +199,6 @@ function buildApp(opts: {
 }) {
   const app = new Hono<{ Variables: AuthVariables }>();
   app.use('*', async (c, next) => {
-    // biome-ignore lint/suspicious/noExplicitAny: test fixture forces user shape
     c.set('user', opts.user as any);
     c.set('authSession', null);
     await next();

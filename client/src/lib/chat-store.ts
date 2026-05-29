@@ -1,3 +1,4 @@
+// biome-ignore-all lint/suspicious/noExplicitAny: WS event payloads are dynamically shaped per WSMessageType; consumed by the applyEvent switch
 import type {
   ApprovalMode,
   Block,
@@ -332,16 +333,11 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   sessions: {},
 
   getOrCreateSession: (sessionId: string) => {
-    const state = get();
-    if (!state.sessions[sessionId]) {
-      // Initialize if missing
-      set((s) => {
-        const sessions = { ...s.sessions };
-        sessions[sessionId] = createDefaultSessionState();
-        return { sessions };
-      });
-    }
-    return get().sessions[sessionId]!;
+    const existing = get().sessions[sessionId];
+    if (existing) return existing;
+    const created = createDefaultSessionState();
+    set((s) => ({ sessions: { ...s.sessions, [sessionId]: created } }));
+    return created;
   },
 
   loadSnapshot: (sessionId: string, payload: SnapshotPayload) => {
@@ -372,8 +368,10 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     get().getOrCreateSession(sessionId);
 
     set((state) => {
+      const existing = state.sessions[sessionId];
+      if (!existing) return state;
       const sessions = { ...state.sessions };
-      const session = { ...sessions[sessionId]! };
+      const session = { ...existing };
 
       // Copy subagentStates to edit
       const subagentStates = { ...session.subagentStates };
@@ -434,19 +432,17 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             subagentIdx = session.blocks.length - 1;
           }
 
-          const subagentBlock = { ...session.blocks[subagentIdx]! } as Extract<
-            Block,
-            { kind: 'subagent' }
-          >;
+          const blockAtIdx = session.blocks[subagentIdx];
+          if (blockAtIdx?.kind !== 'subagent') return;
+          const subagentBlock = { ...blockAtIdx };
 
           // 2. Initialize subagent states if not present
-          if (!subagentStates[parentToolCallId]) {
-            subagentStates[parentToolCallId] = {
-              liveTurnIdx: null,
-              liveStepIdx: null,
-            };
-          }
-          const subState = { ...subagentStates[parentToolCallId]! };
+          const existingSubState = subagentStates[parentToolCallId] ?? {
+            liveTurnIdx: null,
+            liveStepIdx: null,
+          };
+          subagentStates[parentToolCallId] = existingSubState;
+          const subState = { ...existingSubState };
 
           // 3. Recurse event applying to subagent blocks
           const subContext = {
@@ -547,8 +543,10 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   addPendingUserBlock: (sessionId: string, text: string) => {
     get().getOrCreateSession(sessionId);
     set((state) => {
+      const existing = state.sessions[sessionId];
+      if (!existing) return state;
       const sessions = { ...state.sessions };
-      const session = { ...sessions[sessionId]! };
+      const session = { ...existing };
 
       const pendingBlock: Block = {
         kind: 'user',
@@ -570,8 +568,10 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   setSessionFlags: (sessionId, flags) => {
     get().getOrCreateSession(sessionId);
     set((state) => {
+      const existing = state.sessions[sessionId];
+      if (!existing) return state;
       const sessions = { ...state.sessions };
-      const session = { ...sessions[sessionId]! };
+      const session = { ...existing };
       if (flags.thinking !== undefined) session.thinking = flags.thinking;
       if (flags.yoloMode !== undefined) session.yoloMode = flags.yoloMode;
       if (flags.approvalMode !== undefined) session.approvalMode = flags.approvalMode;

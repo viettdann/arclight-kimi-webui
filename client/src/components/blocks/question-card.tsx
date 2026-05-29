@@ -90,6 +90,7 @@ export function QuestionCard({ requestId, questions, resolved }: QuestionCardPro
           {questions.map((qi, i) => {
             const ans = (answers[`q_${i}`] || '').trim();
             return (
+              // biome-ignore lint/suspicious/noArrayIndexKey: answers keyed by question index
               <li key={i} className="text-xs leading-relaxed">
                 {qi.header && (
                   <span className="block text-[10px] uppercase font-bold tracking-wider text-muted-foreground">
@@ -137,6 +138,7 @@ export function QuestionCard({ requestId, questions, resolved }: QuestionCardPro
             const isActive = i === safeIdx;
             return (
               <button
+                // biome-ignore lint/suspicious/noArrayIndexKey: answers keyed by question index
                 key={i}
                 type="button"
                 onClick={() => setActiveIdx(i)}
@@ -169,7 +171,7 @@ export function QuestionCard({ requestId, questions, resolved }: QuestionCardPro
 
         {hasOptions ? (
           <div className="grid gap-2">
-            {q.options.map((opt, optIdx) => {
+            {q.options.map((opt) => {
               const isSelected = q.multiSelect
                 ? currentAnswer.split(', ').includes(opt.label)
                 : currentAnswer === opt.label;
@@ -177,7 +179,7 @@ export function QuestionCard({ requestId, questions, resolved }: QuestionCardPro
               return (
                 <button
                   type="button"
-                  key={optIdx}
+                  key={opt.label}
                   onClick={() => handleSelectOption(opt.label)}
                   className={`flex flex-col items-start text-left p-3 rounded-xl border transition-all text-xs font-medium cursor-pointer ${
                     isSelected

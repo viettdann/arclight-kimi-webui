@@ -15,7 +15,7 @@ export default defineConfig(({ mode }) => {
       alias: [
         { find: '@', replacement: path.resolve(__dirname, 'src') },
         { find: '@shared', replacement: path.resolve(__dirname, '../shared') },
-        { find: /^shared\/(.*)$/, replacement: path.resolve(__dirname, '../shared') + '/$1' },
+        { find: /^shared\/(.*)$/, replacement: `${path.resolve(__dirname, '../shared')}/$1` },
         { find: /^shared$/, replacement: path.resolve(__dirname, '../shared/index.ts') },
       ],
     },

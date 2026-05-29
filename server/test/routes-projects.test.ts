@@ -32,7 +32,6 @@ function buildApp(opts: BuildOpts): {
 
   const app = new Hono<{ Variables: AuthVariables }>();
   app.use('*', async (c, next) => {
-    // biome-ignore lint/suspicious/noExplicitAny: test fixture forces user shape
     c.set('user', opts.user as any);
     c.set('authSession', null);
     await next();

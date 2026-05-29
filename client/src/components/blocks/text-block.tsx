@@ -20,9 +20,11 @@ export function TextBlock({ content, isStreaming }: TextBlockProps) {
         {hasTags ? (
           segments.map((seg, i) =>
             seg.kind === 'tag' ? (
+              // biome-ignore lint/suspicious/noArrayIndexKey: static parsed segments, never reordered
               <HarnessTagBlock key={i} name={seg.name} content={seg.content} />
             ) : (
               seg.content.trim() && (
+                // biome-ignore lint/suspicious/noArrayIndexKey: static parsed segments, never reordered
                 <ReactMarkdown key={i} remarkPlugins={[remarkGfm]} components={components}>
                   {seg.content}
                 </ReactMarkdown>

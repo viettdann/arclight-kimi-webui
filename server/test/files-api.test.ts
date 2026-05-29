@@ -15,7 +15,6 @@ const mockUser = { id: 'u1', email: 'alice@example.com' };
 function buildTestApp(testEnv: Env, auditCalls: AuditEvent[]) {
   const app = new Hono<{ Variables: AuthVariables }>();
   app.use('*', async (c, next) => {
-    // biome-ignore lint/suspicious/noExplicitAny: test fixture forces user shape
     c.set('user', mockUser as any);
     c.set('authSession', null);
     await next();

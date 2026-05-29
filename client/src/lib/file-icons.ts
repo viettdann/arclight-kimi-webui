@@ -9,7 +9,6 @@ import {
   FileLock,
   FileSpreadsheet,
   FileText,
-  FileType,
   FileVideo,
   Lock,
   type LucideIcon,

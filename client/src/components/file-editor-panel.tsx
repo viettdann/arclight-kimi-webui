@@ -349,7 +349,6 @@ function EditorBody({ path, name }: PanelInner) {
             aria-label="Download"
             title="Download"
             render={
-              // biome-ignore lint/a11y/useAnchorContent: content is provided via Button children
               <a href={`/api/files/download?path=${encodeURIComponent(path)}`} download={name} />
             }
           >

@@ -22,6 +22,7 @@ export function TodoBlock({ items }: TodoBlockProps) {
 
           return (
             <li
+              // biome-ignore lint/suspicious/noArrayIndexKey: positional checklist, items keyed by order
               key={index}
               className={`flex items-center gap-3 text-sm transition-colors py-1 ${
                 isDone

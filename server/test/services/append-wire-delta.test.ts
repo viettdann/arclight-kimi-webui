@@ -97,7 +97,7 @@ describe('appendWireDelta', () => {
     const fake = makeFakeDb();
     fake.selectQueue.push([{ offset: 100 }]); // DB offset
 
-    mockWireContent = 'a'.repeat(100) + 'NEW_EVENT_DATA\n';
+    mockWireContent = `${'a'.repeat(100)}NEW_EVENT_DATA\n`;
     mockWireSize = mockWireContent.length; // 115
 
     const manager = new KimiSessionManager();

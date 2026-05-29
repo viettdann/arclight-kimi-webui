@@ -1,3 +1,4 @@
+// biome-ignore-all lint/suspicious/noExplicitAny: bridges runtime-validated SDK wire payloads (incl. request-types outside the StreamEvent union) to block shapes
 import {
   parseEventPayload,
   parseRequestPayload,

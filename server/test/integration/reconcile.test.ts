@@ -98,7 +98,7 @@ describe('Integration — reconcileOnStartup', () => {
     ]);
 
     mockExists = true;
-    mockContent = 'a'.repeat(50) + 'NEW_DELTA_DATA\n';
+    mockContent = `${'a'.repeat(50)}NEW_DELTA_DATA\n`;
     mockSize = mockContent.length; // 65
 
     await reconcileOnStartup({ db: fake.db });

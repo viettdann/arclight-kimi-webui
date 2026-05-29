@@ -235,7 +235,7 @@ export function updateLiveOverlay(active: ActiveSession, ev: StreamEvent): void 
       break;
     }
     case 'StepBegin': {
-      active.liveStepIdx = (ev.payload as any).n;
+      active.liveStepIdx = ev.payload.n;
       active.liveTextDelta = '';
       active.liveThinkingDelta = '';
       active.liveThinkPartIdx = 0;
@@ -243,7 +243,9 @@ export function updateLiveOverlay(active: ActiveSession, ev: StreamEvent): void 
       break;
     }
     case 'ContentPart': {
-      const part = ev.payload as any;
+      // SDK's ContentPart (z.infer of a discriminated union) resolves to
+      // `unknown` here; narrow against the text/think shapes we consume.
+      const part = ev.payload as { type: 'text'; text: string } | { type: 'think'; think: string };
       if (part.type === 'text') {
         active.liveTextDelta += part.text;
       } else if (part.type === 'think') {
@@ -252,7 +254,7 @@ export function updateLiveOverlay(active: ActiveSession, ev: StreamEvent): void 
       break;
     }
     case 'ToolCallPart': {
-      const p = ev.payload as any;
+      const p = ev.payload;
       if (active.translator.lastToolCallId) {
         const id = active.translator.lastToolCallId;
         const prev = active.partialToolCallArgs.get(id) ?? '';
@@ -272,7 +274,7 @@ export function updateLiveOverlay(active: ActiveSession, ev: StreamEvent): void 
         active.liveTextDelta = '';
         active.liveTextPartIdx++;
       }
-      const p = ev.payload as any;
+      const p = ev.payload;
       active.partialToolCallArgs.delete(p.id);
       break;
     }
@@ -281,7 +283,7 @@ export function updateLiveOverlay(active: ActiveSession, ev: StreamEvent): void 
       // a tool that streamed args and then completed mid-turn would still get
       // its block stamped `isStreaming=true` in resume snapshots, leaving the
       // row spinning even though tool_result is already present.
-      const p = ev.payload as any;
+      const p = ev.payload;
       active.partialToolCallArgs.delete(p.tool_call_id);
       break;
     }
@@ -501,7 +503,7 @@ export async function pumpTurn(active: ActiveSession, turn: Turn, deps: PumpDeps
     // generated. By default the SDK seeds `custom_title` with the first user
     // prompt and leaves `title_generated=false`; treating that as authoritative
     // would clobber DB and block `maybeGenerateTitleBackground` forever.
-    if (extracted !== null && extracted.generated) {
+    if (extracted?.generated) {
       const [row] = await dbh
         .select({ title: schema.kimiSessions.title })
         .from(schema.kimiSessions)

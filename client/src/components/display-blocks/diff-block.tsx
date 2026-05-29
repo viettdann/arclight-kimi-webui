@@ -1,3 +1,4 @@
+// biome-ignore-all lint/style/noNonNullAssertion: bounds-checked indexed access in the diff algorithm under noUncheckedIndexedAccess
 import { Check, Copy, FilePlus, FileText, FileX } from 'lucide-react';
 import { useState } from 'react';
 
@@ -163,6 +164,7 @@ export function DiffBlock({ path, oldText, newText }: DiffBlockProps) {
               const indicator = isAdd ? '+' : isDel ? '-' : ' ';
 
               return (
+                // biome-ignore lint/suspicious/noArrayIndexKey: diff rows are positional, never reordered
                 <tr key={idx} className={`${rowBg} transition-colors group`}>
                   <td className="w-10 select-none text-right pr-2.5 pl-2 py-0.5 border-r border-border/10 text-[10px] text-muted-foreground/40 font-mono">
                     {line.numOld || ''}

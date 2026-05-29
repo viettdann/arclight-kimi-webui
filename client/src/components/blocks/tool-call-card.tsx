@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 
 interface ToolCallCardProps {
   name: string;
-  args: any;
+  args: unknown;
   argsStreaming?: string;
   isStreaming?: boolean;
 }

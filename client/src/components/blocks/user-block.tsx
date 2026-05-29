@@ -17,22 +17,22 @@ export function UserBlock({ content, status, createdAt }: UserBlockProps) {
     <div className="flex flex-col items-end gap-1.5 w-full animate-in fade-in duration-200">
       <div className="max-w-[85%] w-fit flex flex-col gap-2">
         {hasTags ? (
-          <>
-            {segments.map((seg, i) =>
-              seg.kind === 'tag' ? (
-                <HarnessTagBlock key={i} name={seg.name} content={seg.content} />
-              ) : (
-                seg.content.trim() && (
-                  <div
-                    key={i}
-                    className="rounded-2xl bg-primary px-4 py-2.5 text-sm text-primary-foreground shadow-sm font-medium leading-relaxed whitespace-pre-wrap select-text break-words self-end"
-                  >
-                    {seg.content.trim()}
-                  </div>
-                )
-              ),
-            )}
-          </>
+          segments.map((seg, i) =>
+            seg.kind === 'tag' ? (
+              // biome-ignore lint/suspicious/noArrayIndexKey: static parsed segments, never reordered
+              <HarnessTagBlock key={i} name={seg.name} content={seg.content} />
+            ) : (
+              seg.content.trim() && (
+                <div
+                  // biome-ignore lint/suspicious/noArrayIndexKey: static parsed segments, never reordered
+                  key={i}
+                  className="rounded-2xl bg-primary px-4 py-2.5 text-sm text-primary-foreground shadow-sm font-medium leading-relaxed whitespace-pre-wrap select-text break-words self-end"
+                >
+                  {seg.content.trim()}
+                </div>
+              )
+            ),
+          )
         ) : (
           <div className="rounded-2xl bg-primary px-4 py-2.5 text-sm text-primary-foreground shadow-sm font-medium leading-relaxed whitespace-pre-wrap select-text break-words">
             {content}

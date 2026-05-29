@@ -19,19 +19,17 @@ mock.module('node:fs/promises', () => {
     ...realFsPromises,
     readFile: async (p: string, encoding?: any) => {
       if (p.endsWith('wire.jsonl')) {
-        return (
-          JSON.stringify({
-            timestamp: new Date().toISOString(),
-            message: {
-              type: 'TurnBegin',
-              payload: {
-                id: 'turn-1',
-                user_slug: 'alice',
-                user_input: [{ type: 'text', text: 'hi' }],
-              },
+        return `${JSON.stringify({
+          timestamp: new Date().toISOString(),
+          message: {
+            type: 'TurnBegin',
+            payload: {
+              id: 'turn-1',
+              user_slug: 'alice',
+              user_input: [{ type: 'text', text: 'hi' }],
             },
-          }) + '\n'
-        );
+          },
+        })}\n`;
       }
       return originalReadFile(p, encoding);
     },
