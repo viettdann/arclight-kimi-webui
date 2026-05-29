@@ -21,6 +21,44 @@ export interface RunGitOptions {
    * pipe buffer and stall `proc.exited`.
    */
   captureStdout?: boolean;
+  /**
+   * Called with each decoded stderr chunk as it arrives, alongside the full
+   * drain. Lets callers stream live progress (git writes `--progress` to stderr
+   * using `\r`) without waiting for the process to exit. The complete stderr is
+   * still accumulated and returned in `GitRunResult.stderr`.
+   */
+  onStderr?: (chunk: string) => void;
+}
+
+// Read a stream to completion, invoking `onChunk` with each decoded piece while
+// also accumulating the full text. Mirrors `new Response(stream).text()` but
+// surfaces partial output as it streams in.
+async function drainWithCallback(
+  stream: ReadableStream<Uint8Array>,
+  onChunk: (chunk: string) => void,
+): Promise<string> {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let full = '';
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const text = decoder.decode(value, { stream: true });
+      if (text.length > 0) {
+        full += text;
+        onChunk(text);
+      }
+    }
+    const tail = decoder.decode();
+    if (tail.length > 0) {
+      full += tail;
+      onChunk(tail);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return full;
 }
 
 export interface GitRunResult {
@@ -76,11 +114,10 @@ export async function runGit(args: string[], opts: RunGitOptions): Promise<GitRu
   const stdoutP: Promise<string> = captureStdout
     ? new Response(proc.stdout as ReadableStream<Uint8Array>).text()
     : Promise.resolve('');
-  const [exitCode, stdout, stderr] = await Promise.all([
-    proc.exited,
-    stdoutP,
-    new Response(proc.stderr).text(),
-  ]);
+  const stderrP: Promise<string> = opts.onStderr
+    ? drainWithCallback(proc.stderr as ReadableStream<Uint8Array>, opts.onStderr)
+    : new Response(proc.stderr).text();
+  const [exitCode, stdout, stderr] = await Promise.all([proc.exited, stdoutP, stderrP]);
 
   clearTimeout(timer);
   opts.signal?.removeEventListener('abort', onAbort);

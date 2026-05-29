@@ -71,7 +71,8 @@ interface ProjectsState {
   create: (opts: {
     name?: string;
     source?: ProjectCreateRequest['source'];
-  }) => Promise<ProjectSummary>;
+  }) => Promise<ProjectCreateResponse>;
+  addProject: (project: ProjectSummary) => void;
   remove: (name: string) => Promise<void>;
   toggleExpanded: (name: string) => void;
 }
@@ -97,7 +98,7 @@ export const useProjectsStore = create<ProjectsState>((set) => ({
     }
   },
 
-  create: async (opts): Promise<ProjectSummary> => {
+  create: async (opts): Promise<ProjectCreateResponse> => {
     const req: ProjectCreateRequest = { name: opts.name, source: opts.source };
     const res = await authFetch('/api/projects', {
       method: 'POST',
@@ -108,11 +109,27 @@ export const useProjectsStore = create<ProjectsState>((set) => ({
       throw await toProjectError(res, CREATE_ERROR_MESSAGES, 'Request failed');
     }
     const project = (await res.json()) as ProjectCreateResponse;
-    set((s) => ({
-      projects: [...s.projects, project],
-      expanded: { ...s.expanded, [project.name]: true },
-    }));
+    // A cloning project's folder is claimed but still filling; the caller adds it
+    // (via `addProject`) once `clone_progress` reports completion. Add the rest
+    // immediately.
+    if (project.status !== 'cloning') {
+      set((s) => ({
+        projects: [...s.projects, project],
+        expanded: { ...s.expanded, [project.name]: true },
+      }));
+    }
     return project;
+  },
+
+  addProject: (project) => {
+    set((s) =>
+      s.projects.some((p) => p.name === project.name)
+        ? s
+        : {
+            projects: [...s.projects, project],
+            expanded: { ...s.expanded, [project.name]: true },
+          },
+    );
   },
 
   remove: async (name: string): Promise<void> => {

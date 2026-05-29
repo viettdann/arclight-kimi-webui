@@ -3,6 +3,13 @@ import { buildAuthHeader } from './auth-header';
 import { runGit } from './run';
 import { parseCloneUrl } from './url';
 
+export interface ClonePhaseProgress {
+  /** git phase label, e.g. "Receiving objects", "Resolving deltas". */
+  phase: string;
+  /** 0–100 within the phase. */
+  percent: number;
+}
+
 export interface CloneRepoArgs {
   url: string;
   targetDir: string;
@@ -11,6 +18,41 @@ export interface CloneRepoArgs {
   username?: string;
   timeoutMs: number;
   signal?: AbortSignal;
+  /** Invoked as git reports progress; deduped so it only fires on real change. */
+  onProgress?: (p: ClonePhaseProgress) => void;
+}
+
+// git writes `--progress` lines to stderr as "<Phase>: NN% (...)", overwriting
+// the current line with `\r`. Capture the phase label and integer percent.
+const CLONE_PROGRESS_RE =
+  /(Enumerating objects|Counting objects|Compressing objects|Receiving objects|Resolving deltas|Updating files):\s+(\d+)%/;
+
+// Build a stderr-chunk handler that splits on `\r`/`\n`, parses progress lines,
+// and forwards each distinct (phase, percent) pair to `onProgress`.
+function makeProgressParser(onProgress: (p: ClonePhaseProgress) => void): (chunk: string) => void {
+  let buffer = '';
+  let lastPhase = '';
+  let lastPercent = -1;
+  return (chunk: string) => {
+    buffer += chunk;
+    const segments = buffer.split(/[\r\n]/);
+    // Keep the trailing partial segment for the next chunk.
+    buffer = segments.pop() ?? '';
+    // A valid "<Phase>: NN% (...)" line is short; if a delimiter never arrives
+    // (odd or hostile server output) cap the carried-over buffer so it can't
+    // grow without bound for the lifetime of the clone.
+    if (buffer.length > 8192) buffer = buffer.slice(-8192);
+    for (const seg of segments) {
+      const m = seg.match(CLONE_PROGRESS_RE);
+      if (m?.[1] === undefined || m?.[2] === undefined) continue;
+      const phase = m[1];
+      const percent = Number(m[2]);
+      if (phase === lastPhase && percent === lastPercent) continue;
+      lastPhase = phase;
+      lastPercent = percent;
+      onProgress({ phase, percent });
+    }
+  };
 }
 
 export type CloneResult =
@@ -68,10 +110,11 @@ export async function cloneRepo(args: CloneRepoArgs): Promise<CloneResult> {
     return { ok: false, kind: 'clone_failed', error: 'invalid url' };
   }
 
-  const r = await runGit([...baseArgs, 'clone', '--no-tags', url, targetDir], {
+  const r = await runGit([...baseArgs, 'clone', '--no-tags', '--progress', url, targetDir], {
     env: childEnv,
     timeoutMs,
     signal,
+    onStderr: args.onProgress ? makeProgressParser(args.onProgress) : undefined,
   });
 
   if (r.spawnFailed) return { ok: false, kind: 'clone_failed', error: 'git not found' };

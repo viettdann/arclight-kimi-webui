@@ -1,6 +1,7 @@
 import type { ServerWebSocket } from 'bun';
 import type { WSMessage, WSMessageType } from 'shared/types';
 import type { ActiveSession, KimiSessionManager } from '../services/session-manager';
+import { snapshot } from '../ws/registry';
 import type { WSData } from '../ws/upgrade';
 
 // `ws.readyState === 1` is the OPEN state for Bun's ServerWebSocket (matches the
@@ -57,5 +58,25 @@ export function sendDirect(ws: ServerWebSocket<WSData>, msg: WSMessage): void {
     ws.send(JSON.stringify(msg));
   } catch {
     // see broadcastEvent
+  }
+}
+
+/**
+ * Fan a message out to every open socket of a single user, independent of any
+ * chat session. Used for user-scoped notifications (e.g. `clone_progress`) that
+ * happen outside a session: the envelope carries an empty `sessionId` and a
+ * zero `seq` (no per-session ring buffer to replay through).
+ */
+export function broadcastToUser<T>(userId: string, type: WSMessageType, payload: T): void {
+  const msg: WSMessage<T> = { type, payload, sessionId: '', seq: 0, timestamp: Date.now() };
+  const serialized = JSON.stringify(msg);
+  for (const ws of snapshot()) {
+    if (ws.data.userId !== userId) continue;
+    if (ws.readyState !== WS_OPEN) continue;
+    try {
+      ws.send(serialized);
+    } catch {
+      // see broadcastEvent
+    }
   }
 }

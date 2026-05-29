@@ -3,14 +3,14 @@ import { mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Hono } from 'hono';
-import type { ProjectCreateResponse } from 'shared/types';
+import type { CloneProgressPayload, ProjectCreateResponse } from 'shared/types';
 import type { AuthVariables } from '../src/auth/middleware';
 import type { AuditEvent } from '../src/lib/logger';
 import { createProjectsRoutes } from '../src/routes/projects';
-import type { CloneResult } from '../src/services/git/clone';
+import type { CloneRepoArgs, CloneResult } from '../src/services/git/clone';
 import { makeFakeDb } from './_helpers';
 
-type CloneStub = () => Promise<CloneResult>;
+type CloneStub = (args: CloneRepoArgs) => Promise<CloneResult>;
 
 let tmpRoot: string;
 let userRoot: string;
@@ -18,7 +18,25 @@ let audit: AuditEvent[];
 
 const mockUser = { id: 'u1', email: 'alice@example.com' };
 
-function buildApp(cloneRepo: CloneStub): Hono<{ Variables: AuthVariables }> {
+// Collects clone-progress frames and exposes a promise that resolves on the
+// terminal (completed/failed) frame — the async clone has no other signal.
+function makeProgress() {
+  const messages: CloneProgressPayload[] = [];
+  let resolveTerminal!: (p: CloneProgressPayload) => void;
+  const terminal = new Promise<CloneProgressPayload>((r) => {
+    resolveTerminal = r;
+  });
+  const notify = (_userId: string, payload: CloneProgressPayload) => {
+    messages.push(payload);
+    if (payload.status === 'completed' || payload.status === 'failed') resolveTerminal(payload);
+  };
+  return { messages, terminal, notify };
+}
+
+function buildApp(
+  cloneRepo: CloneStub,
+  notify?: (userId: string, payload: CloneProgressPayload) => void,
+): Hono<{ Variables: AuthVariables }> {
   const fake = makeFakeDb();
   const app = new Hono<{ Variables: AuthVariables }>();
   app.use('*', async (c, next) => {
@@ -35,6 +53,7 @@ function buildApp(cloneRepo: CloneStub): Hono<{ Variables: AuthVariables }> {
       },
       db: fake.db,
       cloneRepo: cloneRepo as never,
+      notifyCloneProgress: notify,
     }),
   );
   return app;
@@ -72,8 +91,9 @@ afterEach(async () => {
 });
 
 describe('POST /api/projects clone flow', () => {
-  it('clones into a derived-name dir on success', async () => {
-    const app = buildApp(async () => ({ ok: true }));
+  it('accepts the clone, returns a cloneId, then completes in the background', async () => {
+    const prog = makeProgress();
+    const app = buildApp(async () => ({ ok: true }), prog.notify);
     const res = await app.request('/api/projects', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -83,10 +103,18 @@ describe('POST /api/projects clone flow', () => {
     const body = (await res.json()) as ProjectCreateResponse;
     expect(body.name).toBe('widgets');
     expect(body.origin).toBe('local');
+    expect(body.status).toBe('cloning');
+    expect(typeof body.cloneId).toBe('string');
     expect(body.workDir).toBe(path.join(userRoot, 'widgets'));
 
-    const s = await stat(body.workDir);
-    expect(s.isDirectory()).toBe(true);
+    // Folder is claimed synchronously, before the clone resolves.
+    expect((await stat(body.workDir)).isDirectory()).toBe(true);
+
+    const terminal = await prog.terminal;
+    expect(terminal.status).toBe('completed');
+    expect(terminal.cloneId).toBe(String(body.cloneId));
+    expect(terminal.projectName).toBe('widgets');
+    expect(terminal.workDir).toBe(body.workDir);
 
     expect(audit).toContainEqual({
       userId: 'u1',
@@ -96,32 +124,64 @@ describe('POST /api/projects clone flow', () => {
     });
   });
 
-  it('rolls back the dir and returns 502 on clone_failed', async () => {
-    const app = buildApp(async () => ({ ok: false, kind: 'clone_failed', error: 'boom' }));
+  it('forwards git progress frames before the terminal frame', async () => {
+    const prog = makeProgress();
+    const app = buildApp(async (args: CloneRepoArgs) => {
+      args.onProgress?.({ phase: 'Receiving objects', percent: 42 });
+      return { ok: true };
+    }, prog.notify);
+    await app.request('/api/projects', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: cloneBody(),
+    });
+    await prog.terminal;
+    expect(prog.messages).toContainEqual(
+      expect.objectContaining({ phase: 'Receiving objects', percent: 42, status: 'cloning' }),
+    );
+  });
+
+  it('rolls back the dir and reports clone_failed in the background', async () => {
+    const prog = makeProgress();
+    const app = buildApp(
+      async () => ({ ok: false, kind: 'clone_failed', error: 'boom' }),
+      prog.notify,
+    );
     const res = await app.request('/api/projects', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: cloneBody(),
     });
-    expect(res.status).toBe(502);
-    expect((await res.json()) as { error: string }).toMatchObject({ error: 'clone_failed' });
+    expect(res.status).toBe(201);
+
+    const terminal = await prog.terminal;
+    expect(terminal.status).toBe('failed');
+    expect(terminal.errorCode).toBe('clone_failed');
     expect(await exists(path.join(userRoot, 'widgets'))).toBe(false);
   });
 
-  it('rolls back the dir and returns 504 on clone_timeout', async () => {
-    const app = buildApp(async () => ({ ok: false, kind: 'clone_timeout', error: 't/o' }));
+  it('rolls back the dir and reports clone_timeout in the background', async () => {
+    const prog = makeProgress();
+    const app = buildApp(
+      async () => ({ ok: false, kind: 'clone_timeout', error: 't/o' }),
+      prog.notify,
+    );
     const res = await app.request('/api/projects', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: cloneBody(),
     });
-    expect(res.status).toBe(504);
-    expect((await res.json()) as { error: string }).toMatchObject({ error: 'clone_timeout' });
+    expect(res.status).toBe(201);
+
+    const terminal = await prog.terminal;
+    expect(terminal.status).toBe('failed');
+    expect(terminal.errorCode).toBe('clone_timeout');
     expect(await exists(path.join(userRoot, 'widgets'))).toBe(false);
   });
 
   it('uses an explicit slugified name over the derived one', async () => {
-    const app = buildApp(async () => ({ ok: true }));
+    const prog = makeProgress();
+    const app = buildApp(async () => ({ ok: true }), prog.notify);
     const res = await app.request('/api/projects', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -130,6 +190,7 @@ describe('POST /api/projects clone flow', () => {
     expect(res.status).toBe(201);
     const body = (await res.json()) as ProjectCreateResponse;
     expect(body.name).toBe('custom-name');
+    await prog.terminal;
   });
 
   it('rejects an scp-style url with 400 invalid_url', async () => {
@@ -170,6 +231,7 @@ describe('POST /api/projects blank flow (no regression)', () => {
     expect(res.status).toBe(201);
     const body = (await res.json()) as ProjectCreateResponse;
     expect(body.name).toBe('hello-world');
+    expect(body.status ?? 'ready').toBe('ready');
     expect(cloneCalled).toBe(false);
 
     const s = await stat(body.workDir);

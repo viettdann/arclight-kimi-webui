@@ -30,6 +30,15 @@ const EXCLUDED_COMMANDS = new Set(['plan', 'yolo']);
 // confirms once per session (per app load); turning it off never prompts.
 const yoloAcknowledged = new Set<string>();
 
+// On coarse-pointer devices (phones/tablets) the soft keyboard's Enter is the
+// only newline key, so plain Enter must insert a newline — sending is done via
+// the Send button or Ctrl/Cmd+Enter. On fine-pointer devices (desktop) plain
+// Enter sends. Evaluated once: pointer type doesn't change within a session.
+const ENTER_INSERTS_NEWLINE =
+  typeof window !== 'undefined' &&
+  typeof window.matchMedia === 'function' &&
+  window.matchMedia('(pointer: coarse)').matches;
+
 // `startIdx` is the offset of the group's first item within the flat
 // `flatItems` list, so highlight maps to the flat index without a render-time
 // counter mutation.
@@ -299,13 +308,21 @@ export function ChatInput() {
       }
     }
 
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      if (isTurnInProgress) {
-        // Future: steer (send-now) vs queue. For now Enter is no-op while a turn runs.
-        return;
+    if (e.key === 'Enter') {
+      // Ctrl/Cmd+Enter always sends. Plain Enter sends only on fine-pointer
+      // devices; on touch it falls through to insert a newline. Shift+Enter and
+      // any other modifier combo always insert a newline.
+      const modifierSend = e.ctrlKey || e.metaKey;
+      const plainSend =
+        !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey && !ENTER_INSERTS_NEWLINE;
+      if (modifierSend || plainSend) {
+        e.preventDefault();
+        if (isTurnInProgress) {
+          // Future: steer (send-now) vs queue. For now Enter is no-op while a turn runs.
+          return;
+        }
+        sendMessage();
       }
-      sendMessage();
     }
   };
 

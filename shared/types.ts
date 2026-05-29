@@ -41,6 +41,7 @@ export type WSMessageType =
   | 'title_update'
   | 'project_adopted'
   | 'slash_commands'
+  | 'clone_progress'
   | 'error'
   // client → server
   | 'subscribe'
@@ -505,7 +506,37 @@ export interface ProjectCreateRequest {
   source?: { type: 'blank' } | GitCloneSource; // absent = blank
 }
 
-export type ProjectCreateResponse = ProjectSummary;
+export type ProjectCreateResponse = ProjectSummary & {
+  /** Clone runs asynchronously: the folder is already claimed, but objects are
+   *  fetched in the background and progress is pushed over WS keyed by this id.
+   *  Absent for blank projects, which are created synchronously. */
+  cloneId?: string;
+  /** `cloning` while a background clone runs; otherwise the project is ready. */
+  status?: 'ready' | 'cloning';
+};
+
+/** Machine-readable clone failure code; mirrors the failing `CloneResult.kind`
+ *  and the `clone_*` keys in the create error map. */
+export type CloneErrorCode = 'clone_failed' | 'clone_timeout';
+
+/** Pushed (user-scoped, not session-scoped) while a background `git clone`
+ *  runs. `cloneId` matches the one returned by `POST /api/projects`. */
+export interface CloneProgressPayload {
+  cloneId: string;
+  projectName: string;
+  /** git phase label, e.g. "Receiving objects", "Resolving deltas". */
+  phase: string;
+  /** 0–100 within the current phase; null before git reports a percentage. */
+  percent: number | null;
+  status: 'cloning' | 'completed' | 'failed';
+  /** Absolute workspace path; set on `completed` so a listener can register the
+   *  project even when the originating modal has been closed (clone backgrounded). */
+  workDir?: string;
+  /** Human-readable failure detail; set only when `status === 'failed'`. */
+  error?: string;
+  /** Machine code matching the create error map (`clone_failed` | `clone_timeout`). */
+  errorCode?: CloneErrorCode;
+}
 
 export interface ProjectListResponse {
   projects: ProjectSummary[];

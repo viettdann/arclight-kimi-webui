@@ -1,7 +1,10 @@
+import { randomUUID } from 'node:crypto';
 import { mkdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { Hono } from 'hono';
 import type {
+  CloneErrorCode,
+  CloneProgressPayload,
   GitCloneSource,
   ProjectCreateRequest,
   ProjectCreateResponse,
@@ -17,6 +20,7 @@ import { env as defaultEnv, type Env } from '../env';
 import { auditLog as defaultAuditLog } from '../lib/logger';
 import { resolveUserPath } from '../lib/path-guard';
 import { slugifyProjectName } from '../lib/slug';
+import { broadcastToUser } from '../lib/ws-broadcast';
 import { cloneRepo as defaultCloneRepo } from '../services/git/clone';
 import { CloneUrlError, deriveRepoName, parseCloneUrl } from '../services/git/url';
 import { getOwned } from '../services/git-credentials/repo';
@@ -36,6 +40,9 @@ export interface ProjectsRoutesDeps {
   db?: DB;
   cloneRepo?: typeof defaultCloneRepo;
   manager?: KimiSessionManager;
+  /** Push a clone-progress frame to every socket of the cloning user. Injected
+   *  in tests to observe the async clone outcome without a live WebSocket. */
+  notifyCloneProgress?: (userId: string, payload: CloneProgressPayload) => void;
 }
 
 const MAX_COLLISION_RETRIES = 100;
@@ -45,6 +52,10 @@ export function createProjectsRoutes(deps: ProjectsRoutesDeps): Hono<{ Variables
   const db = deps.db ?? defaultDb;
   const cloneRepo = deps.cloneRepo ?? defaultCloneRepo;
   const manager = deps.manager ?? defaultManager;
+  const notifyCloneProgress =
+    deps.notifyCloneProgress ??
+    ((userId: string, payload: CloneProgressPayload) =>
+      broadcastToUser(userId, 'clone_progress', payload));
 
   const timeoutMs = deps.env.GIT_CLONE_TIMEOUT_MS ?? 120_000;
 
@@ -160,26 +171,52 @@ export function createProjectsRoutes(deps: ProjectsRoutesDeps): Hono<{ Variables
       }
       const { slug: finalSlug, abs: finalAbs } = claimed;
 
-      // 5. Clone into it.
-      const result = await cloneRepo({
-        url: cs.url,
-        targetDir: finalAbs,
-        provider,
-        token,
-        timeoutMs,
-      });
-      if (!result.ok) {
-        await rm(finalAbs, { recursive: true, force: true });
-        if (result.kind === 'clone_timeout') {
-          return c.json({ error: 'clone_timeout', detail: result.error }, 504);
-        }
-        return c.json({ error: 'clone_failed', detail: result.error }, 502);
-      }
+      // 5. Clone in the background. The HTTP response returns immediately with a
+      // `cloneId`; objects are fetched out-of-band and progress is streamed to
+      // the user's sockets via `clone_progress`. The folder is already claimed,
+      // so a foreign refresh sees the project as it fills (then it goes ready).
+      const cloneId = randomUUID();
+      const userId = user.id;
+      const notify = (p: Omit<CloneProgressPayload, 'cloneId' | 'projectName'>) =>
+        notifyCloneProgress(userId, { cloneId, projectName: finalSlug, ...p });
+      // Roll back the claimed dir, then report. rm is guarded so a cleanup
+      // failure never reclassifies the original errorCode (e.g. a timeout whose
+      // rm throws must still report `clone_timeout`, not `clone_failed`).
+      const failClone = async (error: string, errorCode: CloneErrorCode) => {
+        await rm(finalAbs, { recursive: true, force: true }).catch(() => {});
+        notify({ phase: 'Failed', percent: null, status: 'failed', error, errorCode });
+      };
 
-      // 6. Success.
-      auditLog({ userId: user.id, action: 'project_create', path: finalSlug, bytes: 0 });
+      void (async () => {
+        try {
+          const result = await cloneRepo({
+            url: cs.url,
+            targetDir: finalAbs,
+            provider,
+            token,
+            timeoutMs,
+            onProgress: ({ phase, percent }) => notify({ phase, percent, status: 'cloning' }),
+          });
+          if (!result.ok) {
+            await failClone(result.error, result.kind);
+            return;
+          }
+          auditLog({ userId, action: 'project_create', path: finalSlug, bytes: 0 });
+          notify({ phase: 'Done', percent: 100, status: 'completed', workDir: finalAbs });
+        } catch (err) {
+          await failClone(err instanceof Error ? err.message : 'clone failed', 'clone_failed');
+        }
+      })();
+
+      // 6. Accepted: clone is underway.
       return c.json(
-        { name: finalSlug, workDir: finalAbs, origin: 'local' } satisfies ProjectCreateResponse,
+        {
+          name: finalSlug,
+          workDir: finalAbs,
+          origin: 'local',
+          cloneId,
+          status: 'cloning',
+        } satisfies ProjectCreateResponse,
         201,
       );
     }
