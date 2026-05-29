@@ -1,4 +1,5 @@
 import { createBrowserRouter, Navigate } from 'react-router';
+import { ErrorView } from '../components/error-view';
 import { GitCredentialsPanel } from '../components/preferences/git-credentials-panel';
 import { RequireAdmin } from '../components/require-admin';
 import { RequireAuth } from '../components/require-auth';
@@ -21,6 +22,9 @@ export const router = createBrowserRouter([
   {
     path: '/',
     element: <Shell />,
+    // Catches thrown errors and Responses (403/500/…) from any descendant, plus
+    // React Router's synthetic 404 for URLs that match no route below.
+    errorElement: <ErrorView />,
     children: [
       { index: true, element: <ChatView /> },
       {

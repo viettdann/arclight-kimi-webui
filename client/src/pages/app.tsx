@@ -58,7 +58,7 @@ export function Shell() {
         onClose={() => setIsSidebarOpen(false)}
         onLoginClick={() => setIsModalOpen(true)}
       />
-      <main className="flex flex-1 flex-col pl-0 md:pl-[300px] h-screen overflow-hidden">
+      <main className="flex flex-1 flex-col pl-0 md:pl-[300px] h-dvh overflow-hidden">
         {/* Mobile Top Header */}
         <header className="flex md:hidden items-center justify-between px-4 py-3 border-b border-border bg-sidebar shrink-0 h-14 select-none">
           <div className="flex items-center gap-2 min-w-0">
