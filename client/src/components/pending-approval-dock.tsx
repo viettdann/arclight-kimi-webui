@@ -36,9 +36,7 @@ function findToolCall(blocks: Block[], toolCallId: string): ToolCallBlock | null
  * the current session are unresolved, renders the oldest as a decision card.
  * Inline timeline rows show the request as an anchor (badge + command
  * preview) but no longer carry the action buttons — those live here so the
- * user can act without scrolling.
- *
- * Keyboard: `⌘/Ctrl + Enter` → approve. Deny/session need explicit clicks.
+ * user can act without scrolling. All actions require an explicit click.
  */
 export function PendingApprovalDock() {
   const { id: sessionId } = useParams<{ id: string }>();
@@ -61,21 +59,6 @@ export function PendingApprovalDock() {
     });
     sendWS('approve_tool', { requestId: current.requestId, response }, sessionId);
   };
-
-  // Rebind only when the active request changes; `resolve` reads `current` via closure.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional requestId-only deps
-  useEffect(() => {
-    if (!current) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey)) return;
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        resolve('approve');
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [current?.requestId]);
 
   // Report the dock's rendered height via a CSS variable so the Transcript
   // can extend its bottom padding past the float and not hide messages

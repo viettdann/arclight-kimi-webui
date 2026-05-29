@@ -1,8 +1,18 @@
-import { KeyRound, LogOut, Plus, Settings, SquarePen, Zap } from 'lucide-react';
+import {
+  ChevronRight,
+  ChevronsUpDown,
+  KeyRound,
+  LogOut,
+  Plus,
+  Settings,
+  SquarePen,
+  Zap,
+} from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import type { WSMessageType } from 'shared/types';
 import { Button } from '@/components/ui/button';
+import { DropdownItem, DropdownMenu, DropdownSeparator } from '@/components/ui/dropdown-menu';
 import { useAuthStore } from '../lib/auth-store';
 import { useNewSessionStore } from '../lib/new-session-store';
 import { useProjectsStore } from '../lib/projects-store';
@@ -22,11 +32,21 @@ interface SidebarProps {
   onLoginClick: () => void;
 }
 
-function AuthSection({ onLoginClick }: { onLoginClick: () => void }) {
+function AuthSection({ onLoginClick, onClose }: { onLoginClick: () => void; onClose: () => void }) {
+  const navigate = useNavigate();
   // Single-field selectors avoid re-renders on unrelated auth-store changes.
   const status = useAuthStore((s) => s.status);
   const user = useAuthStore((s) => s.user);
+  const isAdmin = useAuthStore((s) => s.status === 'authenticated' && s.user?.role === 'admin');
   const clearSession = useAuthStore((s) => s.clearSession);
+
+  const go = useCallback(
+    (path: string) => {
+      onClose?.();
+      navigate(path);
+    },
+    [navigate, onClose],
+  );
 
   if (status === 'unknown') {
     return (
@@ -55,26 +75,76 @@ function AuthSection({ onLoginClick }: { onLoginClick: () => void }) {
       .toUpperCase()
       .slice(0, 2) ?? 'U';
 
+  const avatar = (
+    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-medium text-primary-foreground">
+      {initials}
+    </span>
+  );
+
+  const roleBadge = isAdmin ? (
+    <span className="shrink-0 rounded border border-border bg-muted px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+      Admin
+    </span>
+  ) : null;
+
   return (
     <div className="px-3">
-      <div className="flex items-center gap-2.5">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-medium text-primary-foreground">
-          {initials}
+      <DropdownMenu
+        align="start"
+        side="top"
+        contentClassName="w-[var(--anchor-width)]"
+        trigger={
+          <Button
+            type="button"
+            variant="ghost"
+            aria-label="User menu"
+            className="h-auto w-full justify-start gap-2.5 px-2 py-2 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground"
+          >
+            {avatar}
+            <span className="min-w-0 flex-1 text-left">
+              <span className="flex items-center gap-1.5">
+                <span className="truncate text-sm font-medium">{user?.name}</span>
+                {roleBadge}
+              </span>
+              <span className="block truncate text-xs text-muted-foreground">{user?.email}</span>
+            </span>
+            <ChevronsUpDown className="shrink-0 text-muted-foreground" />
+          </Button>
+        }
+      >
+        {/* Header mirrors the trigger so the menu reads as the account it belongs to. */}
+        <div className="flex items-center gap-2.5 px-2 py-1.5">
+          {avatar}
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5">
+              <span className="truncate text-sm font-medium">{user?.name}</span>
+              {roleBadge}
+            </div>
+            <p className="truncate text-xs text-muted-foreground">{user?.email}</p>
+          </div>
         </div>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium">{user?.name}</p>
-          <p className="truncate text-xs text-muted-foreground">{user?.email}</p>
-        </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          onClick={() => clearSession('manual')}
-          aria-label="Log out"
+        <DropdownSeparator />
+        <DropdownItem
+          icon={<KeyRound />}
+          trailing={<ChevronRight />}
+          onClick={() => go('/preferences')}
         >
-          <LogOut />
-        </Button>
-      </div>
+          Preferences
+        </DropdownItem>
+        {isAdmin && (
+          <DropdownItem
+            icon={<Settings />}
+            trailing={<ChevronRight />}
+            onClick={() => go('/settings')}
+          >
+            Admin settings
+          </DropdownItem>
+        )}
+        <DropdownSeparator />
+        <DropdownItem destructive icon={<LogOut />} onClick={() => clearSession('manual')}>
+          Log out
+        </DropdownItem>
+      </DropdownMenu>
     </div>
   );
 }
@@ -91,10 +161,8 @@ const REFRESH_TRIGGER_TYPES = new Set<WSMessageType>([
 const REFRESH_RAW_HINTS = ['"snapshot"', '"session_state"', '"title_update"', '"project_adopted"'];
 
 export function Sidebar({ isOpen, onClose, onLoginClick }: SidebarProps) {
-  const navigate = useNavigate();
   const { id: openSessionId } = useParams<{ id: string }>();
   const status = useAuthStore((s) => s.status);
-  const isAdmin = useAuthStore((s) => s.status === 'authenticated' && s.user?.role === 'admin');
   const projects = useProjectsStore((s) => s.projects);
   const projectsStatus = useProjectsStore((s) => s.status);
   const fetchProjects = useProjectsStore((s) => s.fetch);
@@ -199,26 +267,6 @@ export function Sidebar({ isOpen, onClose, onLoginClick }: SidebarProps) {
     setPickerOpen(true);
   }, [onClose]);
 
-  // ⌘N / Ctrl+N hotkey → new task.
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey)) return;
-      if (e.shiftKey || e.altKey) return;
-      if (e.key.toLowerCase() !== 'n') return;
-      const target = e.target as HTMLElement | null;
-      if (target) {
-        const tag = target.tagName;
-        if (tag === 'INPUT' || tag === 'TEXTAREA') return;
-        if (target.isContentEditable) return;
-      }
-      e.preventDefault();
-      e.stopPropagation();
-      triggerNewTask();
-    };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, [triggerNewTask]);
-
   // Memoize so ProjectRow receives a stable bucket reference per project name
   // and bails out of unrelated re-renders (modal open/close, auth churn).
   const sessionsByProject = useMemo(() => groupByProject(sessions), [sessions]);
@@ -249,15 +297,10 @@ export function Sidebar({ isOpen, onClose, onLoginClick }: SidebarProps) {
             type="button"
             variant="ghost"
             onClick={triggerNewTask}
-            className="w-full justify-between px-3 py-2 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground"
+            className="w-full justify-start gap-2 px-3 py-2 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground"
           >
-            <span className="flex items-center gap-2">
-              <SquarePen />
-              New task
-            </span>
-            <kbd className="rounded border border-sidebar-border bg-sidebar px-1.5 py-0.5 text-[10px] font-medium text-sidebar-foreground">
-              ⌘N
-            </kbd>
+            <SquarePen />
+            New task
           </Button>
           <Button
             type="button"
@@ -271,32 +314,6 @@ export function Sidebar({ isOpen, onClose, onLoginClick }: SidebarProps) {
             <Zap />
             Skills
           </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={() => {
-              onClose?.();
-              navigate('/preferences');
-            }}
-            className="w-full justify-start gap-2 px-3 py-2 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground"
-          >
-            <KeyRound />
-            Preferences
-          </Button>
-          {isAdmin && (
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => {
-                onClose?.();
-                navigate('/settings');
-              }}
-              className="w-full justify-start gap-2 px-3 py-2 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground"
-            >
-              <Settings />
-              Settings
-            </Button>
-          )}
         </nav>
 
         {showFiles && activeProjectName ? (
@@ -391,7 +408,7 @@ export function Sidebar({ isOpen, onClose, onLoginClick }: SidebarProps) {
 
         {/* Auth section */}
         <div className="border-t border-sidebar-border py-3">
-          <AuthSection onLoginClick={onLoginClick} />
+          <AuthSection onLoginClick={onLoginClick} onClose={onClose} />
         </div>
       </aside>
 
