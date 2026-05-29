@@ -43,6 +43,20 @@ async function writeAtomic(filePath: string, contents: string): Promise<void> {
   await rename(tmpPath, filePath);
 }
 
+// Serialize `fn` behind any in-flight operation for the same `shareDir` so
+// read→write stays atomic across concurrent ensure/remove calls. The chain
+// stored in the map swallows rejections so a failure doesn't stick to later
+// callers; the awaited `next` still surfaces errors to the current caller.
+async function withQueue(shareDir: string, fn: () => Promise<void>): Promise<void> {
+  const prev = queues.get(shareDir) ?? Promise.resolve();
+  const next = prev.then(fn);
+  queues.set(
+    shareDir,
+    next.catch(() => undefined),
+  );
+  await next;
+}
+
 async function ensureKimiMetadataInner(shareDir: string, workDir: string): Promise<void> {
   const filePath = path.join(shareDir, 'kimi.json');
   const meta = await readMetadata(filePath);
@@ -53,6 +67,18 @@ async function ensureKimiMetadataInner(shareDir: string, workDir: string): Promi
   meta.work_dirs.push({ path: workDir, kaos: 'local', last_session_id: null });
   const next: KimiMetadata = { work_dirs: meta.work_dirs };
   await writeAtomic(filePath, JSON.stringify(next, null, 2));
+}
+
+async function removeKimiMetadataInner(shareDir: string, workDir: string): Promise<void> {
+  const filePath = path.join(shareDir, 'kimi.json');
+  const meta = await readMetadata(filePath);
+
+  const filtered = meta.work_dirs.filter((entry) => entry.path !== workDir);
+  // No matching entry (also covers the ENOENT → empty case): skip the write so
+  // we never create an empty kimi.json just to remove something absent.
+  if (filtered.length === meta.work_dirs.length) return;
+
+  await writeAtomic(filePath, JSON.stringify({ work_dirs: filtered }, null, 2));
 }
 
 /**
@@ -68,14 +94,18 @@ async function ensureKimiMetadataInner(shareDir: string, workDir: string): Promi
  * containing operation.
  */
 export async function ensureKimiMetadata(shareDir: string, workDir: string): Promise<void> {
-  const prev = queues.get(shareDir) ?? Promise.resolve();
-  const next = prev.then(() => ensureKimiMetadataInner(shareDir, workDir));
-  // Swallow rejection in the chain stored in the map so subsequent calls
-  // don't see a sticky rejection; the awaited `next` still surfaces errors
-  // to the current caller.
-  queues.set(
-    shareDir,
-    next.catch(() => undefined),
-  );
-  await next;
+  await withQueue(shareDir, () => ensureKimiMetadataInner(shareDir, workDir));
+}
+
+/**
+ * Remove every `work_dirs` entry whose `path === workDir` from
+ * `<shareDir>/kimi.json`.
+ *
+ * Idempotent: a no-op (no write) when no entry matches or the file is absent —
+ * so it never creates an empty kimi.json. Matches on `path` alone (a workDir is
+ * unique) regardless of `kaos`. Same atomic write + per-shareDir serialization
+ * as `ensureKimiMetadata`.
+ */
+export async function removeKimiMetadata(shareDir: string, workDir: string): Promise<void> {
+  await withQueue(shareDir, () => removeKimiMetadataInner(shareDir, workDir));
 }

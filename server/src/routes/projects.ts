@@ -5,7 +5,9 @@ import type {
   GitCloneSource,
   ProjectCreateRequest,
   ProjectCreateResponse,
+  ProjectDeleteResponse,
   ProjectListResponse,
+  ProjectStatResponse,
 } from 'shared/types';
 import { type GitProvider, isGitProvider } from 'shared/types/git-credentials';
 import { slug } from '../auth';
@@ -18,13 +20,22 @@ import { slugifyProjectName } from '../lib/slug';
 import { cloneRepo as defaultCloneRepo } from '../services/git/clone';
 import { CloneUrlError, deriveRepoName, parseCloneUrl } from '../services/git/url';
 import { getOwned } from '../services/git-credentials/repo';
-import { listProjectsForUser } from '../services/projects';
+import {
+  deleteProjectForUser,
+  listProjectsForUser,
+  statProjectForUser,
+} from '../services/projects';
+import {
+  sessionManager as defaultManager,
+  type KimiSessionManager,
+} from '../services/session-manager';
 
 export interface ProjectsRoutesDeps {
   env: Pick<Env, 'WORKSPACE_ROOT'> & { GIT_CLONE_TIMEOUT_MS?: number };
   auditLog: typeof defaultAuditLog;
   db?: DB;
   cloneRepo?: typeof defaultCloneRepo;
+  manager?: KimiSessionManager;
 }
 
 const MAX_COLLISION_RETRIES = 100;
@@ -33,6 +44,7 @@ export function createProjectsRoutes(deps: ProjectsRoutesDeps): Hono<{ Variables
   const { env, auditLog } = deps;
   const db = deps.db ?? defaultDb;
   const cloneRepo = deps.cloneRepo ?? defaultCloneRepo;
+  const manager = deps.manager ?? defaultManager;
 
   const timeoutMs = deps.env.GIT_CLONE_TIMEOUT_MS ?? 120_000;
 
@@ -214,6 +226,45 @@ export function createProjectsRoutes(deps: ProjectsRoutesDeps): Hono<{ Variables
 
     const body: ProjectListResponse = { projects: items };
     return c.json(body);
+  });
+
+  // ─────────────────────── GET /:name/stat ───────────────────────
+  // Lazy snapshot for the delete dialog: existence, top-level entry count, and
+  // a cheap git summary. No recursive scan.
+
+  projects.get('/:name/stat', async (c) => {
+    const user = c.var.user;
+    if (user == null) return c.json({ error: 'unauthorized' }, 401);
+
+    const stat = await statProjectForUser({
+      userEmail: user.email ?? '',
+      projectName: c.req.param('name'),
+      env,
+    });
+    return c.json(stat satisfies ProjectStatResponse);
+  });
+
+  // ─────────────────────────── DELETE /:name ───────────────────────────
+  // Hard-delete the project + all its sessions: DB-first (cascade drops the
+  // JSONL restore source), then best-effort disk + kimi.json cleanup. See
+  // `deleteProjectForUser` for the crash-safe ordering.
+
+  projects.delete('/:name', async (c) => {
+    const user = c.var.user;
+    if (user == null) return c.json({ error: 'unauthorized' }, 401);
+
+    const result = await deleteProjectForUser({
+      userId: user.id,
+      userEmail: user.email ?? '',
+      projectName: c.req.param('name'),
+      db,
+      env,
+      manager,
+      auditLog,
+    });
+    if (result === 'not_found') return c.json({ error: 'not_found' }, 404);
+
+    return c.json({ ok: true, sessionCount: result.sessionCount } satisfies ProjectDeleteResponse);
   });
 
   return projects;

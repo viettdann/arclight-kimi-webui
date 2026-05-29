@@ -7,6 +7,7 @@ import type { ProjectListResponse, ProjectSummary } from 'shared/types';
 import type { AuthVariables } from '../src/auth/middleware';
 import type { AuditEvent } from '../src/lib/logger';
 import { createProjectsRoutes } from '../src/routes/projects';
+import { KimiSessionManager } from '../src/services/session-manager';
 import { makeFakeDb } from './_helpers';
 
 interface MockUser {
@@ -44,6 +45,7 @@ function buildApp(opts: BuildOpts): {
         opts.audit.push(e);
       },
       db: fake.db,
+      manager: new KimiSessionManager(),
     }),
   );
   return { app, fake };
@@ -304,5 +306,79 @@ describe('GET /api/projects', () => {
       { name: 'alpha', workDir: path.join(userRoot, 'alpha'), origin: 'local' },
       { name: 'beta', workDir: path.join(userRoot, 'beta'), origin: 'foreign' },
     ]);
+  });
+});
+
+// ─────────────────────── GET /api/projects/:name/stat ───────────────────────
+
+describe('GET /api/projects/:name/stat', () => {
+  it('returns exists + entryCount + git=null for a local non-git folder', async () => {
+    await mkdir(path.join(userRoot, 'proj'), { recursive: true, mode: 0o700 });
+    await writeFile(path.join(userRoot, 'proj', 'a.txt'), 'x');
+
+    const res = await app.request('/api/projects/proj/stat');
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ exists: true, entryCount: 1, git: null });
+  });
+
+  it('returns exists=false for a missing folder', async () => {
+    const res = await app.request('/api/projects/ghost/stat');
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ exists: false, entryCount: 0, git: null });
+  });
+
+  it('returns 401 when no user is set', async () => {
+    const localApp = buildApp({ user: null, env: { WORKSPACE_ROOT: tmpRoot }, audit }).app;
+    const res = await localApp.request('/api/projects/proj/stat');
+    expect(res.status).toBe(401);
+  });
+});
+
+// ─────────────────────────── DELETE /api/projects/:name ───────────────────────────
+
+describe('DELETE /api/projects/:name', () => {
+  it('foreign project: 200 + sessionCount, deletes DB rows, audits project_delete', async () => {
+    // Foreign = DB rows, no local folder. Override the buildApp-seeded queue.
+    fake.selectQueue.length = 0;
+    fake.selectQueue.push([{ id: 's1', workDir: '/remote/machine/proj', kimiSessionId: null }]);
+
+    const res = await app.request('/api/projects/proj', { method: 'DELETE' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, sessionCount: 1 });
+
+    expect(fake.calls.filter((c) => c.op === 'delete')).toHaveLength(1);
+
+    expect(audit).toContainEqual({
+      userId: 'u1',
+      action: 'project_delete',
+      path: 'proj',
+      bytes: 0,
+    });
+  });
+
+  it('local project with a folder and no rows: 200, removes folder (self-heal)', async () => {
+    await mkdir(path.join(userRoot, 'orphan'), { recursive: true, mode: 0o700 });
+    fake.selectQueue.length = 0;
+    fake.selectQueue.push([]); // no rows
+
+    const res = await app.request('/api/projects/orphan', { method: 'DELETE' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, sessionCount: 0 });
+    await expect(stat(path.join(userRoot, 'orphan'))).rejects.toBeDefined();
+  });
+
+  it('returns 404 when neither rows nor folder exist', async () => {
+    fake.selectQueue.length = 0;
+    fake.selectQueue.push([]);
+
+    const res = await app.request('/api/projects/ghost', { method: 'DELETE' });
+    expect(res.status).toBe(404);
+    expect(fake.calls.filter((c) => c.op === 'delete')).toHaveLength(0);
+  });
+
+  it('returns 401 when no user is set', async () => {
+    const localApp = buildApp({ user: null, env: { WORKSPACE_ROOT: tmpRoot }, audit }).app;
+    const res = await localApp.request('/api/projects/proj', { method: 'DELETE' });
+    expect(res.status).toBe(401);
   });
 });

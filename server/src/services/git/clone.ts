@@ -1,5 +1,6 @@
 import type { GitProvider } from 'shared/types/git-credentials';
 import { buildAuthHeader } from './auth-header';
+import { runGit } from './run';
 import { parseCloneUrl } from './url';
 
 export interface CloneRepoArgs {
@@ -67,35 +68,18 @@ export async function cloneRepo(args: CloneRepoArgs): Promise<CloneResult> {
     return { ok: false, kind: 'clone_failed', error: 'invalid url' };
   }
 
-  const cmd = ['git', ...baseArgs, 'clone', '--no-tags', url, targetDir];
+  const r = await runGit([...baseArgs, 'clone', '--no-tags', url, targetDir], {
+    env: childEnv,
+    timeoutMs,
+    signal,
+  });
 
-  let proc: Bun.Subprocess<'ignore', 'ignore', 'pipe'>;
-  try {
-    proc = Bun.spawn({ cmd, env: childEnv, stdout: 'ignore', stderr: 'pipe', stdin: 'ignore' });
-  } catch {
-    return { ok: false, kind: 'clone_failed', error: 'git not found' };
+  if (r.spawnFailed) return { ok: false, kind: 'clone_failed', error: 'git not found' };
+  if (r.timedOut) {
+    return { ok: false, kind: 'clone_timeout', error: trimStderr(r.stderr, 'clone timed out') };
   }
-
-  let timedOut = false;
-  const timer = setTimeout(() => {
-    timedOut = true;
-    proc.kill();
-  }, timeoutMs);
-  const onAbort = () => proc.kill();
-  signal?.addEventListener('abort', onAbort);
-
-  // Drain stderr concurrently with the exit wait. Reading it only after
-  // `proc.exited` resolves would deadlock if git's stderr exceeds the OS pipe
-  // buffer (~64KB): the child blocks on write and never exits.
-  const [exitCode, stderr] = await Promise.all([proc.exited, new Response(proc.stderr).text()]);
-  clearTimeout(timer);
-  signal?.removeEventListener('abort', onAbort);
-
-  if (timedOut) {
-    return { ok: false, kind: 'clone_timeout', error: trimStderr(stderr, 'clone timed out') };
-  }
-  if (exitCode !== 0) {
-    return { ok: false, kind: 'clone_failed', error: trimStderr(stderr, 'clone failed') };
+  if (r.exitCode !== 0) {
+    return { ok: false, kind: 'clone_failed', error: trimStderr(r.stderr, 'clone failed') };
   }
   return { ok: true };
 }
@@ -111,32 +95,15 @@ export async function testRemote(args: TestRemoteArgs): Promise<{ ok: boolean; e
     return { ok: false, error: 'invalid url' };
   }
 
-  // ls-remote writes its ref list to stdout, which we never consume — ignore it
-  // so a large ref list can't fill the OS pipe buffer and stall `proc.exited`.
-  const cmd = ['git', ...baseArgs, 'ls-remote', '--heads', url];
+  // ls-remote writes its ref list to stdout, which we never consume — leave
+  // stdout ignored (runGit's default) so a large ref list can't fill the OS
+  // pipe buffer and stall the exit wait.
+  const r = await runGit([...baseArgs, 'ls-remote', '--heads', url], { env: childEnv, timeoutMs });
 
-  let proc: Bun.Subprocess<'ignore', 'ignore', 'pipe'>;
-  try {
-    proc = Bun.spawn({ cmd, env: childEnv, stdout: 'ignore', stderr: 'pipe', stdin: 'ignore' });
-  } catch {
-    return { ok: false, error: 'git not found' };
-  }
-
-  let timedOut = false;
-  const timer = setTimeout(() => {
-    timedOut = true;
-    proc.kill();
-  }, timeoutMs);
-
-  // Drain stderr concurrently with the exit wait to avoid a pipe-buffer deadlock.
-  const [exitCode, stderr] = await Promise.all([proc.exited, new Response(proc.stderr).text()]);
-  clearTimeout(timer);
-
-  if (exitCode === 0 && !timedOut) {
-    return { ok: true };
-  }
+  if (r.spawnFailed) return { ok: false, error: 'git not found' };
+  if (r.exitCode === 0 && !r.timedOut) return { ok: true };
   return {
     ok: false,
-    error: trimStderr(stderr, timedOut ? 'ls-remote timed out' : 'ls-remote failed'),
+    error: trimStderr(r.stderr, r.timedOut ? 'ls-remote timed out' : 'ls-remote failed'),
   };
 }

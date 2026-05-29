@@ -1,5 +1,14 @@
-import { ChevronRight, CloudDownload, Folder, FolderTree, Plus } from 'lucide-react';
+import {
+  ChevronRight,
+  CloudDownload,
+  Folder,
+  FolderTree,
+  MoreHorizontal,
+  Plus,
+  Trash2,
+} from 'lucide-react';
 import { useState } from 'react';
+import { useNavigate, useParams } from 'react-router';
 import type { ProjectSummary, SessionListItem } from 'shared/types';
 import { Button } from '@/components/ui/button';
 import {
@@ -10,12 +19,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { DropdownItem, DropdownMenu } from '@/components/ui/dropdown-menu';
 import { useNewSessionStore } from '../lib/new-session-store';
 import { useProjectsStore } from '../lib/projects-store';
+import { useSessionsStore } from '../lib/sessions-store';
 import { useSidebarViewStore } from '../lib/sidebar-view-store';
 import { cn } from '../lib/utils';
 import { sendWS } from '../lib/ws-send';
+import { ConfirmDeleteProjectDialog } from './confirm-delete-project-dialog';
 import { SessionRow } from './session-row';
+import { showToast } from './toast-provider';
 
 interface ProjectRowProps {
   project: ProjectSummary;
@@ -24,11 +37,16 @@ interface ProjectRowProps {
 }
 
 export function ProjectRow({ project, sessions, isActive }: ProjectRowProps) {
+  const navigate = useNavigate();
+  const { id: openSessionId } = useParams<{ id: string }>();
   const expanded = useProjectsStore((s) => s.expanded[project.name] ?? false);
   const toggleExpanded = useProjectsStore((s) => s.toggleExpanded);
+  const removeProject = useProjectsStore((s) => s.remove);
+  const fetchSessions = useSessionsStore((s) => s.fetch);
   const openFiles = useSidebarViewStore((s) => s.openFiles);
   const isForeign = project.origin === 'foreign';
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const creating = useNewSessionStore((s) => s.pending[project.name] ?? false);
   const requestNewSession = useNewSessionStore((s) => s.request);
 
@@ -50,6 +68,17 @@ export function ProjectRow({ project, sessions, isActive }: ProjectRowProps) {
   const confirmRestore = () => {
     sendWS('adopt_project', { projectName: project.name });
     setConfirmOpen(false);
+  };
+
+  const handleConfirmDelete = async () => {
+    await removeProject(project.name);
+    // The project's sessions are gone server-side; resync the list and bail
+    // out of any open session that belonged to it.
+    await fetchSessions();
+    if (openSessionId && sessions.some((s) => s.id === openSessionId)) {
+      void navigate('/');
+    }
+    showToast({ message: `Project '${project.name}' deleted`, type: 'info' });
   };
 
   return (
@@ -121,6 +150,23 @@ export function ProjectRow({ project, sessions, isActive }: ProjectRowProps) {
               <Plus />
             </Button>
           )}
+          <DropdownMenu
+            trigger={
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                aria-label={`Actions for ${project.name}`}
+                className="hover:bg-sidebar-accent"
+              >
+                <MoreHorizontal />
+              </Button>
+            }
+          >
+            <DropdownItem destructive icon={<Trash2 />} onClick={() => setConfirmDeleteOpen(true)}>
+              Delete project
+            </DropdownItem>
+          </DropdownMenu>
         </div>
       </div>
       {expanded && (
@@ -156,6 +202,14 @@ export function ProjectRow({ project, sessions, isActive }: ProjectRowProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDeleteProjectDialog
+        isOpen={confirmDeleteOpen}
+        project={project}
+        sessions={sessions}
+        onConfirm={handleConfirmDelete}
+        onClose={() => setConfirmDeleteOpen(false)}
+      />
     </div>
   );
 }

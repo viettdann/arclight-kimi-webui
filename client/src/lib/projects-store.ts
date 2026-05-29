@@ -21,6 +21,47 @@ export class ProjectError extends Error {
   }
 }
 
+/**
+ * Decode a non-ok project response into a `ProjectError`. The `.code` is the
+ * server's `error` field (or `http_<status>` when the body isn't JSON); the
+ * message is looked up in `messages`, falling back to the raw code, then to
+ * `<fallback> (<status>)`. Centralizes the shape shared by create/remove.
+ */
+async function toProjectError(
+  res: Response,
+  messages: Record<string, string>,
+  fallback: string,
+): Promise<ProjectError> {
+  let code = `http_${res.status}`;
+  let message = `${fallback} (${res.status})`;
+  try {
+    const errBody = (await res.json()) as { error?: string };
+    if (errBody.error) {
+      code = errBody.error;
+      message = messages[errBody.error] ?? errBody.error;
+    }
+  } catch {
+    // Body may not be JSON (proxy/HTML 5xx); keep the generic message.
+  }
+  return new ProjectError(code, message);
+}
+
+const CREATE_ERROR_MESSAGES: Record<string, string> = {
+  invalid_name: 'Invalid project name',
+  unauthorized: 'Not signed in',
+  invalid_url: 'Invalid repository URL',
+  unsupported_scheme: 'SSH URLs are not supported — use an HTTPS URL',
+  credential_not_found: 'Selected credential not found',
+  invalid_provider: 'Invalid provider',
+  clone_failed: 'Clone failed',
+  clone_timeout: 'Clone timed out',
+};
+
+const REMOVE_ERROR_MESSAGES: Record<string, string> = {
+  not_found: 'Project not found',
+  unauthorized: 'Not signed in',
+};
+
 interface ProjectsState {
   projects: ProjectSummary[];
   status: 'idle' | 'loading' | 'ready' | 'error';
@@ -31,6 +72,7 @@ interface ProjectsState {
     name?: string;
     source?: ProjectCreateRequest['source'];
   }) => Promise<ProjectSummary>;
+  remove: (name: string) => Promise<void>;
   toggleExpanded: (name: string) => void;
 }
 
@@ -63,28 +105,7 @@ export const useProjectsStore = create<ProjectsState>((set) => ({
       body: JSON.stringify(req),
     });
     if (!res.ok) {
-      let code = `http_${res.status}`;
-      let message = `Request failed (${res.status})`;
-      try {
-        const errBody = (await res.json()) as { error?: string };
-        if (errBody.error) {
-          code = errBody.error;
-          if (errBody.error === 'invalid_name') message = 'Invalid project name';
-          else if (errBody.error === 'unauthorized') message = 'Not signed in';
-          else if (errBody.error === 'invalid_url') message = 'Invalid repository URL';
-          else if (errBody.error === 'unsupported_scheme')
-            message = 'SSH URLs are not supported — use an HTTPS URL';
-          else if (errBody.error === 'credential_not_found')
-            message = 'Selected credential not found';
-          else if (errBody.error === 'invalid_provider') message = 'Invalid provider';
-          else if (errBody.error === 'clone_failed') message = 'Clone failed';
-          else if (errBody.error === 'clone_timeout') message = 'Clone timed out';
-          else message = errBody.error;
-        }
-      } catch {
-        // Body may not be JSON (proxy/HTML 5xx); fall back to generic message.
-      }
-      throw new ProjectError(code, message);
+      throw await toProjectError(res, CREATE_ERROR_MESSAGES, 'Request failed');
     }
     const project = (await res.json()) as ProjectCreateResponse;
     set((s) => ({
@@ -92,6 +113,17 @@ export const useProjectsStore = create<ProjectsState>((set) => ({
       expanded: { ...s.expanded, [project.name]: true },
     }));
     return project;
+  },
+
+  remove: async (name: string): Promise<void> => {
+    const res = await authFetch(`/api/projects/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    if (!res.ok) {
+      throw await toProjectError(res, REMOVE_ERROR_MESSAGES, 'Delete failed');
+    }
+    set((s) => {
+      const { [name]: _dropped, ...expanded } = s.expanded;
+      return { projects: s.projects.filter((p) => p.name !== name), expanded };
+    });
   },
 
   toggleExpanded: (name: string) => {

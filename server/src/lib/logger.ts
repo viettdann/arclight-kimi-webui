@@ -78,7 +78,8 @@ export type AuditAction =
   | 'write'
   | 'download'
   | 'session_delete'
-  | 'project_create';
+  | 'project_create'
+  | 'project_delete';
 
 export interface AuditEvent {
   userId: string;

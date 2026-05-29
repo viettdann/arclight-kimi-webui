@@ -511,6 +511,29 @@ export interface ProjectListResponse {
   projects: ProjectSummary[];
 }
 
+export interface ProjectDeleteResponse {
+  ok: true;
+  /** Number of `kimi_sessions` rows removed for the project. */
+  sessionCount: number;
+}
+
+/** Cheap git snapshot of a project folder, shown in the delete dialog. */
+export interface ProjectGitInfo {
+  branch: string | null;
+  /** Count of `git status --porcelain` entries (uncommitted changes). */
+  dirtyCount: number;
+  remote: string | null;
+}
+
+/** Lazy on-disk snapshot of a local project folder. `exists:false` for
+ *  foreign (not-yet-adopted) projects, where delete is a DB-only operation. */
+export interface ProjectStatResponse {
+  exists: boolean;
+  /** Top-level entry count (non-recursive). */
+  entryCount: number;
+  git: ProjectGitInfo | null;
+}
+
 export interface OverviewResponse {
   runtime: {
     startedAt: string;
