@@ -7,6 +7,7 @@ import { type DB, schema } from '../db';
 import type { Env } from '../env';
 import { type auditLog as defaultAuditLog, logger } from '../lib/logger';
 import { resolveUserPath } from '../lib/path-guard';
+import { cloningProjectNamesForUser } from './git/clone-registry';
 import { inspectRepo } from './git/inspect';
 import { kimiPaths } from './kimi-config/paths';
 import { resolveShareDir } from './kimi-config/share-dir';
@@ -50,6 +51,9 @@ export async function listProjectsForUser({
   ]);
 
   const byName = new Map<string, ProjectSummary>();
+  // In-flight clones (this process) so a still-filling folder shows as `cloning`
+  // in the sidebar after a refresh / in another tab, not as a ready project.
+  const cloning = cloningProjectNamesForUser(userId);
 
   for (const d of dirents) {
     if (!d.isDirectory()) continue;
@@ -57,6 +61,7 @@ export async function listProjectsForUser({
       name: d.name,
       workDir: path.join(userRoot, d.name),
       origin: 'local',
+      status: cloning.has(d.name) ? 'cloning' : 'ready',
     });
   }
 

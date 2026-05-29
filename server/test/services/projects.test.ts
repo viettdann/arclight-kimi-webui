@@ -132,7 +132,7 @@ describe('listProjectsForUser', () => {
       env: { WORKSPACE_ROOT: tmpRoot },
     });
     expect(result).toEqual([
-      { name: 'alpha', workDir: path.join(userRoot, 'alpha'), origin: 'local' },
+      { name: 'alpha', workDir: path.join(userRoot, 'alpha'), origin: 'local', status: 'ready' },
     ]);
   });
 
@@ -150,7 +150,7 @@ describe('listProjectsForUser', () => {
       env: { WORKSPACE_ROOT: tmpRoot },
     });
     expect(result).toEqual([
-      { name: 'alpha', workDir: path.join(userRoot, 'alpha'), origin: 'local' },
+      { name: 'alpha', workDir: path.join(userRoot, 'alpha'), origin: 'local', status: 'ready' },
       { name: 'beta', workDir: path.join(userRoot, 'beta'), origin: 'foreign' },
     ]);
   });

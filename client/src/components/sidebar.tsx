@@ -22,7 +22,7 @@ import { wsClient } from '../lib/ws-client';
 import { FileManagementView } from './file-management-view';
 import { NewProjectModal } from './new-project-modal';
 import { ProjectPickerModal } from './project-picker-modal';
-import { ProjectRow } from './project-row';
+import { CloningProjectRow, ProjectRow } from './project-row';
 import { SkillsModal } from './skills-modal';
 import { showToast } from './toast-provider';
 
@@ -391,14 +391,18 @@ export function Sidebar({ isOpen, onClose, onLoginClick }: SidebarProps) {
                       No active projects on this machine
                     </p>
                   ) : (
-                    localProjects.map((project) => (
-                      <ProjectRow
-                        key={project.name}
-                        project={project}
-                        sessions={sessionsByProject[project.name] ?? []}
-                        isActive={project.name === activeProjectName}
-                      />
-                    ))
+                    localProjects.map((project) =>
+                      project.status === 'cloning' ? (
+                        <CloningProjectRow key={project.name} name={project.name} />
+                      ) : (
+                        <ProjectRow
+                          key={project.name}
+                          project={project}
+                          sessions={sessionsByProject[project.name] ?? []}
+                          isActive={project.name === activeProjectName}
+                        />
+                      ),
+                    )
                   )}
                   {foreignProjects.length > 0 && (
                     <>

@@ -179,6 +179,41 @@ describe('POST /api/projects clone flow', () => {
     expect(await exists(path.join(userRoot, 'widgets'))).toBe(false);
   });
 
+  it('cancels an in-flight clone and reports clone_canceled', async () => {
+    const prog = makeProgress();
+    // A clone that only settles once its signal is aborted.
+    const app = buildApp(
+      (args: CloneRepoArgs) =>
+        new Promise<CloneResult>((resolve) => {
+          args.signal?.addEventListener('abort', () =>
+            resolve({ ok: false, kind: 'clone_failed', error: 'aborted' }),
+          );
+        }),
+      prog.notify,
+    );
+    const res = await app.request('/api/projects', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: cloneBody(),
+    });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as ProjectCreateResponse;
+
+    const cancel = await app.request(`/api/projects/${body.name}/clone`, { method: 'DELETE' });
+    expect(cancel.status).toBe(200);
+
+    const terminal = await prog.terminal;
+    expect(terminal.status).toBe('failed');
+    expect(terminal.errorCode).toBe('clone_canceled');
+    expect(await exists(path.join(userRoot, 'widgets'))).toBe(false);
+  });
+
+  it('returns 404 cancelling when nothing is cloning', async () => {
+    const app = buildApp(async () => ({ ok: true }));
+    const res = await app.request('/api/projects/ghost/clone', { method: 'DELETE' });
+    expect(res.status).toBe(404);
+  });
+
   it('uses an explicit slugified name over the derived one', async () => {
     const prog = makeProgress();
     const app = buildApp(async () => ({ ok: true }), prog.notify);

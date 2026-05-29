@@ -3,9 +3,11 @@ import {
   CloudDownload,
   Folder,
   FolderTree,
+  Loader2,
   MoreHorizontal,
   Plus,
   Trash2,
+  X,
 } from 'lucide-react';
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
@@ -210,6 +212,48 @@ export function ProjectRow({ project, sessions, isActive }: ProjectRowProps) {
         onConfirm={handleConfirmDelete}
         onClose={() => setConfirmDeleteOpen(false)}
       />
+    </div>
+  );
+}
+
+interface CloningProjectRowProps {
+  name: string;
+}
+
+// Placeholder row for a project whose `git clone` is still running. No expand
+// toggle or sessions — just a spinner and a cancel button that aborts the clone.
+export function CloningProjectRow({ name }: CloningProjectRowProps) {
+  const cancelClone = useProjectsStore((s) => s.cancelClone);
+  const [canceling, setCanceling] = useState(false);
+
+  const handleCancel = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setCanceling(true);
+    void cancelClone(name);
+  };
+
+  return (
+    <div className="group/cloning-row relative flex items-center rounded-lg">
+      <div className="flex w-full items-center gap-1.5 px-2 pr-9 text-sidebar-foreground">
+        <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
+        <Folder className="size-3.5 shrink-0 text-muted-foreground" />
+        <span className="truncate font-medium text-muted-foreground">{name}</span>
+        <span className="shrink-0 text-xs text-muted-foreground">cloning…</span>
+      </div>
+      <div className="absolute right-1.5 flex items-center">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          onClick={handleCancel}
+          disabled={canceling}
+          aria-label={`Cancel cloning ${name}`}
+          title="Cancel clone"
+          className="hover:bg-sidebar-accent"
+        >
+          <X />
+        </Button>
+      </div>
     </div>
   );
 }

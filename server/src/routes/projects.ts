@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, rm } from 'node:fs/promises';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { Hono } from 'hono';
 import type {
@@ -22,6 +22,11 @@ import { resolveUserPath } from '../lib/path-guard';
 import { slugifyProjectName } from '../lib/slug';
 import { broadcastToUser } from '../lib/ws-broadcast';
 import { cloneRepo as defaultCloneRepo } from '../services/git/clone';
+import {
+  cancelCloneForProject,
+  registerClone,
+  unregisterClone,
+} from '../services/git/clone-registry';
 import { CloneUrlError, deriveRepoName, parseCloneUrl } from '../services/git/url';
 import { getOwned } from '../services/git-credentials/repo';
 import {
@@ -177,8 +182,10 @@ export function createProjectsRoutes(deps: ProjectsRoutesDeps): Hono<{ Variables
       // so a foreign refresh sees the project as it fills (then it goes ready).
       const cloneId = randomUUID();
       const userId = user.id;
-      const notify = (p: Omit<CloneProgressPayload, 'cloneId' | 'projectName'>) =>
-        notifyCloneProgress(userId, { cloneId, projectName: finalSlug, ...p });
+      // Every frame carries workDir so a fresh listener (other tab, post-refresh)
+      // can build the sidebar row from any frame, not just the terminal one.
+      const notify = (p: Omit<CloneProgressPayload, 'cloneId' | 'projectName' | 'workDir'>) =>
+        notifyCloneProgress(userId, { cloneId, projectName: finalSlug, workDir: finalAbs, ...p });
       // Roll back the claimed dir, then report. rm is guarded so a cleanup
       // failure never reclassifies the original errorCode (e.g. a timeout whose
       // rm throws must still report `clone_timeout`, not `clone_failed`).
@@ -186,6 +193,14 @@ export function createProjectsRoutes(deps: ProjectsRoutesDeps): Hono<{ Variables
         await rm(finalAbs, { recursive: true, force: true }).catch(() => {});
         notify({ phase: 'Failed', percent: null, status: 'failed', error, errorCode });
       };
+
+      // Register for cancellation, and drop a marker so an interrupted clone
+      // (process killed mid-fetch) is cleaned up on the next startup. The marker
+      // lives beside the project (clone needs an empty target dir), keyed by slug.
+      const controller = new AbortController();
+      registerClone(cloneId, { controller, userId, projectName: finalSlug, workDir: finalAbs });
+      const markerPath = path.join(path.dirname(finalAbs), `.cloning-${finalSlug}`);
+      await writeFile(markerPath, '').catch(() => {});
 
       void (async () => {
         try {
@@ -195,16 +210,28 @@ export function createProjectsRoutes(deps: ProjectsRoutesDeps): Hono<{ Variables
             provider,
             token,
             timeoutMs,
+            signal: controller.signal,
             onProgress: ({ phase, percent }) => notify({ phase, percent, status: 'cloning' }),
           });
           if (!result.ok) {
-            await failClone(result.error, result.kind);
+            // A user-initiated abort surfaces as a failed clone; report it as a
+            // cancellation (terminal, but not an error the client should toast).
+            await failClone(
+              result.error,
+              controller.signal.aborted ? 'clone_canceled' : result.kind,
+            );
             return;
           }
           auditLog({ userId, action: 'project_create', path: finalSlug, bytes: 0 });
-          notify({ phase: 'Done', percent: 100, status: 'completed', workDir: finalAbs });
+          notify({ phase: 'Done', percent: 100, status: 'completed' });
         } catch (err) {
-          await failClone(err instanceof Error ? err.message : 'clone failed', 'clone_failed');
+          await failClone(
+            err instanceof Error ? err.message : 'clone failed',
+            controller.signal.aborted ? 'clone_canceled' : 'clone_failed',
+          );
+        } finally {
+          unregisterClone(cloneId);
+          await rm(markerPath, { force: true }).catch(() => {});
         }
       })();
 
@@ -279,6 +306,20 @@ export function createProjectsRoutes(deps: ProjectsRoutesDeps): Hono<{ Variables
       env,
     });
     return c.json(stat satisfies ProjectStatResponse);
+  });
+
+  // ─────────────────────── DELETE /:name/clone ───────────────────────
+  // Cancel an in-flight background clone of this project. Aborts the git
+  // subprocess; the background task then rolls back the claimed folder and
+  // pushes a terminal `clone_canceled` frame. No-op (404) if nothing is cloning.
+
+  projects.delete('/:name/clone', async (c) => {
+    const user = c.var.user;
+    if (user == null) return c.json({ error: 'unauthorized' }, 401);
+
+    const canceled = cancelCloneForProject(user.id, c.req.param('name'));
+    if (!canceled) return c.json({ error: 'not_found' }, 404);
+    return c.json({ ok: true });
   });
 
   // ─────────────────────────── DELETE /:name ───────────────────────────

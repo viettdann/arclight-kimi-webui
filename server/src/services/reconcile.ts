@@ -1,10 +1,56 @@
 import { existsSync } from 'node:fs';
+import { readdir, rm } from 'node:fs/promises';
 import * as path from 'node:path';
 import { eq, isNotNull, sql } from 'drizzle-orm';
 import { type DB, schema } from '../db';
+import { env as defaultEnv, type Env } from '../env';
 import { logger } from '../lib/logger';
 import { kimiPaths } from './kimi-config/paths';
 import { fileSize, readRange } from './kimi-session';
+
+const CLONE_MARKER_PREFIX = '.cloning-';
+
+/**
+ * Remove folders left behind by a clone that was interrupted (process killed
+ * mid-fetch). The route writes a `.cloning-<slug>` marker beside the target dir
+ * for the clone's lifetime and removes it on any terminal outcome. Since clones
+ * live only in this process, every marker found at startup is by definition
+ * stale: delete the half-cloned folder and the marker. Best-effort throughout —
+ * a failure here never blocks boot.
+ */
+export async function cleanupInterruptedClones(workspaceRoot: string): Promise<void> {
+  let userDirs: string[];
+  try {
+    userDirs = (await readdir(workspaceRoot, { withFileTypes: true }))
+      .filter((d) => d.isDirectory())
+      .map((d) => d.name);
+  } catch {
+    return; // workspace root not created yet — nothing to reconcile
+  }
+
+  await Promise.all(
+    userDirs.map(async (userDir) => {
+      const userRoot = path.join(workspaceRoot, userDir);
+      let markers: string[];
+      try {
+        markers = (await readdir(userRoot))
+          .filter((name) => name.startsWith(CLONE_MARKER_PREFIX))
+          .map((name) => name.slice(CLONE_MARKER_PREFIX.length));
+      } catch {
+        return;
+      }
+      await Promise.all(
+        markers.map(async (slug) => {
+          const projectDir = path.join(userRoot, slug);
+          const markerPath = path.join(userRoot, `${CLONE_MARKER_PREFIX}${slug}`);
+          logger.warn({ projectDir }, 'cleaning interrupted clone folder');
+          await rm(projectDir, { recursive: true, force: true }).catch(() => {});
+          await rm(markerPath, { force: true }).catch(() => {});
+        }),
+      );
+    }),
+  );
+}
 
 export async function catchUpWireBackup(args: {
   sessionRowId: string;
@@ -55,8 +101,16 @@ export async function catchUpWireBackup(args: {
     });
 }
 
-export async function reconcileOnStartup({ db }: { db: DB }): Promise<void> {
+export async function reconcileOnStartup({
+  db,
+  env = defaultEnv,
+}: {
+  db: DB;
+  env?: Pick<Env, 'WORKSPACE_ROOT'>;
+}): Promise<void> {
   logger.info('Running reconcileOnStartup...');
+
+  await cleanupInterruptedClones(env.WORKSPACE_ROOT);
 
   const sessions = await db
     .select({

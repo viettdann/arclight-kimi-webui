@@ -489,6 +489,9 @@ export interface ProjectSummary {
    * (which mkdir's the folder via `ensureWorkDir`).
    */
   origin: 'local' | 'foreign';
+  /** `cloning` while a background `git clone` is still filling the folder
+   *  (server consults the in-flight clone registry); otherwise ready. */
+  status?: 'ready' | 'cloning';
 }
 
 /** Clone source for project creation. Token is supplied either by a saved
@@ -516,8 +519,9 @@ export type ProjectCreateResponse = ProjectSummary & {
 };
 
 /** Machine-readable clone failure code; mirrors the failing `CloneResult.kind`
- *  and the `clone_*` keys in the create error map. */
-export type CloneErrorCode = 'clone_failed' | 'clone_timeout';
+ *  and the `clone_*` keys in the create error map. `clone_canceled` is the
+ *  user-initiated abort — terminal but not an error (no toast). */
+export type CloneErrorCode = 'clone_failed' | 'clone_timeout' | 'clone_canceled';
 
 /** Pushed (user-scoped, not session-scoped) while a background `git clone`
  *  runs. `cloneId` matches the one returned by `POST /api/projects`. */
@@ -529,9 +533,10 @@ export interface CloneProgressPayload {
   /** 0–100 within the current phase; null before git reports a percentage. */
   percent: number | null;
   status: 'cloning' | 'completed' | 'failed';
-  /** Absolute workspace path; set on `completed` so a listener can register the
-   *  project even when the originating modal has been closed (clone backgrounded). */
-  workDir?: string;
+  /** Absolute workspace path; carried on every frame so a listener can build or
+   *  register the sidebar row even when the originating modal has been closed
+   *  (clone backgrounded). */
+  workDir: string;
   /** Human-readable failure detail; set only when `status === 'failed'`. */
   error?: string;
   /** Machine code matching the create error map (`clone_failed` | `clone_timeout`). */

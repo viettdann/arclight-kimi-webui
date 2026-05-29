@@ -303,7 +303,7 @@ describe('GET /api/projects', () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as ProjectListResponse;
     expect(body.projects).toEqual([
-      { name: 'alpha', workDir: path.join(userRoot, 'alpha'), origin: 'local' },
+      { name: 'alpha', workDir: path.join(userRoot, 'alpha'), origin: 'local', status: 'ready' },
       { name: 'beta', workDir: path.join(userRoot, 'beta'), origin: 'foreign' },
     ]);
   });

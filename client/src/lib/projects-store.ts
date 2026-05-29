@@ -1,4 +1,5 @@
 import type {
+  CloneErrorCode,
   ProjectCreateRequest,
   ProjectCreateResponse,
   ProjectListResponse,
@@ -62,6 +63,22 @@ const REMOVE_ERROR_MESSAGES: Record<string, string> = {
   unauthorized: 'Not signed in',
 };
 
+/** Human-readable label for a terminal clone failure, shared by the modal and
+ *  the background-clone toast so the wording stays in one place. */
+export function cloneErrorMessage(errorCode?: CloneErrorCode): string {
+  return errorCode === 'clone_timeout' ? 'Clone timed out' : 'Clone failed';
+}
+
+/** Remove a project from the list and forget its expanded flag. Shared by the
+ *  optimistic `dropProject` and the server-confirmed `remove`. */
+function dropFromState(
+  s: { projects: ProjectSummary[]; expanded: Record<string, boolean> },
+  name: string,
+): { projects: ProjectSummary[]; expanded: Record<string, boolean> } {
+  const { [name]: _dropped, ...expanded } = s.expanded;
+  return { projects: s.projects.filter((p) => p.name !== name), expanded };
+}
+
 interface ProjectsState {
   projects: ProjectSummary[];
   status: 'idle' | 'loading' | 'ready' | 'error';
@@ -72,12 +89,19 @@ interface ProjectsState {
     name?: string;
     source?: ProjectCreateRequest['source'];
   }) => Promise<ProjectCreateResponse>;
+  /** Register a finished project (or flip a cloning placeholder to ready). */
   addProject: (project: ProjectSummary) => void;
+  /** Show a still-cloning placeholder (no-op if the project already exists). */
+  upsertCloning: (project: ProjectSummary) => void;
+  /** Remove a project from the list locally (no API call). */
+  dropProject: (name: string) => void;
+  /** Cancel an in-flight background clone, then drop its placeholder. */
+  cancelClone: (name: string) => Promise<void>;
   remove: (name: string) => Promise<void>;
   toggleExpanded: (name: string) => void;
 }
 
-export const useProjectsStore = create<ProjectsState>((set) => ({
+export const useProjectsStore = create<ProjectsState>((set, get) => ({
   projects: [],
   status: 'idle',
   error: null,
@@ -109,10 +133,11 @@ export const useProjectsStore = create<ProjectsState>((set) => ({
       throw await toProjectError(res, CREATE_ERROR_MESSAGES, 'Request failed');
     }
     const project = (await res.json()) as ProjectCreateResponse;
-    // A cloning project's folder is claimed but still filling; the caller adds it
-    // (via `addProject`) once `clone_progress` reports completion. Add the rest
-    // immediately.
-    if (project.status !== 'cloning') {
+    // A cloning project's folder is claimed but still filling: show a cloning
+    // placeholder now; `clone_progress` flips it to ready (or drops it) later.
+    if (project.status === 'cloning') {
+      get().upsertCloning(project);
+    } else {
       set((s) => ({
         projects: [...s.projects, project],
         expanded: { ...s.expanded, [project.name]: true },
@@ -122,14 +147,38 @@ export const useProjectsStore = create<ProjectsState>((set) => ({
   },
 
   addProject: (project) => {
+    const ready: ProjectSummary = { ...project, status: 'ready' };
+    set((s) => ({
+      projects: s.projects.some((p) => p.name === project.name)
+        ? s.projects.map((p) => (p.name === project.name ? ready : p))
+        : [...s.projects, ready],
+      expanded: { ...s.expanded, [project.name]: true },
+    }));
+  },
+
+  upsertCloning: (project) => {
+    // A cloning placeholder is a non-expandable row, so leave `expanded` alone —
+    // `addProject` sets it once the clone completes.
     set((s) =>
       s.projects.some((p) => p.name === project.name)
         ? s
-        : {
-            projects: [...s.projects, project],
-            expanded: { ...s.expanded, [project.name]: true },
-          },
+        : { projects: [...s.projects, { ...project, status: 'cloning' as const }] },
     );
+  },
+
+  dropProject: (name) => {
+    set((s) => (s.projects.some((p) => p.name === name) ? dropFromState(s, name) : s));
+  },
+
+  cancelClone: async (name: string): Promise<void> => {
+    // Best-effort: the server aborts the clone and pushes a terminal frame that
+    // drops the placeholder; drop it locally too for an instant response. Guard
+    // on `cloning` so a stale click can't drop a project that already finished.
+    if (!get().projects.some((p) => p.name === name && p.status === 'cloning')) return;
+    await authFetch(`/api/projects/${encodeURIComponent(name)}/clone`, { method: 'DELETE' }).catch(
+      () => {},
+    );
+    get().dropProject(name);
   },
 
   remove: async (name: string): Promise<void> => {
@@ -137,10 +186,7 @@ export const useProjectsStore = create<ProjectsState>((set) => ({
     if (!res.ok) {
       throw await toProjectError(res, REMOVE_ERROR_MESSAGES, 'Delete failed');
     }
-    set((s) => {
-      const { [name]: _dropped, ...expanded } = s.expanded;
-      return { projects: s.projects.filter((p) => p.name !== name), expanded };
-    });
+    set((s) => dropFromState(s, name));
   },
 
   toggleExpanded: (name: string) => {

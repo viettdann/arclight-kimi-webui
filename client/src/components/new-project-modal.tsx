@@ -14,7 +14,7 @@ import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { useCloneProgressStore } from '../lib/clone-progress-store';
 import { useGitCredentialsStore } from '../lib/git-credentials-store';
-import { useProjectsStore } from '../lib/projects-store';
+import { cloneErrorMessage, useProjectsStore } from '../lib/projects-store';
 import { cn } from '../lib/utils';
 import { GitCredentialDialog } from './preferences/git-credential-dialog';
 
@@ -27,6 +27,7 @@ type Mode = 'blank' | 'clone';
 
 export function NewProjectModal({ isOpen, onClose }: NewProjectModalProps) {
   const create = useProjectsStore((s) => s.create);
+  const cancelClone = useProjectsStore((s) => s.cancelClone);
   const credentials = useGitCredentialsStore((s) => s.credentials);
   const ensureCredsLoaded = useGitCredentialsStore((s) => s.ensureLoaded);
 
@@ -68,13 +69,16 @@ export function NewProjectModal({ isOpen, onClose }: NewProjectModalProps) {
       setCloneId(null);
       onClose();
     } else if (progress.status === 'failed') {
-      const detail = progress.error ? `: ${progress.error}` : '';
-      setError(
-        (progress.errorCode === 'clone_timeout' ? 'Clone timed out' : 'Clone failed') + detail,
-      );
-      setSubmitting(false);
       useCloneProgressStore.getState().clear(cloneId);
       setCloneId(null);
+      // A cancel is terminal but not an error — just close the modal.
+      if (progress.errorCode === 'clone_canceled') {
+        onClose();
+        return;
+      }
+      const detail = progress.error ? `: ${progress.error}` : '';
+      setError(cloneErrorMessage(progress.errorCode) + detail);
+      setSubmitting(false);
     }
   }, [progress?.status, cloneId]);
 
@@ -127,6 +131,7 @@ export function NewProjectModal({ isOpen, onClose }: NewProjectModalProps) {
         useCloneProgressStore.getState().apply({
           cloneId: res.cloneId,
           projectName: res.name,
+          workDir: res.workDir,
           phase: 'Starting',
           percent: null,
           status: 'cloning',
@@ -166,7 +171,18 @@ export function NewProjectModal({ isOpen, onClose }: NewProjectModalProps) {
               percent={progress?.percent ?? null}
             />
             <DialogFooter className="mt-2">
-              <Button type="button" variant="outline" onClick={onClose}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  const name = progress?.projectName;
+                  if (name) void cancelClone(name);
+                  onClose();
+                }}
+              >
+                Cancel clone
+              </Button>
+              <Button type="button" onClick={onClose}>
                 Run in background
               </Button>
             </DialogFooter>
