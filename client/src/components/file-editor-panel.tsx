@@ -14,7 +14,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { authFetch, parseError } from '../lib/auth-fetch';
-import { languageForFilename } from '../lib/code-language';
+import { type CodeLanguage, languageForFilename } from '../lib/code-language';
 import { getFileIcon } from '../lib/file-icons';
 import { useOpenFileStore } from '../lib/open-file-store';
 import { FrontmatterTable, markdownComponents, splitFrontmatter } from './blocks/markdown';
@@ -62,13 +62,26 @@ function EditorBody({ path, name }: PanelInner) {
   const canPreview = isMarkdown(name);
   const htmlFile = isHtml(name);
 
-  // Language extension (per filename) plus optional line wrapping.
+  // The Lezer grammar loads on demand (one chunk per language). The editor
+  // mounts as plain text and reconfigures to highlighted once the chunk lands —
+  // the same plain→upgrade path the markdown code blocks use.
+  const [lang, setLang] = useState<CodeLanguage | null>(null);
+  useEffect(() => {
+    let alive = true;
+    languageForFilename(name).then((l) => {
+      if (alive) setLang(l);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [name]);
+
+  // Language extension (once resolved) plus optional line wrapping.
   const extensions = useMemo(() => {
-    const lang = languageForFilename(name);
     const exts: Extension[] = lang ? [lang] : [];
     if (wrap) exts.push(EditorView.lineWrapping);
     return exts;
-  }, [name, wrap]);
+  }, [lang, wrap]);
 
   // Split YAML frontmatter off for the markdown preview (rendered as a table).
   // Only computed when actually previewing markdown.

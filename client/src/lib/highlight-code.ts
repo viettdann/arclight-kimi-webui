@@ -39,12 +39,13 @@ function escapeHtml(s: string): string {
 
 /**
  * Tokenize `code` for the given markdown fence language and return HTML with
- * `.tok-*` spans. Falls back to escaped plain text when the language is
- * unknown, the input is oversized, or parsing fails.
+ * `.tok-*` spans. The grammar is loaded on demand (one chunk per language).
+ * Falls back to escaped plain text when the language is unknown, the input is
+ * oversized, or parsing fails. Never rejects.
  */
-export function highlightToHtml(code: string, langToken: string): string {
+export async function highlightToHtml(code: string, langToken: string): Promise<string> {
   const lang: CodeLanguage | null =
-    langToken.length > 0 ? languageForToken(langToken.toLowerCase()) : null;
+    langToken.length > 0 ? await languageForToken(langToken.toLowerCase()) : null;
   if (lang == null || code.length > MAX_LEN) return escapeHtml(code);
   try {
     const tree = parserFor(lang).parse(code);

@@ -1,6 +1,6 @@
 import yaml from 'js-yaml';
 import { Check, Copy, FileCode } from 'lucide-react';
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import type { Components } from 'react-markdown';
 
 /**
@@ -47,13 +47,22 @@ export function CodeBlock({ code, language }: { code: string; language: string }
     };
   }, [streaming]);
 
-  const html = useMemo(
-    () =>
-      ready && !streaming && highlightModule
-        ? highlightModule.highlightToHtml(code, language)
-        : null,
-    [ready, streaming, code, language],
-  );
+  // Tokenizing pulls the language grammar chunk on demand, so it's async: the
+  // block stays plain until the markup resolves, then upgrades in place.
+  const [html, setHtml] = useState<string | null>(null);
+  useEffect(() => {
+    if (!ready || streaming || highlightModule == null) {
+      setHtml(null);
+      return;
+    }
+    let alive = true;
+    highlightModule.highlightToHtml(code, language).then((h) => {
+      if (alive) setHtml(h);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [ready, streaming, code, language]);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(code);
