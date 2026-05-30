@@ -10,17 +10,17 @@ const SUB_TABS: { to: string; label: string }[] = [
 export function SettingsSection() {
   return (
     <div className="space-y-4">
-      <nav className="flex flex-wrap gap-1 rounded-md border border-border bg-muted/30 p-1">
+      <nav className="flex flex-wrap gap-1 rounded-lg border border-border bg-muted p-1">
         {SUB_TABS.map((tab) => (
           <NavLink
             key={tab.to}
             to={tab.to}
             className={({ isActive }) =>
               cn(
-                'rounded px-3 py-1.5 text-xs font-medium transition-colors',
+                'rounded-md border border-transparent px-3 py-1.5 text-xs font-medium transition-colors',
                 isActive
-                  ? 'bg-background text-foreground shadow-sm'
-                  : 'text-muted-foreground hover:bg-background/60 hover:text-foreground',
+                  ? 'border-border bg-card text-foreground font-semibold shadow-sm'
+                  : 'text-muted-foreground hover:bg-card/60 hover:text-foreground',
               )
             }
           >

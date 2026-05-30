@@ -28,8 +28,30 @@ export interface ConfigPatchRequest {
   settings: ConfigPatchItem[];
 }
 
+/**
+ * POST /api/config/test body. Optional override of the unsaved form edits the
+ * user has not yet persisted. When present, it is merged over the saved config
+ * and the probe runs against the result (→ `mode: 'draft'`). When absent, the
+ * probe runs against the saved config (→ `mode: 'saved'`).
+ *
+ * Non-secret fields override whenever defined (an empty string means "cleared").
+ * Secret fields override only when a plaintext string is sent; `null`/omitted
+ * keeps the persisted secret — mirrors the PATCH contract.
+ */
+export interface ConfigTestRequest {
+  provider?: ClaudeProvider;
+  ANTHROPIC_BASE_URL?: string;
+  ANTHROPIC_MODEL?: string;
+  CLAUDE_CODE_OAUTH_TOKEN?: string | null;
+  ANTHROPIC_AUTH_TOKEN?: string | null;
+}
+
 /** POST /api/config/test — validate provider auth via a one-shot query(). */
 export interface ConfigTestResponse {
   ok: boolean;
   error?: string;
+  /** Which config the probe ran against: the unsaved draft, or the saved DB config. */
+  mode?: 'draft' | 'saved';
+  /** Provider the probe authenticated as. */
+  provider?: ClaudeProvider;
 }

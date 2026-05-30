@@ -1,9 +1,8 @@
 import { APPROVAL_MODES, type ApprovalMode } from 'shared/types';
-import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Section } from '@/components/ui/section';
 import { Select } from '@/components/ui/select';
 import { useSessionDefaultsStore } from '../../lib/session-defaults-store';
-import { Toggle } from './toggle';
 
 const APPROVAL_LABELS: Record<ApprovalMode, string> = {
   ask: 'Ask — confirm every tool call',
@@ -18,31 +17,40 @@ export function DefaultsPanel() {
   const setThinking = useSessionDefaultsStore((s) => s.setThinking);
 
   return (
-    <div className="space-y-6">
-      <Section title="Session defaults" description="Applied to every new session.">
-        <div className="space-y-1.5">
-          <Label htmlFor="default-approval">Approval mode</Label>
-          <Select
-            id="default-approval"
-            value={approvalMode}
-            onChange={(e) => setApprovalMode(e.target.value as ApprovalMode)}
-            className="w-auto min-w-[20rem]"
-          >
-            {APPROVAL_MODES.map((mode) => (
-              <option key={mode} value={mode}>
-                {APPROVAL_LABELS[mode]}
-              </option>
-            ))}
-          </Select>
+    <Section
+      title="Session defaults"
+      description="Applied to every new session · Saved automatically"
+    >
+      <div className="flex items-center justify-between gap-4 rounded-md border border-border bg-muted/30 px-3 py-2">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold text-foreground">Approval mode</p>
+          <p className="text-xs text-muted-foreground">
+            How tool calls are confirmed before they run.
+          </p>
         </div>
+        <Select
+          id="default-approval"
+          value={approvalMode}
+          onChange={(e) => setApprovalMode(e.target.value as ApprovalMode)}
+          className="w-auto min-w-[16rem]"
+        >
+          {APPROVAL_MODES.map((mode) => (
+            <option key={mode} value={mode}>
+              {APPROVAL_LABELS[mode]}
+            </option>
+          ))}
+        </Select>
+      </div>
 
-        <Toggle
-          label="Thinking mode"
-          description="Allow extended reasoning before answering."
-          checked={thinking}
-          onChange={setThinking}
-        />
-      </Section>
-    </div>
+      <label className="flex cursor-pointer items-center justify-between gap-4 rounded-md border border-border bg-muted/30 px-3 py-2">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold text-foreground">Thinking mode</p>
+          <p className="text-xs text-muted-foreground">
+            Allow extended reasoning before answering.
+          </p>
+        </div>
+        <Checkbox checked={thinking} onChange={(e) => setThinking(e.target.checked)} />
+      </label>
+    </Section>
   );
 }
