@@ -33,7 +33,7 @@ let tmpRoot: string;
 let userRoot: string;
 
 beforeEach(async () => {
-  tmpRoot = await mkdtemp(path.join(tmpdir(), 'kimi-projects-svc-'));
+  tmpRoot = await mkdtemp(path.join(tmpdir(), 'mtc-projects-svc-'));
   userRoot = path.join(tmpRoot, USER_SLUG);
 });
 
@@ -198,14 +198,14 @@ describe('adoptProjectForUser', () => {
     const result = await adoptProjectForUser({
       userId: USER_ID,
       userSlug: USER_SLUG,
-      projectName: 'kimi-dev',
+      projectName: 'mtc-dev',
       db: fake.db,
       env: { WORKSPACE_ROOT: tmpRoot },
     });
 
-    const expectedWorkDir = path.join(userRoot, 'kimi-dev');
+    const expectedWorkDir = path.join(userRoot, 'mtc-dev');
     expect(result).toEqual({
-      projectName: 'kimi-dev',
+      projectName: 'mtc-dev',
       workDir: expectedWorkDir,
       sessionCount: 3,
     });
@@ -227,14 +227,14 @@ describe('adoptProjectForUser', () => {
     await adoptProjectForUser({
       userId: USER_ID,
       userSlug: USER_SLUG,
-      projectName: 'kimi-dev',
+      projectName: 'mtc-dev',
       db: fake.db,
       env: { WORKSPACE_ROOT: tmpRoot },
     });
     const result2 = await adoptProjectForUser({
       userId: USER_ID,
       userSlug: USER_SLUG,
-      projectName: 'kimi-dev',
+      projectName: 'mtc-dev',
       db: fake.db,
       env: { WORKSPACE_ROOT: tmpRoot },
     });

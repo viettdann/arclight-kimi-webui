@@ -1,5 +1,5 @@
 {
-  "name": "kimi-webui",
+  "name": "arclight-mtc-webui",
   "private": true,
   "type": "module",
   "packageManager": "bun@1.3.13",

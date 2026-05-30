@@ -321,8 +321,8 @@ export function createProjectsRoutes(deps: ProjectsRoutesDeps): Hono<{ Variables
 
   // ─────────────────────────── DELETE /:name ───────────────────────────
   // Hard-delete the project + all its sessions: DB-first (cascade drops the
-  // JSONL restore source), then best-effort disk + kimi.json cleanup. See
-  // `deleteProjectForUser` for the crash-safe ordering.
+  // JSONL restore source), then best-effort disk cleanup (transcript dirs +
+  // workspace). See `deleteProjectForUser` for the crash-safe ordering.
 
   projects.delete('/:name', async (c) => {
     const user = c.var.user;

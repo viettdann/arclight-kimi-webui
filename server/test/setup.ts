@@ -12,7 +12,7 @@ const stubs: Record<string, string> = {
   AZURE_AD_CLIENT_ID: 'test-client',
   AZURE_AD_CLIENT_SECRET: 'test-secret',
   AZURE_AD_TENANT_ID: 'test-tenant',
-  WORKSPACE_ROOT: '/tmp/kimi-webui-test',
+  WORKSPACE_ROOT: '/tmp/mtc-webui-test',
 };
 
 for (const [key, value] of Object.entries(stubs)) {

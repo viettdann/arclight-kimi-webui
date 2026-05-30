@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { mkdtemp, rm, stat } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { SessionManager } from '../../src/services/session-manager';
 import { handleMessage, setHandlerDeps } from '../../src/ws/handlers';
 import { asWS, FakeWS, makeFakeDb } from '../_helpers';
 
-// Server test setup pins WORKSPACE_ROOT to /tmp/kimi-webui-test; adoption mkdirs
+// Server test setup pins WORKSPACE_ROOT to /tmp/mtc-webui-test; adoption mkdirs
 // `<WORKSPACE_ROOT>/<userSlug>/<projectName>`. We carve a unique slug per test
 // to avoid cross-test FS interference inside that root.
 
@@ -15,8 +15,10 @@ let workspaceRoot: string;
 
 beforeEach(async () => {
   manager = new SessionManager();
-  workspaceRoot = '/tmp/kimi-webui-test';
-  // Unique slug per test, materialised under workspaceRoot.
+  workspaceRoot = '/tmp/mtc-webui-test';
+  // Unique slug per test, materialised under workspaceRoot. `mkdtemp` does not
+  // create parents, so ensure the root exists (self-contained per isolation).
+  await mkdir(workspaceRoot, { recursive: true });
   const dir = await mkdtemp(path.join(workspaceRoot, 'adopt-test-'));
   userSlug = path.basename(dir);
 });
@@ -85,13 +87,13 @@ describe('handleAdoptProject', () => {
     const ws = new FakeWS('alice', userSlug);
     await handleMessage(
       asWS(ws),
-      JSON.stringify({ type: 'adopt_project', payload: { projectName: 'kimi-dev' } }),
+      JSON.stringify({ type: 'adopt_project', payload: { projectName: 'mtc-dev' } }),
     );
 
     const updates = fake.calls.filter((c) => c.op === 'update');
     expect(updates.length).toBe(1);
 
-    const expectedWorkDir = path.join(workspaceRoot, userSlug, 'kimi-dev');
+    const expectedWorkDir = path.join(workspaceRoot, userSlug, 'mtc-dev');
     expect((updates[0]?.values as { workDir: string }).workDir).toBe(expectedWorkDir);
 
     const s = await stat(expectedWorkDir);
@@ -102,7 +104,7 @@ describe('handleAdoptProject', () => {
     }>;
     expect(adopted.length).toBe(1);
     expect(adopted[0]?.payload).toEqual({
-      projectName: 'kimi-dev',
+      projectName: 'mtc-dev',
       workDir: expectedWorkDir,
       sessionCount: 2,
     });

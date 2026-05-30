@@ -52,7 +52,7 @@ describe('deriveProjectName', () => {
 });
 
 describe('ensureWorkDir', () => {
-  const tmpRoot = path.join('/tmp', `kimi-workdir-test-${process.pid}`);
+  const tmpRoot = path.join('/tmp', `mtc-workdir-test-${process.pid}`);
 
   afterEach(async () => {
     await rm(tmpRoot, { recursive: true, force: true });

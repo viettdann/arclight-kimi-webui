@@ -9,11 +9,11 @@ import { makeFakeDb } from '../_helpers';
 describe('pending-prompts DB logic', () => {
   it('enqueuePendingPrompt constructs correct update query', async () => {
     const fake = makeFakeDb();
-    await enqueuePendingPrompt('sess-A', 'Hello Kimi', fake.db);
+    await enqueuePendingPrompt('sess-A', 'Hello MTC', fake.db);
 
     const updateCall = fake.calls.find((c) => c.op === 'update');
     expect(updateCall).toBeDefined();
-    expect((updateCall?.values as any).pendingPrompt).toBe('Hello Kimi');
+    expect((updateCall?.values as any).pendingPrompt).toBe('Hello MTC');
     expect((updateCall?.values as any).pendingEnqueuedAt).toBeInstanceOf(Date);
   });
 

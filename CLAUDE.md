@@ -1,4 +1,4 @@
-# arclight-kimi-webui
+# arclight-mtc-webui
 
 ## Working rules
 
