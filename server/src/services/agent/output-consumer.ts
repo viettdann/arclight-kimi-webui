@@ -165,6 +165,13 @@ export async function consumeQueryOutput(active: ActiveSession): Promise<void> {
   const toolInputByCallId = new Map<string, unknown>();
   // First main-scope user message text, kept best-effort for title generation.
   let firstUserMessage: string | null = null;
+  // Cumulative content-block index per scope, anchored to the current assistant
+  // `message.id`. The SDK emits each content block as its OWN length-1 `assistant`
+  // message; consecutive messages share one `message.id` and the true block index
+  // is the order within that same-id group — matching the streaming `event.index`
+  // and the reload renderer's `contentBlockIndex`. (The array-local index is
+  // always 0 here, which would collide text onto the first block's id.)
+  const assistantBlockCursor = new Map<string, { messageId: string; index: number }>();
 
   function getIndexMap(scope: string): Map<number, string> {
     let m = toolUseIdByIndex.get(scope);
@@ -274,14 +281,26 @@ export async function consumeQueryOutput(active: ActiveSession): Promise<void> {
 
   function handleAssistant(msg: SDKAssistantMessage): void {
     const parent = msg.parent_tool_use_id;
+    const scope = scopeOf(parent);
     const messageId = msg.message.id;
     const content: AssistantContentBlock[] = msg.message.content ?? [];
 
-    content.forEach((block, i) => {
+    // Resolve the running block index for this message.id within this scope,
+    // resetting whenever the id changes (a new assistant message group begins).
+    let cursor = assistantBlockCursor.get(scope);
+    if (!cursor || cursor.messageId !== messageId) {
+      cursor = { messageId, index: 0 };
+      assistantBlockCursor.set(scope, cursor);
+    }
+
+    for (const block of content) {
+      // Advance for EVERY block (incl. tool_use) so the index stays aligned with
+      // the streaming `event.index` and the reload renderer.
+      const blockIndex = cursor.index++;
       switch (block.type) {
         case 'text': {
           const payload: TextDeltaPayload = {
-            id: `${messageId}:${i}`,
+            id: `${messageId}:${blockIndex}`,
             text: block.text,
             final: true,
           };
@@ -290,7 +309,7 @@ export async function consumeQueryOutput(active: ActiveSession): Promise<void> {
         }
         case 'thinking': {
           const payload: ThinkingDeltaPayload = {
-            id: `${messageId}:${i}`,
+            id: `${messageId}:${blockIndex}`,
             thinking: block.thinking,
             encrypted: !block.thinking && !!block.signature,
             final: true,
@@ -301,7 +320,7 @@ export async function consumeQueryOutput(active: ActiveSession): Promise<void> {
         case 'redacted_thinking': {
           // No streamed text — emit a final, encrypted (signature-only) block.
           const payload: ThinkingDeltaPayload = {
-            id: `${messageId}:${i}`,
+            id: `${messageId}:${blockIndex}`,
             thinking: '',
             encrypted: true,
             final: true,
@@ -323,7 +342,7 @@ export async function consumeQueryOutput(active: ActiveSession): Promise<void> {
         default:
           break;
       }
-    });
+    }
 
     // Track the DB transcript within the live turn — main scope only.
     if (parent === null && active.sdkSessionId) {

@@ -267,7 +267,6 @@ function applyEventToBlocks(
       return applySubagentEvent(blocks, payload, seq);
     }
 
-    case 'step_interrupted':
     case 'turn_end': {
       return blocks.map((b) =>
         (b.kind === 'text' ||
@@ -342,9 +341,9 @@ function applySubagentEvent(blocks: Block[], payload: any, seq: number): Block[]
   const inner = payload.inner as { type: WSMessageType; payload: unknown } | null;
   if (inner) {
     updated.blocks = applyEventToBlocks(updated.blocks, inner.type, inner.payload as any, seq);
-    // A nested turn_end/step_interrupted ends the subagent's own streaming;
-    // any other inner event means it is still active.
-    updated.isStreaming = inner.type !== 'turn_end' && inner.type !== 'step_interrupted';
+    // A nested turn_end ends the subagent's own streaming; any other inner
+    // event means it is still active.
+    updated.isStreaming = inner.type !== 'turn_end';
   }
 
   next[idx] = updated;

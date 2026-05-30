@@ -65,6 +65,7 @@ export async function startQuery(
       abortController,
       canUseTool: buildCanUseTool(active),
       includePartialMessages: true,
+      toolConfig: { askUserQuestion: { previewFormat: 'markdown' } },
       pathToClaudeCodeExecutable,
       env,
       ...permissionOptions(active.approvalMode),

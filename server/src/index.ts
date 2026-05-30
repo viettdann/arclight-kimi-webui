@@ -51,15 +51,14 @@ await mkdir(env.WORKSPACE_ROOT, { recursive: true });
 // longest possible workDir still fits the 1:1 branch.
 const worstCaseWorkDirLen =
   env.WORKSPACE_ROOT.length + 1 + MAX_USER_SLUG_LEN + 1 + MAX_PROJECT_NAME_LEN;
-if (worstCaseWorkDirLen + 1 > MAX_ENCODED_LEN) {
+if (worstCaseWorkDirLen > MAX_ENCODED_LEN) {
   logger.fatal(
     {
       workspaceRoot: env.WORKSPACE_ROOT,
       workspaceRootLen: env.WORKSPACE_ROOT.length,
       worstCaseWorkDirLen,
       maxEncodedLen: MAX_ENCODED_LEN,
-      budgetForWorkspaceRoot:
-        MAX_ENCODED_LEN - 1 - MAX_USER_SLUG_LEN - 1 - MAX_PROJECT_NAME_LEN - 1,
+      budgetForWorkspaceRoot: MAX_ENCODED_LEN - 1 - MAX_USER_SLUG_LEN - 1 - MAX_PROJECT_NAME_LEN,
     },
     'WORKSPACE_ROOT is too long: a worst-case workDir would exceed the encoder 1:1 ' +
       'branch and break transcript-path parity. Shorten WORKSPACE_ROOT.',

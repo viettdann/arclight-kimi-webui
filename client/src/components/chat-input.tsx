@@ -117,7 +117,12 @@ export function ChatInput() {
   const sessionModel = useSessionsStore(
     (s) => s.sessions.find((x) => x.id === sessionId)?.model ?? null,
   );
-  const { id: modelId, label: modelLabel } = resolveModel(sessionModel);
+  // Model picks are local UI state until the user sends (mirrors thinking/approval):
+  // the chosen model rides along with the next `send_message` and the server applies
+  // it via `Query.setModel`. `null` → fall back to the session/default model.
+  const [selectedModel, setSelectedModel] = useState<string | null>(null);
+  // Resolve the chosen model first; otherwise the session's model, otherwise default.
+  const { id: modelId, label: modelLabel } = resolveModel(selectedModel ?? sessionModel);
 
   const session = useChatStore((s) => (sessionId ? s.sessions[sessionId] : null));
   const isTurnInProgress = session?.isTurnInProgress ?? false;
@@ -135,6 +140,13 @@ export function ChatInput() {
   );
 
   const [highlightIdx, setHighlightIdx] = useState(0);
+
+  // Switching sessions drops the pending model override so each session shows its
+  // own model (or the default) rather than a leftover pick from a prior session.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset is keyed on sessionId only.
+  useEffect(() => {
+    setSelectedModel(null);
+  }, [sessionId]);
 
   const query = parseSlashQuery(text);
 
@@ -240,7 +252,13 @@ export function ChatInput() {
     useChatStore.getState().addPendingUserBlock(sessionId, content);
     // Composer flags ride along with the send — no separate message. The server
     // applies them just before spawning the turn and persists only real flips.
-    sendWS('send_message', { content, thinking, approvalMode }, sessionId);
+    // A pending model override is included only when the user picked one; omitted
+    // leaves the session's current model unchanged.
+    sendWS(
+      'send_message',
+      { content, thinking, approvalMode, model: selectedModel ?? undefined },
+      sessionId,
+    );
   };
 
   // Toggles only mutate local store state; the value is committed when the user
@@ -520,6 +538,7 @@ export function ChatInput() {
               {MODELS.map((m) => (
                 <DropdownItem
                   key={m.id}
+                  onClick={() => setSelectedModel(m.id)}
                   icon={<Check className={m.id === modelId ? '' : 'opacity-0'} />}
                 >
                   <span>{m.label}</span>

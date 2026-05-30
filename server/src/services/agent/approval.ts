@@ -53,12 +53,13 @@ export function normalizeQuestions(input: Record<string, unknown>): QuestionItem
     const opts = Array.isArray(options)
       ? options.flatMap((o): QuestionItemDTO['options'][number][] => {
           if (o === null || typeof o !== 'object') return [];
-          const { label, description } = o as RawQuestionOption;
+          const { label, description, preview } = o as RawQuestionOption;
           if (typeof label !== 'string') return [];
           return [
             {
               label,
               ...(typeof description === 'string' ? { description } : {}),
+              ...(typeof preview === 'string' ? { preview } : {}),
             },
           ];
         })
