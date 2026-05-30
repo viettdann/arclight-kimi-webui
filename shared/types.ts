@@ -36,7 +36,6 @@ export type WSMessageType =
   | 'session_created'
   | 'title_update'
   | 'project_adopted'
-  | 'slash_commands'
   | 'clone_progress'
   | 'error'
   // client → server
@@ -182,18 +181,6 @@ export interface QuestionItemDTO {
   multiSelect?: boolean;
 }
 
-/**
- * One slash command available in a session's workDir, mirroring the SDK
- * `SlashCommandInfo` (and `InitializeResult.slash_commands`). Surfaced to the
- * composer picker; sourced from a `query()` probe keyed by `workDir`, and
- * refreshed from the live session's system/init.
- */
-export interface SlashCommand {
-  name: string;
-  description: string;
-  aliases: string[];
-}
-
 // ─────────────────────────── Server → Client payloads ───────────────────────────
 
 export interface SnapshotPayload {
@@ -209,21 +196,10 @@ export interface SnapshotPayload {
    */
   thinking: boolean;
   approvalMode: ApprovalMode;
-  /**
-   * Slash commands available in this session's workDir. Carried in the snapshot
-   * (not only a one-shot event) so the composer picker survives reload/resume.
-   * Empty when the warm-init probe failed or has not run yet.
-   */
-  slashCommands: SlashCommand[];
   live: {
     /** True iff the server still has an in-flight turn for this session. */
     turnInProgress: boolean;
   };
-}
-
-/** Server→client push of the workDir's slash commands (also embedded in snapshot). */
-export interface SlashCommandsPayload {
-  commands: SlashCommand[];
 }
 
 export interface ReplayDonePayload {

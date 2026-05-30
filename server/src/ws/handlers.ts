@@ -39,7 +39,6 @@ import {
   sessionManager as defaultManager,
   type SessionManager,
 } from '../services/session-manager';
-import { getSlashCommands } from '../services/slash-commands-cache';
 import { buildSnapshot } from '../services/snapshot';
 import { deriveProjectName } from '../services/work-dir';
 import { closeAuthExpired } from './close-codes';
@@ -415,13 +414,6 @@ async function handleCreateSession(
 
   // The envelope's sessionId is the signal; the body is empty.
   broadcastEvent<SessionCreatedPayload>(active, 'session_created', {}, deps.manager);
-
-  // Fire-and-forget warm-init: populate the slash-command cache (real probe, no
-  // cacheOnly) and broadcast the result so the freshly created session's picker
-  // is hot without waiting for the first live `system`/`init` message.
-  void getSlashCommands(active.workDir)
-    .then((commands) => broadcastEvent(active, 'slash_commands', { commands }, deps.manager))
-    .catch(() => {});
 
   // Initial snapshot + replay_done to the requesting socket. No query yet — the
   // subprocess is spawned lazily on the first send_message.
