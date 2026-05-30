@@ -34,6 +34,7 @@ import { consumeQueryOutput } from '../services/agent/output-consumer';
 import { startQuery } from '../services/agent/query-runner';
 import { restoreTranscript } from '../services/agent/transcript-store';
 import { adoptProjectForUser, ProjectNotFoundError } from '../services/projects';
+import { defaultSelectionForUser, ProviderUnavailableError } from '../services/providers/resolve';
 import {
   type ActiveSession,
   sessionManager as defaultManager,
@@ -106,6 +107,7 @@ const defaultRestore: RestoreInjection = async (sessionId, mgr, dbh) => {
     userId: row.userId,
     workDir: row.workDir,
     model: row.model,
+    providerId: row.providerId,
     thinking: row.thinking,
     approvalMode: row.approvalMode as ApprovalMode,
   });
@@ -368,6 +370,10 @@ async function handleCreateSession(
     sendError(ws, 'bad_request');
     return;
   }
+  if (payload.providerId !== undefined && typeof payload.providerId !== 'string') {
+    sendError(ws, 'bad_request');
+    return;
+  }
   const workDir = validateWorkDir(ws.data.userSlug, payload.workDir);
   if (workDir === null) {
     sendError(ws, 'bad_request');
@@ -387,7 +393,16 @@ async function handleCreateSession(
   // Thinking is on by default; approvalMode defaults to ask.
   const thinking = payload.thinking ?? true;
   const approvalMode: ApprovalMode = payload.approvalMode ?? 'ask';
-  const model = payload.model ?? null;
+
+  let providerId = typeof payload.providerId === 'string' ? payload.providerId : null;
+  let model = payload.model ?? null;
+  if (!providerId) {
+    const def = await defaultSelectionForUser(deps.db, ws.data.userId);
+    if (def) {
+      providerId = def.providerId;
+      model = def.model;
+    }
+  }
 
   const sessionRowId = randomUUID();
   await deps.db.insert(schema.sessions).values({
@@ -396,6 +411,7 @@ async function handleCreateSession(
     workDir,
     projectName,
     model,
+    providerId,
     thinking,
     approvalMode,
     status: 'active',
@@ -407,6 +423,7 @@ async function handleCreateSession(
     userId: ws.data.userId,
     workDir,
     model,
+    providerId,
     thinking,
     approvalMode,
   });
@@ -492,7 +509,37 @@ async function handleSendMessage(
       .where(eq(schema.sessions.id, sessionId));
   }
 
-  await ensureQuery(active);
+  if (payload.providerId !== undefined && payload.providerId !== active.providerId) {
+    active.providerId = payload.providerId;
+    await deps.db
+      .update(schema.sessions)
+      .set({ providerId: payload.providerId })
+      .where(eq(schema.sessions.id, sessionId));
+    // The subprocess env is fixed at spawn — dispose any live query so ensureQuery
+    // respawns with the new provider's credentials/endpoint.
+    if (active.query) {
+      try {
+        await active.query.interrupt();
+      } catch {
+        /* may already be idle */
+      }
+      active.abortController?.abort();
+      active.bridge?.close();
+      active.query = null;
+      active.abortController = null;
+      active.bridge = null;
+    }
+  }
+
+  try {
+    await ensureQuery(active);
+  } catch (err) {
+    if (err instanceof ProviderUnavailableError) {
+      sendError(ws, 'provider_unset', sessionId, 'No provider selected');
+      return;
+    }
+    throw err;
+  }
 
   // Local slash commands are ephemeral — handled before the bridge, no turn.
   if (await tryHandleSlashCommand(active, payload.content)) return;

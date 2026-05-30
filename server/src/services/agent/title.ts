@@ -1,11 +1,8 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
+import { LIGHT_MODEL } from 'shared/types/providers';
 import { logger } from '../../lib/logger';
-import { buildAgentEnv } from './env';
 
 const log = logger.child({ module: 'agent/title' });
-
-/** Model used for cheap, fast title generation. */
-const TITLE_MODEL = 'claude-haiku-4-5-20251001';
 
 /** Cap the prompt input so a huge first message can't blow up the request. */
 const MAX_INPUT_CHARS = 500;
@@ -46,9 +43,10 @@ function cleanTitle(raw: string): string | null {
  * out, or yields an empty/invalid title. The caller persists the title; this
  * never touches the SDK's session store.
  */
-export async function generateTitle(firstUserMessage: string): Promise<string | null> {
-  const env = await buildAgentEnv();
-
+export async function generateTitle(
+  firstUserMessage: string,
+  env: Record<string, string>,
+): Promise<string | null> {
   const description =
     firstUserMessage.length > MAX_INPUT_CHARS
       ? `${firstUserMessage.slice(0, MAX_INPUT_CHARS)}…`
@@ -62,7 +60,7 @@ export async function generateTitle(firstUserMessage: string): Promise<string | 
     const q = query({
       prompt,
       options: {
-        model: TITLE_MODEL,
+        model: LIGHT_MODEL,
         env,
         abortController,
         permissionMode: 'dontAsk',

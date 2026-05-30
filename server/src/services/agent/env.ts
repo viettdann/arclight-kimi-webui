@@ -1,6 +1,4 @@
-import type { ClaudeProvider } from 'shared/types/config';
 import { env } from '../../env';
-import { getConfig } from '../config';
 
 /**
  * Whitelist of env vars safe to forward to the SDK subprocess. `options.env`
@@ -34,50 +32,34 @@ export function pickSafeEnv(
   return out;
 }
 
-/**
- * The provider auth config in its resolved, plaintext form. Empty string means
- * "unset" for any field. The `/test` route also builds this from a draft
- * override merged over the saved values.
- */
-export interface ProviderAuthConfig {
-  provider: ClaudeProvider;
-  oauthToken: string;
-  baseUrl: string;
-  authToken: string;
-  model: string;
-}
-
-/** Resolve the saved provider config from the DB > ENV > default chain. */
-export async function resolveSavedProviderConfig(): Promise<ProviderAuthConfig> {
-  const provider = (await getConfig('CLAUDE_PROVIDER')) === 'api' ? 'api' : 'oauth';
-  return {
-    provider,
-    oauthToken: (await getConfig('CLAUDE_CODE_OAUTH_TOKEN')) ?? '',
-    baseUrl: (await getConfig('ANTHROPIC_BASE_URL')) ?? '',
-    authToken: (await getConfig('ANTHROPIC_AUTH_TOKEN')) ?? '',
-    model: (await getConfig('ANTHROPIC_MODEL')) ?? '',
-  };
+/** Resolved provider fields needed to build a subprocess env. A ProviderRow is
+ *  assignable to this — `type` is `string` so no cast is needed at call sites. */
+export interface ProviderEnvInput {
+  type: string;
+  baseUrl: string | null;
+  token: string;
 }
 
 /**
- * Build the env map for the SDK subprocess from a resolved provider config.
- * Baseline safe keys plus the provider-specific auth vars. Empty/undefined
- * values are stripped, so we never hand the subprocess a blank token (which
- * would let the `claude` binary silently fall back to ambient credentials).
- * Since `options.env` replaces process.env, the baseline is always included.
+ * Build the env map for the SDK subprocess from a provider row (or equivalent
+ * input). Synchronous — no DB or config reads. Empty/undefined values are
+ * stripped so the subprocess never receives a blank token.
+ *
+ * `options.env` replaces process.env entirely, so the safe baseline is always
+ * included. ANTHROPIC_MODEL is intentionally omitted — it is passed via query
+ * options at call sites.
  */
-export function envFromProviderConfig(cfg: ProviderAuthConfig): Record<string, string> {
+export function buildAgentEnv(provider: ProviderEnvInput): Record<string, string> {
   const base: Record<string, string> = {
     ...pickSafeEnv(),
     CLAUDE_CONFIG_DIR: env.CLAUDE_CONFIG_DIR,
   };
 
-  if (cfg.provider === 'api') {
-    base.ANTHROPIC_BASE_URL = cfg.baseUrl;
-    base.ANTHROPIC_AUTH_TOKEN = cfg.authToken;
-    base.ANTHROPIC_MODEL = cfg.model;
+  if (provider.type === 'api') {
+    if (provider.baseUrl) base.ANTHROPIC_BASE_URL = provider.baseUrl;
+    base.ANTHROPIC_AUTH_TOKEN = provider.token;
   } else {
-    base.CLAUDE_CODE_OAUTH_TOKEN = cfg.oauthToken;
+    base.CLAUDE_CODE_OAUTH_TOKEN = provider.token;
   }
 
   const result: Record<string, string> = {};
@@ -85,9 +67,4 @@ export function envFromProviderConfig(cfg: ProviderAuthConfig): Record<string, s
     if (value) result[key] = value;
   }
   return result;
-}
-
-/** Env map for the agent subprocess, built from the saved provider config. */
-export async function buildAgentEnv(): Promise<Record<string, string>> {
-  return envFromProviderConfig(await resolveSavedProviderConfig());
 }

@@ -1,246 +1,641 @@
-import { useRef, useState } from 'react';
-import { CLAUDE_PROVIDERS, type ClaudeProvider, isClaudeProvider } from 'shared/types/config';
+import { Check, Pencil, Plus, Trash2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import type {
+  ProviderDTO,
+  ProviderModelInput,
+  ProviderTestResponse,
+  Visibility,
+} from 'shared/types/providers';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Section } from '@/components/ui/section';
-import { useConfigStore } from '../../lib/config-store';
+import {
+  createBuiltinProvider,
+  deleteBuiltinProvider,
+  listBuiltinProviders,
+  testBuiltinProvider,
+  updateBuiltinProvider,
+} from '../../api/providers';
 import { cn } from '../../lib/utils';
-import { PanelSaveBar } from './panel-save-bar';
+import { SecretField } from './secret-field';
 
-/** Config keys owned by this panel — saved/discarded as one cluster. */
-const PROVIDER_KEYS = [
-  'CLAUDE_PROVIDER',
-  'CLAUDE_CODE_OAUTH_TOKEN',
-  'ANTHROPIC_BASE_URL',
-  'ANTHROPIC_AUTH_TOKEN',
-  'ANTHROPIC_MODEL',
-];
+// ── Types ────────────────────────────────────────────────────────────────────
 
-const PROVIDER_LABELS: Record<ClaudeProvider, string> = {
-  oauth: 'Claude OAuth token',
-  api: 'Anthropic API',
-};
+interface ProviderFormState {
+  namespace: string;
+  baseUrl: string;
+  /** Plaintext token draft, or null when editing and the user hasn't replaced it yet. */
+  token: string | null;
+  visibility: Visibility;
+  /** Models selected for this provider. */
+  models: ProviderModelInput[];
+  /** Whether the current form session has a successful test result. */
+  tested: boolean;
+  testResult: ProviderTestResponse | null;
+  testing: boolean;
+}
 
-const PROVIDER_HINTS: Record<ClaudeProvider, string> = {
-  oauth: 'Authenticate with a Claude Code OAuth token (from `claude setup-token`).',
-  api: 'Authenticate against an Anthropic-compatible endpoint with an auth token.',
-};
+function emptyForm(): ProviderFormState {
+  return {
+    namespace: '',
+    baseUrl: '',
+    token: null,
+    visibility: 'private',
+    models: [],
+    tested: false,
+    testResult: null,
+    testing: false,
+  };
+}
+
+function formFromProvider(p: ProviderDTO): ProviderFormState {
+  return {
+    namespace: p.namespace,
+    baseUrl: p.baseUrl ?? '',
+    token: null, // null = keep existing secret
+    visibility: p.visibility ?? 'private',
+    models: p.models.map((m) => ({
+      modelId: m.modelId,
+      displayName: m.displayName,
+      contextWindow: m.contextWindow,
+      isDefault: m.isDefault,
+    })),
+    tested: false,
+    testResult: null,
+    testing: false,
+  };
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
 
 export function ProviderPanel() {
-  const loadStatus = useConfigStore((s) => s.loadStatus);
-  const settings = useConfigStore((s) => s.settings);
-  // Subscribe to `drafts` so the panel re-renders on every staged edit. `getValue`
-  // is a stable ref and reads draft-first, but without subscribing to the slice it
-  // mutates, the radios/inputs below would never reflect a change.
-  const drafts = useConfigStore((s) => s.drafts);
-  const getValue = useConfigStore((s) => s.getValue);
-  const setDraft = useConfigStore((s) => s.setDraft);
-  const testing = useConfigStore((s) => s.testing);
-  const test = useConfigStore((s) => s.test);
+  const [providers, setProviders] = useState<ProviderDTO[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  if (loadStatus !== 'ready') return <PanelSkeleton />;
+  /** Which provider is being edited (by id), or 'new' for the add form, or null. */
+  const [editing, setEditing] = useState<string | 'new' | null>(null);
+  const [form, setForm] = useState<ProviderFormState>(emptyForm);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
-  const providerRaw = drafts.CLAUDE_PROVIDER ?? settings.CLAUDE_PROVIDER?.value;
-  const provider: ClaudeProvider = isClaudeProvider(providerRaw) ? providerRaw : 'oauth';
+  /** Manual model id input for when test returns no models. */
+  const [manualModelId, setManualModelId] = useState('');
+
+  async function load() {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const { providers: list } = await listBuiltinProviders();
+      setProviders(list);
+    } catch (e) {
+      setLoadError(e instanceof Error ? e.message : 'Failed to load providers');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: one-shot on mount
+  useEffect(() => {
+    void load();
+  }, []);
+
+  function startAdd() {
+    setEditing('new');
+    setForm(emptyForm());
+    setSaveError(null);
+    setManualModelId('');
+  }
+
+  function startEdit(p: ProviderDTO) {
+    setEditing(p.id);
+    setForm(formFromProvider(p));
+    setSaveError(null);
+    setManualModelId('');
+  }
+
+  function cancelEdit() {
+    setEditing(null);
+    setSaveError(null);
+  }
+
+  function patchForm(patch: Partial<ProviderFormState>) {
+    // Changing any credential field invalidates a previous test result.
+    const credentialChanged = 'baseUrl' in patch || 'token' in patch;
+    setForm((prev) => ({
+      ...prev,
+      ...patch,
+      ...(credentialChanged ? { tested: false, testResult: null } : {}),
+    }));
+  }
+
+  async function handleTest() {
+    patchForm({ testing: true, testResult: null });
+    const editingProvider = editing !== 'new' ? providers.find((p) => p.id === editing) : undefined;
+    try {
+      const res = await testBuiltinProvider({
+        type: 'api',
+        baseUrl: form.baseUrl || null,
+        token: form.token, // null = reuse saved secret
+        providerId: editingProvider?.id ?? null,
+      });
+      setForm((prev) => ({
+        ...prev,
+        testing: false,
+        testResult: res,
+        tested: res.ok,
+        // Auto-populate models from test result (replace existing draft).
+        models:
+          res.ok && res.availableModels && res.availableModels.length > 0
+            ? res.availableModels.map((m, i) => ({
+                modelId: m.id,
+                displayName: m.displayName,
+                contextWindow: m.contextWindow,
+                isDefault: i === 0,
+              }))
+            : prev.models,
+      }));
+    } catch (e) {
+      setForm((prev) => ({
+        ...prev,
+        testing: false,
+        testResult: { ok: false, error: e instanceof Error ? e.message : 'Test failed' },
+        tested: false,
+      }));
+    }
+  }
+
+  function toggleModelDefault(modelId: string) {
+    setForm((prev) => ({
+      ...prev,
+      models: prev.models.map((m) => ({ ...m, isDefault: m.modelId === modelId })),
+    }));
+  }
+
+  function toggleModelSelected(
+    modelId: string,
+    displayName: string | null,
+    contextWindow: number | null,
+  ) {
+    setForm((prev) => {
+      const exists = prev.models.some((m) => m.modelId === modelId);
+      if (exists) {
+        const next = prev.models.filter((m) => m.modelId !== modelId);
+        // Ensure at least one default.
+        if (next.length > 0 && !next.some((m) => m.isDefault)) {
+          const first = next[0];
+          if (first) next[0] = { ...first, isDefault: true };
+        }
+        return { ...prev, models: next };
+      }
+      return {
+        ...prev,
+        models: [
+          ...prev.models,
+          { modelId, displayName, contextWindow, isDefault: prev.models.length === 0 },
+        ],
+      };
+    });
+  }
+
+  function addManualModel() {
+    const id = manualModelId.trim();
+    if (!id) return;
+    toggleModelSelected(id, null, null);
+    setManualModelId('');
+  }
+
+  async function handleSave() {
+    if (editing === null) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      if (editing === 'new') {
+        const token = form.token ?? '';
+        if (!token) {
+          setSaveError('Token is required for a new provider.');
+          setSaving(false);
+          return;
+        }
+        const created = await createBuiltinProvider({
+          type: 'api',
+          namespace: form.namespace,
+          baseUrl: form.baseUrl || null,
+          token,
+          visibility: form.visibility,
+          models: form.models,
+        });
+        setProviders((prev) => [...prev, created]);
+      } else {
+        const updated = await updateBuiltinProvider(editing, {
+          namespace: form.namespace,
+          baseUrl: form.baseUrl || null,
+          token: form.token, // null = keep existing
+          visibility: form.visibility,
+          models: form.models,
+        });
+        setProviders((prev) => prev.map((p) => (p.id === editing ? updated : p)));
+      }
+      setEditing(null);
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : 'Save failed');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete(id: string) {
+    try {
+      await deleteBuiltinProvider(id);
+      setProviders((prev) => prev.filter((p) => p.id !== id));
+      if (editing === id) setEditing(null);
+    } catch (e) {
+      // Surface as inline error rather than crashing.
+      setLoadError(e instanceof Error ? e.message : 'Delete failed');
+    }
+  }
+
+  async function handleVisibilityToggle(p: ProviderDTO) {
+    const next: Visibility = p.visibility === 'public' ? 'private' : 'public';
+    try {
+      const updated = await updateBuiltinProvider(p.id, { visibility: next });
+      setProviders((prev) => prev.map((x) => (x.id === p.id ? updated : x)));
+    } catch {
+      // swallow — no toast infra in this panel
+    }
+  }
+
+  if (loading) return <PanelSkeleton />;
 
   return (
     <div className="space-y-6">
-      <Section title="Provider" description="How the agent authenticates with Claude.">
-        <div className="space-y-2">
-          <Label>Auth mode</Label>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-            {CLAUDE_PROVIDERS.map((p) => (
-              <label
-                key={p}
-                className={cn(
-                  'flex items-start gap-3 rounded-md border px-3 py-2.5 cursor-pointer transition-colors',
-                  provider === p
-                    ? 'border-primary bg-primary/5'
-                    : 'border-border bg-background hover:bg-muted/40',
-                )}
-              >
-                <input
-                  type="radio"
-                  name="claude-provider"
-                  value={p}
-                  checked={provider === p}
-                  onChange={() => setDraft('CLAUDE_PROVIDER', p)}
-                  className="mt-0.5"
-                />
-                <div className="flex flex-col">
-                  <span className="text-sm font-medium">{PROVIDER_LABELS[p]}</span>
-                  <span className="text-xs text-muted-foreground mt-0.5">{PROVIDER_HINTS[p]}</span>
-                </div>
-              </label>
-            ))}
-          </div>
-        </div>
-      </Section>
-
-      {provider === 'oauth' ? (
-        <Section title="Credentials" description="Claude Code OAuth token.">
-          <SecretField
-            id="oauth-token"
-            label="OAuth token"
-            settingKey="CLAUDE_CODE_OAUTH_TOKEN"
-            isSet={settings.CLAUDE_CODE_OAUTH_TOKEN?.isSet ?? false}
-            getValue={getValue}
-            setDraft={setDraft}
-            placeholder="Enter Claude OAuth token"
-          />
-        </Section>
-      ) : (
-        <Section title="Credentials" description="Anthropic-compatible endpoint.">
-          <div className="space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="base-url">Base URL</Label>
-              <Input
-                id="base-url"
-                value={getValue('ANTHROPIC_BASE_URL')}
-                placeholder="https://api.anthropic.com"
-                onChange={(e) => setDraft('ANTHROPIC_BASE_URL', e.target.value)}
-              />
-            </div>
-            <SecretField
-              id="auth-token"
-              label="Auth token"
-              settingKey="ANTHROPIC_AUTH_TOKEN"
-              isSet={settings.ANTHROPIC_AUTH_TOKEN?.isSet ?? false}
-              getValue={getValue}
-              setDraft={setDraft}
-              placeholder="Enter Anthropic auth token"
-            />
-            <div className="space-y-1.5">
-              <Label htmlFor="anthropic-model">Model</Label>
-              <Input
-                id="anthropic-model"
-                value={getValue('ANTHROPIC_MODEL')}
-                placeholder="claude-sonnet-4-6"
-                onChange={(e) => setDraft('ANTHROPIC_MODEL', e.target.value)}
-              />
-            </div>
-          </div>
-        </Section>
-      )}
-
-      <PanelSaveBar keys={PROVIDER_KEYS} />
+      {loadError && <p className="text-sm text-destructive">{loadError}</p>}
 
       <Section
-        title="Test connection"
-        description="Run a one-shot query to validate the current saved credentials."
+        title="Built-in Providers"
+        description="API providers available to all users. Type is always API."
+        actions={
+          editing !== 'new' && (
+            <Button type="button" variant="outline" size="sm" onClick={startAdd}>
+              <Plus className="h-3.5 w-3.5 mr-1" />
+              Add provider
+            </Button>
+          )
+        }
       >
-        <div className="flex items-center gap-3">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={testing}
-            onClick={() => void test()}
-          >
-            {testing ? 'Testing…' : 'Test connection'}
-          </Button>
-          <TestResult />
-        </div>
+        {providers.length === 0 && editing !== 'new' && (
+          <p className="text-sm text-muted-foreground">No built-in providers configured.</p>
+        )}
+
+        {providers.length > 0 && (
+          <ul className="space-y-2">
+            {providers.map((p) => (
+              <li
+                key={p.id}
+                className={cn(
+                  'rounded-md border border-border bg-muted/30 px-3 py-2',
+                  editing === p.id && 'border-primary bg-primary/5',
+                )}
+              >
+                {editing === p.id ? (
+                  <ProviderForm
+                    form={form}
+                    patchForm={patchForm}
+                    onTest={handleTest}
+                    onSave={handleSave}
+                    onCancel={cancelEdit}
+                    onToggleModelDefault={toggleModelDefault}
+                    onToggleModelSelected={toggleModelSelected}
+                    manualModelId={manualModelId}
+                    onManualModelIdChange={setManualModelId}
+                    onAddManualModel={addManualModel}
+                    saving={saving}
+                    saveError={saveError}
+                    isEdit
+                    existingProvider={p}
+                  />
+                ) : (
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <span className="text-sm font-medium font-mono">{p.namespace}</span>
+                      <span className="ml-2 text-xs text-muted-foreground">
+                        {p.models.length} model{p.models.length !== 1 ? 's' : ''}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => void handleVisibilityToggle(p)}
+                        className={cn(
+                          'rounded-full px-2 py-0.5 text-xs font-medium border transition-colors cursor-pointer',
+                          p.visibility === 'public'
+                            ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                            : 'border-border bg-muted text-muted-foreground hover:bg-muted/70',
+                        )}
+                        title="Toggle visibility"
+                      >
+                        {p.visibility === 'public' ? 'Public' : 'Private'}
+                      </button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        onClick={() => startEdit(p)}
+                        title="Edit provider"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        className="text-destructive hover:text-destructive"
+                        onClick={() => void handleDelete(p.id)}
+                        title="Remove provider"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {editing === 'new' && (
+          <div className="rounded-md border border-primary bg-primary/5 px-3 py-3 mt-2">
+            <p className="text-xs font-semibold text-foreground mb-3">New provider</p>
+            <ProviderForm
+              form={form}
+              patchForm={patchForm}
+              onTest={handleTest}
+              onSave={handleSave}
+              onCancel={cancelEdit}
+              onToggleModelDefault={toggleModelDefault}
+              onToggleModelSelected={toggleModelSelected}
+              manualModelId={manualModelId}
+              onManualModelIdChange={setManualModelId}
+              onAddManualModel={addManualModel}
+              saving={saving}
+              saveError={saveError}
+              isEdit={false}
+            />
+          </div>
+        )}
       </Section>
     </div>
   );
 }
 
-function TestResult() {
-  const testResult = useConfigStore((s) => s.testResult);
-  if (!testResult) return null;
+// ── Form sub-component ────────────────────────────────────────────────────────
 
-  // Always spell out what ran: provider (OAuth / API key) and mode (saved / draft).
-  const parts: string[] = [];
-  if (testResult.provider) parts.push(testResult.provider === 'oauth' ? 'OAuth' : 'API key');
-  if (testResult.mode) parts.push(testResult.mode === 'draft' ? 'unsaved draft' : 'saved config');
-  const scope = parts.length > 0 ? ` — tested ${parts.join(' · ')}` : '';
+interface ProviderFormProps {
+  form: ProviderFormState;
+  patchForm: (patch: Partial<ProviderFormState>) => void;
+  onTest: () => void;
+  onSave: () => void;
+  onCancel: () => void;
+  onToggleModelDefault: (modelId: string) => void;
+  onToggleModelSelected: (
+    modelId: string,
+    displayName: string | null,
+    contextWindow: number | null,
+  ) => void;
+  manualModelId: string;
+  onManualModelIdChange: (v: string) => void;
+  onAddManualModel: () => void;
+  saving: boolean;
+  saveError: string | null;
+  isEdit: boolean;
+  existingProvider?: ProviderDTO;
+}
 
-  return testResult.ok ? (
-    <span className="text-sm text-emerald-600 dark:text-emerald-400">Connection OK{scope}</span>
-  ) : (
-    <span className="text-sm text-destructive">
-      {testResult.error ?? 'Connection failed'}
-      {scope}
-    </span>
+function ProviderForm({
+  form,
+  patchForm,
+  onTest,
+  onSave,
+  onCancel,
+  onToggleModelDefault,
+  onToggleModelSelected,
+  manualModelId,
+  onManualModelIdChange,
+  onAddManualModel,
+  saving,
+  saveError,
+  isEdit,
+  existingProvider,
+}: ProviderFormProps) {
+  const availableFromTest = form.testResult?.availableModels ?? [];
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="space-y-1.5">
+          <Label htmlFor="pf-namespace">Namespace</Label>
+          <Input
+            id="pf-namespace"
+            value={form.namespace}
+            placeholder="e.g. anthropic"
+            onChange={(e) => patchForm({ namespace: e.target.value })}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="pf-base-url">Base URL</Label>
+          <Input
+            id="pf-base-url"
+            value={form.baseUrl}
+            placeholder="https://api.anthropic.com"
+            onChange={(e) => patchForm({ baseUrl: e.target.value })}
+          />
+        </div>
+      </div>
+
+      <SecretField
+        id="pf-token"
+        label="Auth token"
+        masked={existingProvider?.tokenMasked ?? ''}
+        isSet={isEdit && !!existingProvider}
+        value={form.token}
+        onChange={(v) => patchForm({ token: v })}
+        placeholder="Enter API token"
+      />
+
+      <div className="flex items-center gap-2">
+        <Label className="shrink-0">Visibility</Label>
+        <button
+          type="button"
+          onClick={() =>
+            patchForm({ visibility: form.visibility === 'public' ? 'private' : 'public' })
+          }
+          className={cn(
+            'rounded-full px-2.5 py-0.5 text-xs font-medium border transition-colors cursor-pointer',
+            form.visibility === 'public'
+              ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+              : 'border-border bg-muted text-muted-foreground hover:bg-muted/70',
+          )}
+        >
+          {form.visibility === 'public' ? 'Public' : 'Private'}
+        </button>
+      </div>
+
+      {/* Test button */}
+      <div className="flex items-center gap-3">
+        <Button type="button" variant="outline" size="sm" disabled={form.testing} onClick={onTest}>
+          {form.testing ? 'Testing…' : 'Test connection'}
+        </Button>
+        {form.testResult && (
+          <span
+            className={
+              form.testResult.ok
+                ? 'text-sm text-emerald-600 dark:text-emerald-400'
+                : 'text-sm text-destructive'
+            }
+          >
+            {form.testResult.ok
+              ? `OK · ${availableFromTest.length > 0 ? `${availableFromTest.length} model${availableFromTest.length !== 1 ? 's' : ''} found` : 'no models returned'}`
+              : (form.testResult.error ?? 'Connection failed')}
+          </span>
+        )}
+      </div>
+
+      {/* Model selection — shown after a successful test OR if editing with existing models */}
+      {(form.tested || (isEdit && form.models.length > 0)) && (
+        <ModelChecklist
+          availableModels={availableFromTest}
+          selectedModels={form.models}
+          onToggleSelected={onToggleModelSelected}
+          onToggleDefault={onToggleModelDefault}
+          manualModelId={manualModelId}
+          onManualModelIdChange={onManualModelIdChange}
+          onAddManualModel={onAddManualModel}
+        />
+      )}
+
+      {saveError && <p className="text-sm text-destructive">{saveError}</p>}
+
+      <div className="flex items-center justify-end gap-2">
+        <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button
+          type="button"
+          variant="default"
+          size="sm"
+          disabled={saving || !form.tested}
+          onClick={onSave}
+          title={!form.tested ? 'Run a successful test first' : undefined}
+        >
+          {saving ? 'Saving…' : 'Save'}
+        </Button>
+      </div>
+    </div>
   );
 }
 
-/**
- * Secret field with mask → replace → reveal flow. When the value is already set
- * server-side, shows a masked placeholder until the user clicks Replace, which
- * stages a new plaintext value. Cancel reverts to "leave unchanged" (null).
- */
-function SecretField({
-  id,
-  label,
-  settingKey,
-  isSet,
-  getValue,
-  setDraft,
-  placeholder,
-}: {
-  id: string;
-  label: string;
-  settingKey: string;
-  isSet: boolean;
-  getValue: (key: string) => string;
-  setDraft: (key: string, value: string | null) => void;
-  placeholder?: string;
-}) {
-  const clearDraft = useConfigStore((s) => s.clearDraft);
-  const drafts = useConfigStore((s) => s.drafts);
-  // True once the user has staged a new value (draft holds a string, not null).
-  const editing = typeof drafts[settingKey] === 'string';
-  const [reveal, setReveal] = useState(false);
-  const masked = useRef(getValue(settingKey)); // server-masked string for display
+// ── Model checklist ────────────────────────────────────────────────────────────
 
-  function enterReplace() {
-    setDraft(settingKey, '');
-    setReveal(true);
-  }
+interface ModelChecklistProps {
+  availableModels: { id: string; displayName: string | null; contextWindow: number | null }[];
+  selectedModels: ProviderModelInput[];
+  onToggleSelected: (
+    modelId: string,
+    displayName: string | null,
+    contextWindow: number | null,
+  ) => void;
+  onToggleDefault: (modelId: string) => void;
+  manualModelId: string;
+  onManualModelIdChange: (v: string) => void;
+  onAddManualModel: () => void;
+}
 
-  function cancelReplace() {
-    clearDraft(settingKey);
-    setReveal(false);
-  }
+function ModelChecklist({
+  availableModels,
+  selectedModels,
+  onToggleSelected,
+  onToggleDefault,
+  manualModelId,
+  onManualModelIdChange,
+  onAddManualModel,
+}: ModelChecklistProps) {
+  // Union of available-from-test and already-selected.
+  const displayIds = new Set([
+    ...availableModels.map((m) => m.id),
+    ...selectedModels.map((m) => m.modelId),
+  ]);
 
   return (
-    <div className="space-y-1.5">
-      <Label htmlFor={id}>{label}</Label>
+    <div className="space-y-2">
+      <Label>Models</Label>
+      <div className="rounded-md border border-border divide-y divide-border max-h-48 overflow-y-auto">
+        {[...displayIds].map((modelId) => {
+          const avail = availableModels.find((m) => m.id === modelId);
+          const sel = selectedModels.find((m) => m.modelId === modelId);
+          const checked = !!sel;
+          return (
+            <label
+              key={modelId}
+              className="flex items-center gap-3 px-3 py-1.5 cursor-pointer hover:bg-muted/40"
+            >
+              <input
+                type="checkbox"
+                checked={checked}
+                onChange={() =>
+                  onToggleSelected(
+                    modelId,
+                    avail?.displayName ?? null,
+                    avail?.contextWindow ?? null,
+                  )
+                }
+                className="h-3.5 w-3.5"
+              />
+              <span className="flex-1 text-sm font-mono">{avail?.displayName ?? modelId}</span>
+              {checked && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    onToggleDefault(modelId);
+                  }}
+                  className={cn(
+                    'flex items-center gap-1 rounded px-1.5 py-0.5 text-xs transition-colors',
+                    sel?.isDefault
+                      ? 'bg-primary/10 text-primary font-medium'
+                      : 'text-muted-foreground hover:bg-muted',
+                  )}
+                  title="Set as default"
+                >
+                  {sel?.isDefault && <Check className="h-3 w-3" />}
+                  {sel?.isDefault ? 'Default' : 'Set default'}
+                </button>
+              )}
+            </label>
+          );
+        })}
+        {displayIds.size === 0 && (
+          <p className="px-3 py-2 text-xs text-muted-foreground">
+            No models from test — add manually below.
+          </p>
+        )}
+      </div>
+      {/* Manual add row (always shown) */}
       <div className="flex gap-2">
-        {editing ? (
-          <Input
-            id={id}
-            type={reveal ? 'text' : 'password'}
-            value={getValue(settingKey)}
-            placeholder={placeholder}
-            autoFocus
-            onChange={(e) => setDraft(settingKey, e.target.value)}
-          />
-        ) : (
-          <Input
-            id={id}
-            type="text"
-            value={isSet ? masked.current : ''}
-            readOnly
-            placeholder={isSet ? undefined : '(not configured)'}
-            className="font-mono"
-          />
-        )}
-        {editing && (
-          <Button type="button" variant="outline" size="sm" onClick={() => setReveal((v) => !v)}>
-            {reveal ? 'Hide' : 'Show'}
-          </Button>
-        )}
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => (editing ? cancelReplace() : enterReplace())}
-        >
-          {editing ? 'Cancel' : isSet ? 'Replace' : 'Set'}
+        <Input
+          value={manualModelId}
+          onChange={(e) => onManualModelIdChange(e.target.value)}
+          placeholder="Add model id manually…"
+          className="text-sm"
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              onAddManualModel();
+            }
+          }}
+        />
+        <Button type="button" variant="outline" size="sm" onClick={onAddManualModel}>
+          Add
         </Button>
       </div>
     </div>

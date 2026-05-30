@@ -1,14 +1,10 @@
-import { useEffect } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router';
-import { showToast } from '../../components/toast-provider';
-import { useConfigStore } from '../../lib/config-store';
 import { cn } from '../../lib/utils';
 
 interface NavItem {
   to: string;
   label: string;
   description: string;
-  end?: boolean;
   /** Hide the config header (for non-config sub-routes). */
   hideEditChrome?: boolean;
 }
@@ -20,7 +16,7 @@ const NAV_ITEMS: NavItem[] = [
     description: 'System info & status',
     hideEditChrome: true,
   },
-  { to: 'claude', label: 'Claude', description: 'Provider, models & defaults' },
+  { to: 'claude', label: 'Claude', description: 'Providers & defaults' },
   {
     to: 'access',
     label: 'Members & access',
@@ -30,27 +26,9 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 export function SettingsView() {
-  const loadStatus = useConfigStore((s) => s.loadStatus);
-  const loadError = useConfigStore((s) => s.loadError);
-  const load = useConfigStore((s) => s.load);
-
   const { pathname } = useLocation();
   const activeNav = NAV_ITEMS.find((item) => pathname.startsWith(`/settings/${item.to}`));
   const showEditChrome = activeNav?.hideEditChrome !== true;
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: one-shot on mount
-  useEffect(() => {
-    if (loadStatus === 'idle' || loadStatus === 'error') {
-      void load();
-    }
-  }, []);
-
-  // Surface load errors via toast (banner was removed).
-  useEffect(() => {
-    if (loadStatus === 'error' && loadError) {
-      showToast({ message: `Failed to load configuration: ${loadError}`, type: 'error' });
-    }
-  }, [loadStatus, loadError]);
 
   return (
     <div className="flex min-h-0 flex-1 overflow-hidden">
@@ -114,13 +92,7 @@ export function SettingsView() {
 
         {/* Active panel */}
         <div className="flex-1 overflow-y-auto px-4 md:px-6 py-6">
-          {loadStatus === 'loading' || loadStatus === 'idle' ? (
-            <div className="flex items-center justify-center py-16">
-              <div className="h-7 w-7 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-            </div>
-          ) : (
-            <Outlet />
-          )}
+          <Outlet />
         </div>
       </div>
     </div>

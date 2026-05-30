@@ -9,12 +9,14 @@ import { env } from './env';
 import { auditLog, logger } from './lib/logger';
 import { MAX_PROJECT_NAME_LEN } from './lib/slug';
 import { createAccessRouter } from './routes/access';
-import { createConfigRouter } from './routes/config';
 import filesRoutes from './routes/files';
 import { createGitCredentialsRouter } from './routes/git-credentials';
 import { createMeRouter } from './routes/me';
+import { createMeProvidersRouter } from './routes/me-providers';
 import { createOverviewRouter } from './routes/overview';
 import projectsRoutes from './routes/projects';
+import { createProvidersRouter } from './routes/providers';
+import { createProvidersAvailableRouter } from './routes/providers-available';
 import { createSessionsRouter } from './routes/sessions';
 import { ensureClaudeOnboarding } from './services/agent/onboarding';
 import { MAX_ENCODED_LEN } from './services/agent/transcript-store';
@@ -85,6 +87,8 @@ app.use('/api/files/*', requireAllowed);
 app.use('/api/projects/*', requireAllowed);
 app.use('/api/sessions/*', requireAllowed);
 app.use('/api/git-credentials/*', requireAllowed);
+app.use('/api/me-providers/*', requireAllowed);
+app.use('/api/providers/*', requireAllowed);
 
 const startedAt = new Date();
 
@@ -97,8 +101,10 @@ app.route(
 app.route('/api/files', filesRoutes);
 app.route('/api/projects', projectsRoutes);
 app.route('/api/sessions', createSessionsRouter({ db, manager: sessionManager, auditLog, env }));
-app.route('/api/config', createConfigRouter({ db }));
 app.route('/api/git-credentials', createGitCredentialsRouter({ db }));
+app.route('/api/me-providers', createMeProvidersRouter({ db }));
+app.route('/api/providers', createProvidersAvailableRouter({ db }));
+app.route('/api/admin/providers', createProvidersRouter({ db }));
 
 // SPA mount — registered AFTER all /api routes so API paths match earlier
 // handlers; the catchall only fires for client-side router paths. Assets are

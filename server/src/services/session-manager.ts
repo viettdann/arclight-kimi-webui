@@ -56,6 +56,7 @@ export interface ActiveSession {
   /** Streaming-input queue feeding `query({ prompt: bridge.iterable })`. */
   bridge: MessageBridge | null;
   model: string | null;
+  providerId: string | null;
   thinking: boolean;
   approvalMode: ApprovalMode;
   /** True while a query is consuming/emitting for this session. */
@@ -89,6 +90,7 @@ export interface RegisterArgs {
   userId: string;
   workDir: string;
   model?: string | null;
+  providerId?: string | null;
   thinking?: boolean;
   approvalMode?: ApprovalMode;
 }
@@ -116,6 +118,7 @@ export class SessionManager {
       abortController: null,
       bridge: null,
       model: args.model ?? null,
+      providerId: args.providerId ?? null,
       thinking: args.thinking ?? false,
       approvalMode: args.approvalMode ?? 'ask',
       turnInProgress: false,

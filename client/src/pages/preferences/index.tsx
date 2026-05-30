@@ -13,6 +13,11 @@ const NAV_ITEMS: NavItem[] = [
     label: 'Git credentials',
     description: 'Tokens for cloning repos',
   },
+  {
+    to: 'providers',
+    label: 'Providers',
+    description: 'Your model providers (OAuth or API)',
+  },
 ];
 
 export function PreferencesView() {

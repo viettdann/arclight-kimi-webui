@@ -1,19 +1,10 @@
-import { beforeEach, describe, expect, it, mock } from 'bun:test';
+import { describe, expect, it } from 'bun:test';
 import { env } from '../../src/env';
+import { buildAgentEnv, pickSafeEnv, SAFE_ENV_KEYS } from '../../src/services/agent/env';
 
-// `buildAgentEnv` resolves the provider + auth vars through `getConfig`. Mock it
-// so the test drives the provider switch without a DB; each test mutates `cfg`.
-// One file = one process (isolated runner), so this module mock never bleeds.
-const cfg: Record<string, string | undefined> = {};
-mock.module('../../src/services/config', () => ({
-  getConfig: async (key: string) => cfg[key],
-}));
-
-const { buildAgentEnv, pickSafeEnv, SAFE_ENV_KEYS } = await import('../../src/services/agent/env');
-
-function resetCfg(): void {
-  for (const k of Object.keys(cfg)) delete cfg[k];
-}
+// `buildAgentEnv` is now a pure, synchronous mapping from a resolved provider
+// row to the subprocess env. No DB/getConfig involved — provider resolution
+// happens upstream (resolve.ts) and the row is passed in.
 
 describe('pickSafeEnv', () => {
   it('copies only whitelisted keys present in the source', () => {
@@ -41,14 +32,9 @@ describe('pickSafeEnv', () => {
   });
 });
 
-describe('buildAgentEnv — provider switch', () => {
-  beforeEach(resetCfg);
-
-  it('oauth: injects only the OAuth token + config dir, never Anthropic vars', async () => {
-    cfg.CLAUDE_PROVIDER = 'oauth';
-    cfg.CLAUDE_CODE_OAUTH_TOKEN = 'oauth-tok';
-    cfg.ANTHROPIC_BASE_URL = 'https://should-not-leak';
-    const result = await buildAgentEnv();
+describe('buildAgentEnv — provider env shape', () => {
+  it('oauth: injects only the OAuth token + config dir, never Anthropic vars', () => {
+    const result = buildAgentEnv({ type: 'oauth', baseUrl: null, token: 'oauth-tok' });
     expect(result.CLAUDE_CODE_OAUTH_TOKEN).toBe('oauth-tok');
     expect(result.CLAUDE_CONFIG_DIR).toBe(env.CLAUDE_CONFIG_DIR);
     expect('ANTHROPIC_BASE_URL' in result).toBe(false);
@@ -56,68 +42,48 @@ describe('buildAgentEnv — provider switch', () => {
     expect('ANTHROPIC_MODEL' in result).toBe(false);
   });
 
-  it('defaults to the oauth branch when the provider is unset', async () => {
-    cfg.CLAUDE_CODE_OAUTH_TOKEN = 'oauth-tok';
-    const result = await buildAgentEnv();
-    expect(result.CLAUDE_CODE_OAUTH_TOKEN).toBe('oauth-tok');
-    expect('ANTHROPIC_AUTH_TOKEN' in result).toBe(false);
-  });
-
-  it('api: injects the three Anthropic vars, never the OAuth token', async () => {
-    cfg.CLAUDE_PROVIDER = 'api';
-    cfg.ANTHROPIC_BASE_URL = 'https://api.example';
-    cfg.ANTHROPIC_AUTH_TOKEN = 'api-tok';
-    cfg.ANTHROPIC_MODEL = 'claude-sonnet-4-6';
-    cfg.CLAUDE_CODE_OAUTH_TOKEN = 'should-not-leak';
-    const result = await buildAgentEnv();
+  it('api: injects base url + auth token, never the OAuth token or ANTHROPIC_MODEL', () => {
+    const result = buildAgentEnv({
+      type: 'api',
+      baseUrl: 'https://api.example',
+      token: 'api-tok',
+    });
     expect(result.ANTHROPIC_BASE_URL).toBe('https://api.example');
     expect(result.ANTHROPIC_AUTH_TOKEN).toBe('api-tok');
-    expect(result.ANTHROPIC_MODEL).toBe('claude-sonnet-4-6');
     expect(result.CLAUDE_CONFIG_DIR).toBe(env.CLAUDE_CONFIG_DIR);
     expect('CLAUDE_CODE_OAUTH_TOKEN' in result).toBe(false);
-  });
-});
-
-describe('buildAgentEnv — empty-value stripping', () => {
-  beforeEach(resetCfg);
-
-  it('strips an empty OAuth token but keeps the config dir', async () => {
-    cfg.CLAUDE_PROVIDER = 'oauth';
-    cfg.CLAUDE_CODE_OAUTH_TOKEN = '';
-    const result = await buildAgentEnv();
-    expect('CLAUDE_CODE_OAUTH_TOKEN' in result).toBe(false);
-    expect(result.CLAUDE_CONFIG_DIR).toBe(env.CLAUDE_CONFIG_DIR);
-  });
-
-  it('strips an unset Anthropic var (api) while keeping the set ones', async () => {
-    cfg.CLAUDE_PROVIDER = 'api';
-    cfg.ANTHROPIC_BASE_URL = 'https://api.example';
-    cfg.ANTHROPIC_AUTH_TOKEN = 'api-tok';
-    cfg.ANTHROPIC_MODEL = undefined;
-    const result = await buildAgentEnv();
-    expect(result.ANTHROPIC_BASE_URL).toBe('https://api.example');
-    expect(result.ANTHROPIC_AUTH_TOKEN).toBe('api-tok');
+    // Model is passed via query options, never the env.
     expect('ANTHROPIC_MODEL' in result).toBe(false);
   });
 });
 
-describe('buildAgentEnv — env whitelist boundary', () => {
-  beforeEach(resetCfg);
-
-  it('always carries CLAUDE_CONFIG_DIR', async () => {
-    cfg.CLAUDE_PROVIDER = 'oauth';
-    const result = await buildAgentEnv();
+describe('buildAgentEnv — empty-value stripping', () => {
+  it('strips an empty OAuth token but keeps the config dir', () => {
+    const result = buildAgentEnv({ type: 'oauth', baseUrl: null, token: '' });
+    expect('CLAUDE_CODE_OAUTH_TOKEN' in result).toBe(false);
     expect(result.CLAUDE_CONFIG_DIR).toBe(env.CLAUDE_CONFIG_DIR);
   });
 
-  it('never forwards a non-whitelisted process.env key', async () => {
-    cfg.CLAUDE_PROVIDER = 'oauth';
+  it('api: strips a null base url while keeping the auth token', () => {
+    const result = buildAgentEnv({ type: 'api', baseUrl: null, token: 'api-tok' });
+    expect('ANTHROPIC_BASE_URL' in result).toBe(false);
+    expect(result.ANTHROPIC_AUTH_TOKEN).toBe('api-tok');
+  });
+});
+
+describe('buildAgentEnv — env whitelist boundary', () => {
+  it('always carries CLAUDE_CONFIG_DIR', () => {
+    const result = buildAgentEnv({ type: 'oauth', baseUrl: null, token: 'tok' });
+    expect(result.CLAUDE_CONFIG_DIR).toBe(env.CLAUDE_CONFIG_DIR);
+  });
+
+  it('never forwards a non-whitelisted process.env key', () => {
     process.env.__AGENT_ENV_LEAK__ = 'secret';
     try {
-      const result = await buildAgentEnv();
+      const result = buildAgentEnv({ type: 'oauth', baseUrl: null, token: 'tok' });
       expect('__AGENT_ENV_LEAK__' in result).toBe(false);
     } finally {
-      delete process.env.__AGENT_ENV_LEAK__;
+      process.env.__AGENT_ENV_LEAK__ = undefined;
     }
   });
 });
