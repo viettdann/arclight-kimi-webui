@@ -46,3 +46,4 @@ compose.yaml
 Dockerfile
 .dockerignore
 docker
+claude-config

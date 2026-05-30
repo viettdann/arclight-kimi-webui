@@ -2,16 +2,20 @@ import { eq } from 'drizzle-orm';
 import type { ConfigSettingDTO } from 'shared/types/config';
 import { db } from '../db';
 import { appSettings } from '../db/schema';
-import { logger } from '../lib/logger';
 
-/** Seed definition for a single app_settings key. */
+/** Definition for a single known config key. */
 interface SeedKey {
   key: string;
   isSecret: boolean;
+  /** Code-level default — the lowest layer of the DB > ENV > Default chain. */
   default?: string;
 }
 
-/** Source of truth for expected app_settings keys. */
+/**
+ * Code is the source of truth for which config keys exist and their defaults.
+ * The DB and process.env are read-only value sources at runtime; this app never
+ * writes defaults back into either. Resolution order is DB > ENV > Default.
+ */
 const SEED_KEYS: SeedKey[] = [
   { key: 'CLAUDE_PROVIDER', isSecret: false, default: 'oauth' },
   { key: 'CLAUDE_CODE_OAUTH_TOKEN', isSecret: true },
@@ -42,58 +46,38 @@ export function clearConfigCache(): void {
 
 // ─────────────────────────── Reads ───────────────────────────
 
+/** First value that is neither null/undefined nor an empty string. */
+function firstNonEmpty(...vals: (string | null | undefined)[]): string | undefined {
+  for (const v of vals) {
+    if (v != null && v !== '') return v;
+  }
+  return undefined;
+}
+
 /**
- * Resolve a config value: cache → DB row (non-null, non-empty) → process.env.
- * Result is cached with a short TTL.
+ * Resolve a config value with the chain DB > ENV > Default (empty strings are
+ * treated as unset at each layer). Result is cached with a short TTL.
+ *
+ * Code is the source of truth: an unknown key — one not declared in SEED_KEYS —
+ * is a programming error and throws. A known key with no value anywhere returns
+ * undefined; the caller decides whether that is acceptable.
  */
 export async function getConfig(key: string): Promise<string | undefined> {
+  const seed = SEED_BY_KEY.get(key);
+  if (!seed) {
+    throw new Error(`getConfig: unknown config key "${key}" — not declared in SEED_KEYS`);
+  }
+
   const cached = configCache.get(key);
   if (cached && cached.expiry > Date.now()) return cached.value;
 
   const row = await db.query.appSettings.findFirst({
     where: eq(appSettings.key, key),
   });
-  const dbValue = row?.value;
-  const value = dbValue != null && dbValue !== '' ? dbValue : process.env[key];
+  const value = firstNonEmpty(row?.value, process.env[key], seed.default);
 
   configCache.set(key, { value, expiry: Date.now() + CONFIG_CACHE_TTL });
   return value;
-}
-
-// ─────────────────────────── Seed / startup ───────────────────────────
-
-/**
- * Insert SEED_KEYS that have no row yet; existing keys are left untouched.
- * Initial value = process.env[key] ?? default ?? null. Idempotent.
- */
-export async function seedAppSettings(): Promise<void> {
-  const existing = await db.select({ key: appSettings.key }).from(appSettings);
-  const existingKeys = new Set(existing.map((r) => r.key));
-
-  const toInsert = SEED_KEYS.filter((s) => !existingKeys.has(s.key));
-  if (toInsert.length === 0) {
-    logger.debug('app_settings: all keys present, nothing to seed');
-    return;
-  }
-
-  await db.insert(appSettings).values(
-    toInsert.map((s) => ({
-      key: s.key,
-      value: process.env[s.key] ?? s.default ?? null,
-      isSecret: s.isSecret,
-    })),
-  );
-
-  logger.info(
-    { keys: toInsert.map((s) => s.key) },
-    `app_settings: seeded ${toInsert.length} new key(s)`,
-  );
-}
-
-/** Seed settings then clear the cache so first reads are fresh. Runs once at startup. */
-export async function loadStartupConfig(): Promise<void> {
-  await seedAppSettings();
-  clearConfigCache();
 }
 
 // ─────────────────────────── Masked GET / PATCH ───────────────────────────
@@ -106,7 +90,8 @@ export function maskSecret(value: string): string {
 
 /**
  * One DTO per SEED_KEYS key. Secrets are masked; unset keys yield ''.
- * `isSet` reflects whether a non-empty effective value exists (DB value or env).
+ * `isSet` reflects whether a non-empty effective value exists under the
+ * DB > ENV > Default chain.
  */
 export async function getAllSettings(): Promise<ConfigSettingDTO[]> {
   const rows = await db.select().from(appSettings);
@@ -114,11 +99,8 @@ export async function getAllSettings(): Promise<ConfigSettingDTO[]> {
 
   return SEED_KEYS.map((seed) => {
     const row = rowByKey.get(seed.key);
-    const dbValue = row?.value;
-    const hasDbValue = dbValue != null && dbValue !== '';
-    const envValue = process.env[seed.key];
-
-    const effective = hasDbValue ? dbValue : (envValue ?? '');
+    // Same DB > ENV > Default chain as getConfig.
+    const effective = firstNonEmpty(row?.value, process.env[seed.key], seed.default) ?? '';
     const isSet = effective !== '';
 
     let value = '';

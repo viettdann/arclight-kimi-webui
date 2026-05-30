@@ -16,8 +16,8 @@ import { createMeRouter } from './routes/me';
 import { createOverviewRouter } from './routes/overview';
 import projectsRoutes from './routes/projects';
 import { createSessionsRouter } from './routes/sessions';
+import { ensureClaudeOnboarding } from './services/agent/onboarding';
 import { MAX_ENCODED_LEN } from './services/agent/transcript-store';
-import { loadStartupConfig } from './services/config';
 import { reconcileOnStartup } from './services/reconcile';
 import { sessionManager } from './services/session-manager';
 import { SERVICE_VERSION } from './version';
@@ -33,15 +33,16 @@ const MAX_USER_SLUG_LEN = 64;
 
 // ─────────────────────────── Startup ───────────────────────────
 
-// Seed `app_settings` and prime the config cache. Must run before anything
-// reads provider config.
-await loadStartupConfig();
-
 // Ensure the two persistent-data roots exist. CLAUDE_CONFIG_DIR is where the
 // `claude` binary writes transcripts; WORKSPACE_ROOT is where per-user project
 // dirs live.
 await mkdir(env.CLAUDE_CONFIG_DIR, { recursive: true });
 await mkdir(env.WORKSPACE_ROOT, { recursive: true });
+
+// Pre-create `$CLAUDE_CONFIG_DIR/.claude.json` with hasCompletedOnboarding so a
+// headless `claude` subprocess never blocks on the first-run onboarding prompt.
+// Runs after the dir exists; merges into any state the binary already wrote.
+await ensureClaudeOnboarding();
 
 // Encoder self-test (fail-fast). `encodeCwd` only implements the binary's 1:1
 // branch (length ≤ MAX_ENCODED_LEN); the hashed-slice fallback would break
