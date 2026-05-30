@@ -118,7 +118,7 @@ export function SettingsView() {
           ))}
         </nav>
 
-        {/* Sticky header with actions (hidden on routes that don't edit kimi-config) */}
+        {/* Sticky header with actions (hidden on routes that don't edit config) */}
         {showEditChrome && (
           <header className="flex items-center justify-between gap-3 border-b border-border bg-background px-4 md:px-6 py-3 shrink-0">
             <div className="min-w-0">

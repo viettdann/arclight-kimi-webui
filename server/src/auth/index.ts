@@ -12,10 +12,10 @@ export function slug(email: string): string {
 
 // Advisory-lock key for serialising first-admin election across concurrent
 // sign-ups. Value is arbitrary; only consistency between callers matters.
-const FIRST_ADMIN_LOCK_KEY = 0x4b_49_4d_49; // 'KIMI'
+const FIRST_ADMIN_LOCK_KEY = 0x4d_54_43_00; // 'MTC\0'
 
 export const auth = betterAuth({
-  appName: 'kimi-webui',
+  appName: 'arclight-mtc-webui',
   secret: env.BETTER_AUTH_SECRET,
   baseURL: env.BETTER_AUTH_URL,
 
@@ -93,7 +93,7 @@ export const auth = betterAuth({
     },
   },
 
-  advanced: { cookiePrefix: 'kimi-webui' },
+  advanced: { cookiePrefix: 'arclight-mtc-webui' },
 });
 
 export type Auth = typeof auth;

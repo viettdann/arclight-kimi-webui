@@ -49,7 +49,7 @@ export function ConfirmDeleteSessionDialog({
           <DialogTitle>Delete session?</DialogTitle>
           <DialogDescription>
             <span className="font-medium text-foreground">{title}</span> will be permanently
-            removed. Transcript, wire log, and on-disk Kimi state will be deleted. This cannot be
+            removed. Transcript, wire log, and on-disk session state will be deleted. This cannot be
             undone.
           </DialogDescription>
         </DialogHeader>

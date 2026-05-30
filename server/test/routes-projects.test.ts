@@ -60,7 +60,7 @@ let fake: ReturnType<typeof makeFakeDb>;
 const mockUser: MockUser = { id: 'u1', email: 'alice@example.com' };
 
 beforeEach(async () => {
-  tmpRoot = await mkdtemp(path.join(tmpdir(), 'kimi-projects-test-'));
+  tmpRoot = await mkdtemp(path.join(tmpdir(), 'mtc-projects-test-'));
   userRoot = path.join(tmpRoot, 'alice');
   audit = [];
   const built = buildApp({ user: mockUser, env: { WORKSPACE_ROOT: tmpRoot }, audit });
@@ -340,7 +340,7 @@ describe('DELETE /api/projects/:name', () => {
   it('foreign project: 200 + sessionCount, deletes DB rows, audits project_delete', async () => {
     // Foreign = DB rows, no local folder. Override the buildApp-seeded queue.
     fake.selectQueue.length = 0;
-    fake.selectQueue.push([{ id: 's1', workDir: '/remote/machine/proj', kimiSessionId: null }]);
+    fake.selectQueue.push([{ id: 's1', workDir: '/remote/machine/proj', sdkSessionId: null }]);
 
     const res = await app.request('/api/projects/proj', { method: 'DELETE' });
     expect(res.status).toBe(200);

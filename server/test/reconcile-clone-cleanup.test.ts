@@ -16,7 +16,7 @@ async function exists(p: string): Promise<boolean> {
 }
 
 beforeEach(async () => {
-  root = await mkdtemp(path.join(tmpdir(), 'kimi-reconcile-clone-'));
+  root = await mkdtemp(path.join(tmpdir(), 'mtc-reconcile-clone-'));
 });
 
 afterEach(async () => {

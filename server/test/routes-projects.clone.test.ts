@@ -81,7 +81,7 @@ const cloneBody = (sourceOver: Record<string, unknown> = {}, name?: string): str
   });
 
 beforeEach(async () => {
-  tmpRoot = await mkdtemp(path.join(tmpdir(), 'kimi-projects-clone-test-'));
+  tmpRoot = await mkdtemp(path.join(tmpdir(), 'mtc-projects-clone-test-'));
   userRoot = path.join(tmpRoot, 'alice');
   audit = [];
 });

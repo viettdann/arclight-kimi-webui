@@ -165,7 +165,7 @@ interface MockUser {
   email: string;
 }
 
-const DEFAULT_TEST_WORKSPACE_ROOT = '/tmp/kimi-webui-test';
+const DEFAULT_TEST_WORKSPACE_ROOT = '/tmp/mtc-webui-test';
 
 function buildApp(opts: {
   user: MockUser;
