@@ -8,7 +8,7 @@ import type { ApprovalMode } from 'shared/types';
 import { logger } from '../../lib/logger';
 import type { ActiveSession } from '../session-manager';
 import { buildCanUseTool } from './approval';
-import { buildAgentEnv, getClaudeCodePath } from './env';
+import { buildAgentEnv } from './env';
 
 // Build and launch the live SDK `query` for one in-flight turn. The session's
 // approval mode maps to the SDK permission mode + the `canUseTool` callback;
@@ -43,18 +43,15 @@ function thinkingOptions(thinking: boolean): Partial<Options> {
 
 /**
  * Construct the live query for a turn and bind it (plus its abort controller)
- * to the session. Async because the executable path and subprocess env are
- * resolved asynchronously.
+ * to the session. Async because the subprocess env is resolved asynchronously.
+ * The SDK resolves its own bundled `claude` binary from node_modules.
  */
 export async function startQuery(
   active: ActiveSession,
   opts: { prompt: AsyncIterable<SDKUserMessage>; resume?: string | null },
 ): Promise<Query> {
   const abortController = new AbortController();
-  const [pathToClaudeCodeExecutable, env] = await Promise.all([
-    getClaudeCodePath(),
-    buildAgentEnv(),
-  ]);
+  const env = await buildAgentEnv();
 
   const q = query({
     prompt: opts.prompt,
@@ -66,7 +63,6 @@ export async function startQuery(
       canUseTool: buildCanUseTool(active),
       includePartialMessages: true,
       toolConfig: { askUserQuestion: { previewFormat: 'markdown' } },
-      pathToClaudeCodeExecutable,
       env,
       ...permissionOptions(active.approvalMode),
       ...thinkingOptions(active.thinking),

@@ -33,26 +33,6 @@ export function pickSafeEnv(
   return out;
 }
 
-/** Cached `claude` CLI path — resolved once per process. */
-let cachedClaudePath: string | undefined;
-
-/**
- * Resolve the absolute path of the `claude` binary via `which`. Cached.
- * Throws when the binary is absent — the plan assumes it always exists.
- */
-export async function getClaudeCodePath(): Promise<string> {
-  if (cachedClaudePath) return cachedClaudePath;
-
-  const proc = Bun.spawn(['which', 'claude'], { stdout: 'pipe', stderr: 'ignore' });
-  const output = (await new Response(proc.stdout).text()).trim();
-  await proc.exited;
-
-  if (!output) throw new Error('claude executable not found on PATH');
-
-  cachedClaudePath = output;
-  return cachedClaudePath;
-}
-
 /**
  * Build the env map for the SDK subprocess. Baseline safe keys plus the
  * provider-specific auth vars. Empty/undefined values are stripped before

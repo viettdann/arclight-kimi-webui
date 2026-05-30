@@ -4,7 +4,7 @@ import type { ConfigPatchRequest, ConfigResponse, ConfigTestResponse } from 'sha
 import { type AuthVariables, requireAdmin } from '../auth/middleware';
 import { type DB, db as defaultDb } from '../db';
 import { logger } from '../lib/logger';
-import { buildAgentEnv, getClaudeCodePath } from '../services/agent/env';
+import { buildAgentEnv } from '../services/agent/env';
 import { getAllSettings, updateSettings } from '../services/config';
 import { clearSlashCommandsCache } from '../services/slash-commands-cache';
 
@@ -55,13 +55,11 @@ async function testProviderAuth(): Promise<ConfigTestResponse> {
 
   try {
     const env = await buildAgentEnv();
-    const pathToClaudeCodeExecutable = await getClaudeCodePath();
 
     const stream = query({
       prompt: 'Reply with OK.',
       options: {
         model: TEST_MODEL,
-        pathToClaudeCodeExecutable,
         env,
         permissionMode: 'dontAsk',
         allowedTools: [],
