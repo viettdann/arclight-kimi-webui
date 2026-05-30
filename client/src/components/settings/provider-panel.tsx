@@ -6,6 +6,16 @@ import { Label } from '@/components/ui/label';
 import { Section } from '@/components/ui/section';
 import { useConfigStore } from '../../lib/config-store';
 import { cn } from '../../lib/utils';
+import { PanelSaveBar } from './panel-save-bar';
+
+/** Config keys owned by this panel — saved/discarded as one cluster. */
+const PROVIDER_KEYS = [
+  'CLAUDE_PROVIDER',
+  'CLAUDE_CODE_OAUTH_TOKEN',
+  'ANTHROPIC_BASE_URL',
+  'ANTHROPIC_AUTH_TOKEN',
+  'ANTHROPIC_MODEL',
+];
 
 const PROVIDER_LABELS: Record<ClaudeProvider, string> = {
   oauth: 'Claude OAuth token',
@@ -20,6 +30,10 @@ const PROVIDER_HINTS: Record<ClaudeProvider, string> = {
 export function ProviderPanel() {
   const loadStatus = useConfigStore((s) => s.loadStatus);
   const settings = useConfigStore((s) => s.settings);
+  // Subscribe to `drafts` so the panel re-renders on every staged edit. `getValue`
+  // is a stable ref and reads draft-first, but without subscribing to the slice it
+  // mutates, the radios/inputs below would never reflect a change.
+  const drafts = useConfigStore((s) => s.drafts);
   const getValue = useConfigStore((s) => s.getValue);
   const setDraft = useConfigStore((s) => s.setDraft);
   const testing = useConfigStore((s) => s.testing);
@@ -27,7 +41,7 @@ export function ProviderPanel() {
 
   if (loadStatus !== 'ready') return <PanelSkeleton />;
 
-  const providerRaw = getValue('CLAUDE_PROVIDER');
+  const providerRaw = drafts.CLAUDE_PROVIDER ?? settings.CLAUDE_PROVIDER?.value;
   const provider: ClaudeProvider = isClaudeProvider(providerRaw) ? providerRaw : 'oauth';
 
   return (
@@ -110,6 +124,8 @@ export function ProviderPanel() {
         </Section>
       )}
 
+      <PanelSaveBar keys={PROVIDER_KEYS} />
+
       <Section
         title="Test connection"
         description="Run a one-shot query to validate the current saved credentials."
@@ -134,10 +150,20 @@ export function ProviderPanel() {
 function TestResult() {
   const testResult = useConfigStore((s) => s.testResult);
   if (!testResult) return null;
+
+  // Always spell out what ran: provider (OAuth / API key) and mode (saved / draft).
+  const parts: string[] = [];
+  if (testResult.provider) parts.push(testResult.provider === 'oauth' ? 'OAuth' : 'API key');
+  if (testResult.mode) parts.push(testResult.mode === 'draft' ? 'unsaved draft' : 'saved config');
+  const scope = parts.length > 0 ? ` — tested ${parts.join(' · ')}` : '';
+
   return testResult.ok ? (
-    <span className="text-sm text-emerald-600 dark:text-emerald-400">Connection OK</span>
+    <span className="text-sm text-emerald-600 dark:text-emerald-400">Connection OK{scope}</span>
   ) : (
-    <span className="text-sm text-destructive">{testResult.error ?? 'Connection failed'}</span>
+    <span className="text-sm text-destructive">
+      {testResult.error ?? 'Connection failed'}
+      {scope}
+    </span>
   );
 }
 

@@ -1,4 +1,9 @@
-import type { ConfigPatchRequest, ConfigResponse, ConfigTestResponse } from 'shared/types/config';
+import type {
+  ConfigPatchRequest,
+  ConfigResponse,
+  ConfigTestRequest,
+  ConfigTestResponse,
+} from 'shared/types/config';
 import { authFetch, parseError } from '../lib/auth-fetch';
 
 export async function fetchConfig(): Promise<ConfigResponse> {
@@ -17,10 +22,11 @@ export async function patchConfig(body: ConfigPatchRequest): Promise<ConfigRespo
   return res.json();
 }
 
-export async function testConfig(): Promise<ConfigTestResponse> {
+export async function testConfig(body: ConfigTestRequest = {}): Promise<ConfigTestResponse> {
   const res = await authFetch('/api/config/test', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(await parseError(res));
   return res.json();
