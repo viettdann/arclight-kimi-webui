@@ -1,7 +1,7 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { SlashCommand } from 'shared/types';
 import { logger } from '../lib/logger';
-import { buildAgentEnv, getClaudeCodePath } from './agent/env';
+import { buildAgentEnv } from './agent/env';
 import { createMessageBridge } from './agent/message-bridge';
 
 // Warm-init slash-command probe. The composer picker needs the slash commands
@@ -89,10 +89,7 @@ async function warmInit(
   const timer = setTimeout(() => abortController.abort(), WARM_INIT_TIMEOUT_MS);
 
   try {
-    const [pathToClaudeCodeExecutable, env] = await Promise.all([
-      getClaudeCodePath(),
-      envOverride ? Promise.resolve(envOverride) : buildAgentEnv(),
-    ]);
+    const env = envOverride ?? (await buildAgentEnv());
 
     const q = query({
       prompt: bridge.iterable,
@@ -102,7 +99,6 @@ async function warmInit(
         abortController,
         persistSession: false,
         includePartialMessages: false,
-        pathToClaudeCodeExecutable,
         env,
         stderr: (line: string) => logger.debug({ line }, 'slash-commands warm-init stderr'),
       },

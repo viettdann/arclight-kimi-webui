@@ -1,6 +1,6 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { logger } from '../../lib/logger';
-import { buildAgentEnv, getClaudeCodePath } from './env';
+import { buildAgentEnv } from './env';
 
 const log = logger.child({ module: 'agent/title' });
 
@@ -47,14 +47,6 @@ function cleanTitle(raw: string): string | null {
  * never touches the SDK's session store.
  */
 export async function generateTitle(firstUserMessage: string): Promise<string | null> {
-  let pathToClaudeCodeExecutable: string;
-  try {
-    pathToClaudeCodeExecutable = await getClaudeCodePath();
-  } catch (err) {
-    log.warn({ err }, 'claude executable not found — cannot generate title');
-    return null;
-  }
-
   const env = await buildAgentEnv();
 
   const description =
@@ -71,7 +63,6 @@ export async function generateTitle(firstUserMessage: string): Promise<string | 
       prompt,
       options: {
         model: TITLE_MODEL,
-        pathToClaudeCodeExecutable,
         env,
         abortController,
         permissionMode: 'dontAsk',

@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "bun --watch --env-file=../.env src/index.ts",
     "start": "bun --env-file=../.env src/index.ts",
-    "build": "bun build --target=bun --outdir dist src/index.ts",
+    "build": "bun build --target=bun --external @anthropic-ai/claude-agent-sdk --outdir dist src/index.ts",
     "check": "tsc --noEmit",
     "test": "bun run scripts/run-isolated-tests.ts",
     "db:generate": "bun --env-file=../.env scripts/db-generate.ts",
