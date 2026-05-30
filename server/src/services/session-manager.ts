@@ -1,111 +1,108 @@
-import type { Session, Turn } from '@moonshot-ai/kimi-agent-sdk';
+import type { Query } from '@anthropic-ai/claude-agent-sdk';
 import type { ServerWebSocket } from 'bun';
 import type {
+  AnswerQuestionPayload,
   ApprovalMode,
   ApprovalRequestPayload,
+  ApprovalResponse,
   QuestionRequestPayload,
   StatusUpdatePayload,
 } from 'shared/types';
 import { createEventBuffer, type EventBuffer } from '../lib/event-buffer';
-import type { TranslatorState } from '../ws/events';
-import { createTranslatorState } from '../ws/events';
 import type { WSData } from '../ws/upgrade';
+import type { MessageBridge } from './agent/message-bridge';
 
-// In-memory registry of active Kimi sessions. Single-instance only — there is
-// no cross-process coordination, by design. WS state, EventBuffer, and pending
-// approvals all live here for the lifetime of the process.
+// In-memory registry of active Claude Agent SDK sessions. Single-instance only —
+// no cross-process coordination, by design. WS fan-out state, EventBuffer, the
+// streaming-input bridge, the live `query` handle, and pending approval/question
+// promises all live here for the lifetime of the process.
 
+/**
+ * A `canUseTool` permission prompt awaiting the user's decision. `resolve` is
+ * the promise resolver inside the `canUseTool` callback; the `approve_tool` WS
+ * handler calls it with the user's response, which `approval.ts` maps to the
+ * SDK `PermissionResult`.
+ */
 export interface PendingApproval {
   requestId: string;
   payload: ApprovalRequestPayload;
-  // SDK Turn that issued the approval — held so we can call turn.approve().
-  turn: Turn;
+  resolve: (response: ApprovalResponse) => void;
 }
 
+/**
+ * An `AskUserQuestion` tool call awaiting answers. Intercepted in every approval
+ * mode (it is a question to the user, not a permission). `resolve` is called by
+ * the `answer_question` WS handler; `approval.ts` injects the answers into the
+ * tool's `updatedInput`.
+ */
 export interface PendingQuestion {
-  /**
-   * RPC envelope id passed back to `turn.respondQuestion`. Per assumption A1
-   * in the design doc, this equals `questionRequestId` because the SDK does
-   * not surface the JSON-RPC envelope id separately on the iterator payload.
-   */
-  rpcRequestId: string;
-  /** Mirrors the wire `QuestionRequest.id` — round-tripped to `respondQuestion`. */
-  questionRequestId: string;
+  requestId: string;
   payload: QuestionRequestPayload;
-  // SDK Turn that issued the question — held so we can call turn.respondQuestion().
-  turn: Turn;
+  resolve: (answer: AnswerQuestionPayload) => void;
 }
 
 export interface ActiveSession {
   sessionId: string;
   userId: string;
   workDir: string;
-  kimiSessionId: string;
-  kimiSession: Session;
-  currentTurn: Turn | null;
-  /**
-   * Active approval tier for this session. `auto` auto-approves read-only tools
-   * server-side; `yolo` is mirrored onto `kimiSession.yoloMode` for the SDK.
-   */
+  /** SDK session id, captured from the first `msg.session_id`. Null until a
+   *  query has emitted its first message. Drives transcript path + resume. */
+  sdkSessionId: string | null;
+  /** Live query handle for the in-flight turn (AsyncGenerator + control
+   *  methods: interrupt/setModel/setPermissionMode/supportedCommands…). Null
+   *  between turns. */
+  query: Query | null;
+  /** Aborts the in-flight query subprocess. Null between turns. */
+  abortController: AbortController | null;
+  /** Streaming-input queue feeding `query({ prompt: bridge.iterable })`. */
+  bridge: MessageBridge | null;
+  model: string | null;
+  thinking: boolean;
   approvalMode: ApprovalMode;
+  /** True while a query is consuming/emitting for this session. */
+  turnInProgress: boolean;
   wsSet: Set<ServerWebSocket<WSData>>;
   eventBuffer: EventBuffer;
-  translator: TranslatorState;
   pendingApprovals: Map<string, PendingApproval>;
   pendingQuestions: Map<string, PendingQuestion>;
-  /** Last assigned outbound seq for this session. Monotonic per session. */
+  /** Last assigned outbound seq. Monotonic per session. */
   lastSeq: number;
   /** Unix epoch ms of last outbound activity. */
   lastActivity: number;
-  /** Latest StatusUpdate seen this turn; flushed to sessions.totalTokens at turn end. */
+  /** Latest status seen this turn; flushed to sessions.totalTokens/Cost at turn end. */
   lastStatusUpdate: StatusUpdatePayload | null;
-  /** Maps tool_call.id → tool name; consumed when the matching tool_result fires. */
+  /** Maps tool_use.id → tool name; consumed when the matching tool_result fires. */
   toolNameByCallId: Map<string, string>;
   /**
-   * Per-session mutex chain serializing `backupAfterTurn`. The pump appends
-   * `await backupMutex` to a chained promise so concurrent post-turn flushes
-   * (should never happen in 5a but defensive against future steering paths)
-   * cannot interleave `wireByteOffset` updates.
+   * Per-session mutex chain serializing transcript backups. The output consumer
+   * chains `backupMutex` so concurrent post-block/post-turn flushes cannot
+   * interleave `byteOffset` updates.
    */
   backupMutex: Promise<void>;
   /**
    * @internal Synchronous "close in progress" flag. Read/written ONLY through
-   * `KimiSessionManager.tryBeginClose`. Pure event-loop semantics — no atomics.
+   * `SessionManager.tryBeginClose`. Pure event-loop semantics — no atomics.
    */
   closing: boolean;
-  liveTextDelta: string;
-  liveThinkingDelta: string;
-  liveTurnIdx: number | null;
-  liveStepIdx: number | null;
-  /** part counter for the in-flight thinking section within (turn, step). */
-  liveThinkPartIdx: number;
-  /** part counter for the in-flight text section within (turn, step). */
-  liveTextPartIdx: number;
-  partialToolCallArgs: Map<string, string>;
 }
 
 export interface RegisterArgs {
   sessionId: string;
   userId: string;
   workDir: string;
-  kimiSessionId: string;
-  kimiSession: Session;
+  model?: string | null;
+  thinking?: boolean;
   approvalMode?: ApprovalMode;
   bufferCapacity?: number;
-  /**
-   * Seed for `liveTurnIdx` so it doesn't collide with completed turns' block ids
-   * across server restarts. Pass `count(TurnBegin) - 1` from the wire log; the
-   * next `TurnBegin` will increment from this. `null` for brand-new sessions.
-   */
-  initialLiveTurnIdx?: number | null;
 }
 
 export type RestoreFn = (sessionId: string) => Promise<ActiveSession>;
 
-export class KimiSessionManager {
+export class SessionManager {
   private readonly sessions = new Map<string, ActiveSession>();
   private readonly byUser = new Map<string, Set<string>>();
-  /** In-flight restore promises keyed by sessionId — invariant #3. */
+  /** In-flight restore promises keyed by sessionId — shared so concurrent
+   *  waiters restore exactly once. */
   private readonly restoring = new Map<string, Promise<ActiveSession>>();
 
   /** Insert a freshly created/restored session. Throws on duplicate id. */
@@ -117,13 +114,16 @@ export class KimiSessionManager {
       sessionId: args.sessionId,
       userId: args.userId,
       workDir: args.workDir,
-      kimiSessionId: args.kimiSessionId,
-      kimiSession: args.kimiSession,
-      currentTurn: null,
+      sdkSessionId: null,
+      query: null,
+      abortController: null,
+      bridge: null,
+      model: args.model ?? null,
+      thinking: args.thinking ?? false,
       approvalMode: args.approvalMode ?? 'ask',
+      turnInProgress: false,
       wsSet: new Set(),
       eventBuffer: createEventBuffer(args.bufferCapacity),
-      translator: createTranslatorState(),
       pendingApprovals: new Map(),
       pendingQuestions: new Map(),
       lastSeq: 0,
@@ -132,13 +132,6 @@ export class KimiSessionManager {
       toolNameByCallId: new Map(),
       backupMutex: Promise.resolve(),
       closing: false,
-      liveTextDelta: '',
-      liveThinkingDelta: '',
-      liveTurnIdx: args.initialLiveTurnIdx ?? null,
-      liveStepIdx: null,
-      liveThinkPartIdx: 0,
-      liveTextPartIdx: 0,
-      partialToolCallArgs: new Map(),
     };
     this.sessions.set(args.sessionId, active);
     let userSet = this.byUser.get(args.userId);
@@ -150,7 +143,7 @@ export class KimiSessionManager {
     return active;
   }
 
-  /** Remove a session from both maps. Caller is responsible for SDK close(). */
+  /** Remove a session from both maps. Caller is responsible for query teardown. */
   unregister(sessionId: string): ActiveSession | null {
     const active = this.sessions.get(sessionId);
     if (!active) return null;
@@ -184,19 +177,41 @@ export class KimiSessionManager {
   }
 
   /**
-   * Atomically claim teardown ownership for `sessionId`. Returns `true` for
-   * the winning caller, `false` for any concurrent loser or for sessions that
-   * are already gone. Sets `active.closing = true` synchronously — pure event-
-   * loop semantics, no atomics.
-   *
-   * Caller is responsible for the rest of teardown (drain, SDK close, DB
-   * update, broadcast, audit, unregister).
+   * Atomically claim teardown ownership for `sessionId`. Returns `true` for the
+   * winning caller, `false` for any concurrent loser or for sessions already
+   * gone. Sets `active.closing = true` synchronously — pure event-loop
+   * semantics, no atomics. Caller does the rest of teardown.
    */
   tryBeginClose(sessionId: string): boolean {
     const active = this.sessions.get(sessionId);
     if (!active || active.closing) return false;
     active.closing = true;
     return true;
+  }
+
+  /**
+   * Resolve every pending approval (as reject) and question (as empty answers)
+   * so no `canUseTool` promise is left hanging when a turn is interrupted or a
+   * session is torn down. CRITICAL — without this, teardown deadlocks on an
+   * awaited permission prompt.
+   */
+  drainPendingRequests(active: ActiveSession): void {
+    for (const pending of active.pendingApprovals.values()) {
+      try {
+        pending.resolve('reject');
+      } catch {
+        // resolver already settled
+      }
+    }
+    active.pendingApprovals.clear();
+    for (const pending of active.pendingQuestions.values()) {
+      try {
+        pending.resolve({ requestId: pending.requestId, answers: {} });
+      } catch {
+        // resolver already settled
+      }
+    }
+    active.pendingQuestions.clear();
   }
 
   /** Snapshot of sessionIds owned by user (in insertion order). */
@@ -222,8 +237,8 @@ export class KimiSessionManager {
 
   /**
    * Remove `ws` from every session it was attached to. Used by the WS close
-   * handler — pump keeps running, just no more sockets to fan out to. Returns
-   * the count of sessions touched (for diagnostics).
+   * handler — the query keeps running, just no more sockets to fan out to.
+   * Returns the count of sessions touched (for diagnostics).
    */
   detachAllWS(ws: ServerWebSocket<WSData>): number {
     let touched = 0;
@@ -234,10 +249,10 @@ export class KimiSessionManager {
   }
 
   /**
-   * Lazy lookup with shared in-flight cache (invariant #3). If the session is
-   * already in memory and owned by `userId`, return it immediately. Otherwise
-   * call `restore(sessionId)` exactly once for concurrent waiters; on success,
-   * compare ownership and return null on mismatch (uniform `not_found`).
+   * Lazy lookup with shared in-flight cache. If the session is already in memory
+   * and owned by `userId`, return it immediately. Otherwise call
+   * `restore(sessionId)` exactly once for concurrent waiters; on success,
+   * compare ownership and return null on mismatch (uniform not_found).
    *
    * `restore` is responsible for calling `register` itself.
    */
@@ -274,4 +289,4 @@ export class KimiSessionManager {
 }
 
 // Single instance for the process. Imported by WS handlers and REST routes.
-export const sessionManager = new KimiSessionManager();
+export const sessionManager = new SessionManager();

@@ -1,3 +1,4 @@
+import { mkdir } from 'node:fs/promises';
 import { Hono } from 'hono';
 import { serveStatic } from 'hono/bun';
 import type { HealthResponse } from 'shared/types';
@@ -6,15 +7,17 @@ import { type AuthVariables, requireAllowed, sessionMiddleware } from './auth/mi
 import { client, db } from './db';
 import { env } from './env';
 import { auditLog, logger } from './lib/logger';
+import { MAX_PROJECT_NAME_LEN } from './lib/slug';
 import { createAccessRouter } from './routes/access';
+import { createConfigRouter } from './routes/config';
 import filesRoutes from './routes/files';
 import { createGitCredentialsRouter } from './routes/git-credentials';
-import { createKimiConfigRouter } from './routes/kimi-config';
 import { createMeRouter } from './routes/me';
 import { createOverviewRouter } from './routes/overview';
 import projectsRoutes from './routes/projects';
 import { createSessionsRouter } from './routes/sessions';
-import { bootstrap } from './services/kimi-config/bootstrap';
+import { MAX_ENCODED_LEN } from './services/agent/transcript-store';
+import { loadStartupConfig } from './services/config';
 import { reconcileOnStartup } from './services/reconcile';
 import { sessionManager } from './services/session-manager';
 import { SERVICE_VERSION } from './version';
@@ -23,22 +26,46 @@ import { startWsHeartbeat } from './ws/heartbeat';
 import { registerSocket, snapshot, unregisterSocket, size as wsClientSize } from './ws/registry';
 import { handleWsUpgrade, type WSData } from './ws/upgrade';
 
-// Bootstrap: create share dir, seed/load config, render TOML.
-const {
-  row: kimiConfigRow,
-  shareDir: kimiShareDir,
-  tomlWritten: kimiTomlWritten,
-} = await bootstrap(db);
-logger.info(
-  {
-    provider: kimiConfigRow.provider.type,
-    ready: kimiConfigRow.provider.apiKey.length > 0,
-    shareDir: kimiShareDir,
-    writeTomlMode: env.KIMI_CONFIG_WRITE_TOML,
-    tomlWritten: kimiTomlWritten,
-  },
-  'kimi config bootstrapped',
-);
+// Worst-case length of a user slug. `slug(email)` slugifies the email local
+// part (before `@`) 1:1 — it never changes the length — and RFC 5321 caps the
+// local part at 64 characters.
+const MAX_USER_SLUG_LEN = 64;
+
+// ─────────────────────────── Startup ───────────────────────────
+
+// Seed `app_settings` and prime the config cache. Must run before anything
+// reads provider config.
+await loadStartupConfig();
+
+// Ensure the two persistent-data roots exist. CLAUDE_CONFIG_DIR is where the
+// `claude` binary writes transcripts; WORKSPACE_ROOT is where per-user project
+// dirs live.
+await mkdir(env.CLAUDE_CONFIG_DIR, { recursive: true });
+await mkdir(env.WORKSPACE_ROOT, { recursive: true });
+
+// Encoder self-test (fail-fast). `encodeCwd` only implements the binary's 1:1
+// branch (length ≤ MAX_ENCODED_LEN); the hashed-slice fallback would break
+// transcript-path parity. A session's workDir is
+// `${WORKSPACE_ROOT}/${userSlug}/${projectName}`, so its worst-case length is
+// the sum of each segment's cap plus the two path separators. Assert that the
+// longest possible workDir still fits the 1:1 branch.
+const worstCaseWorkDirLen =
+  env.WORKSPACE_ROOT.length + 1 + MAX_USER_SLUG_LEN + 1 + MAX_PROJECT_NAME_LEN;
+if (worstCaseWorkDirLen + 1 > MAX_ENCODED_LEN) {
+  logger.fatal(
+    {
+      workspaceRoot: env.WORKSPACE_ROOT,
+      workspaceRootLen: env.WORKSPACE_ROOT.length,
+      worstCaseWorkDirLen,
+      maxEncodedLen: MAX_ENCODED_LEN,
+      budgetForWorkspaceRoot:
+        MAX_ENCODED_LEN - 1 - MAX_USER_SLUG_LEN - 1 - MAX_PROJECT_NAME_LEN - 1,
+    },
+    'WORKSPACE_ROOT is too long: a worst-case workDir would exceed the encoder 1:1 ' +
+      'branch and break transcript-path parity. Shorten WORKSPACE_ROOT.',
+  );
+  process.exit(1);
+}
 
 const app = new Hono<{ Variables: AuthVariables }>();
 
@@ -70,7 +97,7 @@ app.route(
 app.route('/api/files', filesRoutes);
 app.route('/api/projects', projectsRoutes);
 app.route('/api/sessions', createSessionsRouter({ db, manager: sessionManager, auditLog, env }));
-app.route('/api/config', createKimiConfigRouter({ db, shareDir: kimiShareDir }));
+app.route('/api/config', createConfigRouter({ db }));
 app.route('/api/git-credentials', createGitCredentialsRouter({ db }));
 
 // SPA mount — registered AFTER all /api routes so API paths match earlier
@@ -80,7 +107,7 @@ app.route('/api/git-credentials', createGitCredentialsRouter({ db }));
 app.use('/*', serveStatic({ root: './client/dist' }));
 app.get('/*', serveStatic({ root: './client/dist', path: 'index.html' }));
 
-await reconcileOnStartup({ db });
+await reconcileOnStartup({ db, env });
 
 const server = Bun.serve<WSData>({
   port: env.PORT,

@@ -32,3 +32,5 @@ workspace/*
 # Kimi share dir (config.toml, oauth, sessions, logs) — see KIMI_SHARE_DIR
 .kimi/
 .runtime/
+
+reference/

@@ -14,11 +14,11 @@ import type { ApprovalMode, SlashCommand } from 'shared/types';
 import { Button } from '@/components/ui/button';
 import { DropdownItem, DropdownMenu } from '@/components/ui/dropdown-menu';
 import { useChatStore } from '../lib/chat-store';
+import { MODELS, resolveModel, useConfigStore } from '../lib/config-store';
 import { useDraftStore } from '../lib/draft-store';
-import { resolveModel, useKimiConfigStore } from '../lib/kimi-config-store';
 import { useSessionsStore } from '../lib/sessions-store';
 import { sendWS } from '../lib/ws-send';
-import { ConfirmYoloDialog } from './confirm-yolo-dialog';
+import { ConfirmBypassDialog } from './confirm-bypass-dialog';
 
 // Modes are resolved client-side: SDK still provides the description for these
 // command names, but they are grouped under "Modes" instead of "Commands".
@@ -26,9 +26,10 @@ const MODE_COMMANDS = ['afk'];
 // Excluded from every group — handled by dedicated UI, not the composer.
 const EXCLUDED_COMMANDS = new Set(['plan', 'yolo']);
 
-// Sessions where the user has acknowledged the YOLO warning. Enabling YOLO
-// confirms once per session (per app load); turning it off never prompts.
-const yoloAcknowledged = new Set<string>();
+// Sessions where the user has acknowledged the bypass-permissions warning.
+// Switching to bypass confirms once per session (per app load); switching away
+// never prompts.
+const bypassAcknowledged = new Set<string>();
 
 // On coarse-pointer devices (phones/tablets) the soft keyboard's Enter is the
 // only newline key, so plain Enter must insert a newline — sending is done via
@@ -101,21 +102,22 @@ export function ChatInput() {
     },
     [sessionId],
   );
-  const [yoloConfirmOpen, setYoloConfirmOpen] = useState(false);
+  const [bypassConfirmOpen, setBypassConfirmOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   // True while the leading '/' was injected by the toggle button (not typed by
   // the user). Escape strips that injected '/'; a user-typed '/' is kept.
   const slashFromToggleRef = useRef(false);
 
-  // Config carries the model display name + thinking capability. Cached fetch.
-  const ensureConfigLoaded = useKimiConfigStore((s) => s.ensureLoaded);
-  const config = useKimiConfigStore((s) => s.config);
+  // Config carries the default model used when the session has none. Cached fetch.
+  const ensureConfigLoaded = useConfigStore((s) => s.ensureLoaded);
+  // Subscribe to the loaded DEFAULT_MODEL so the label re-resolves after fetch.
+  useConfigStore((s) => s.settings.DEFAULT_MODEL?.value);
   useEffect(() => ensureConfigLoaded(), [ensureConfigLoaded]);
 
   const sessionModel = useSessionsStore(
     (s) => s.sessions.find((x) => x.id === sessionId)?.model ?? null,
   );
-  const { label: modelLabel, alwaysThinking } = resolveModel(config, sessionModel);
+  const { id: modelId, label: modelLabel } = resolveModel(sessionModel);
 
   const session = useChatStore((s) => (sessionId ? s.sessions[sessionId] : null));
   const isTurnInProgress = session?.isTurnInProgress ?? false;
@@ -131,8 +133,6 @@ export function ChatInput() {
   const thinking = useChatStore((s) =>
     sessionId ? (s.sessions[sessionId]?.thinking ?? false) : false,
   );
-  // `always_thinking` models force thinking on regardless of the session flag.
-  const effectiveThinking = alwaysThinking || thinking;
 
   const [highlightIdx, setHighlightIdx] = useState(0);
 
@@ -250,21 +250,21 @@ export function ChatInput() {
     useChatStore.getState().setSessionFlags(sessionId, { approvalMode: mode });
   };
 
-  // Switching to YOLO is gated by a confirm dialog the first time per session.
-  // ask / auto apply immediately.
+  // Switching to bypass is gated by a confirm dialog the first time per session.
+  // ask / safe apply immediately.
   const setApprovalMode = (mode: ApprovalMode) => {
     if (!sessionId) return;
-    if (mode === 'yolo' && approvalMode !== 'yolo' && !yoloAcknowledged.has(sessionId)) {
-      setYoloConfirmOpen(true);
+    if (mode === 'bypass' && approvalMode !== 'bypass' && !bypassAcknowledged.has(sessionId)) {
+      setBypassConfirmOpen(true);
       return;
     }
     applyApprovalMode(mode);
   };
 
-  const confirmYolo = () => {
-    if (sessionId) yoloAcknowledged.add(sessionId);
-    setYoloConfirmOpen(false);
-    applyApprovalMode('yolo');
+  const confirmBypass = () => {
+    if (sessionId) bypassAcknowledged.add(sessionId);
+    setBypassConfirmOpen(false);
+    applyApprovalMode('bypass');
   };
 
   const toggleThinking = () => {
@@ -317,10 +317,8 @@ export function ChatInput() {
         !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey && !ENTER_INSERTS_NEWLINE;
       if (modifierSend || plainSend) {
         e.preventDefault();
-        if (isTurnInProgress) {
-          // Future: steer (send-now) vs queue. For now Enter is no-op while a turn runs.
-          return;
-        }
+        // Enter is a no-op while a turn is running.
+        if (isTurnInProgress) return;
         sendMessage();
       }
     }
@@ -414,12 +412,12 @@ export function ChatInput() {
             </Button>
             <span
               className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium select-none ${
-                effectiveThinking ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
+                thinking ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
               }`}
               title="Thinking status — change it in the model menu"
             >
               <Brain className="h-3.5 w-3.5" />
-              {effectiveThinking ? 'Thinking on' : 'Thinking off'}
+              {thinking ? 'Thinking on' : 'Thinking off'}
             </span>
           </div>
 
@@ -431,23 +429,23 @@ export function ChatInput() {
                   type="button"
                   variant="ghost"
                   size="xs"
-                  className={`cursor-pointer ${approvalMode === 'yolo' ? 'text-amber-500' : 'text-muted-foreground'}`}
+                  className={`cursor-pointer ${approvalMode === 'bypass' ? 'text-amber-500' : 'text-muted-foreground'}`}
                   disabled={!sessionId}
                   aria-label="Approval mode"
                   title="Approval mode — applies from the next message"
                 >
-                  {approvalMode === 'yolo' ? (
+                  {approvalMode === 'bypass' ? (
                     <Zap className="h-3.5 w-3.5" />
                   ) : (
                     <ShieldCheck
-                      className={`h-3.5 w-3.5 ${approvalMode === 'auto' ? 'text-primary' : ''}`}
+                      className={`h-3.5 w-3.5 ${approvalMode === 'safe' ? 'text-primary' : ''}`}
                     />
                   )}
                   <span className="hidden sm:inline">
-                    {approvalMode === 'yolo'
-                      ? 'YOLO'
-                      : approvalMode === 'auto'
-                        ? 'Auto-safe'
+                    {approvalMode === 'bypass'
+                      ? 'Bypass'
+                      : approvalMode === 'safe'
+                        ? 'Safe'
                         : 'Ask first'}
                   </span>
                   <ChevronDown className="h-3.5 w-3.5" />
@@ -469,12 +467,12 @@ export function ChatInput() {
                 </span>
               </DropdownItem>
               <DropdownItem
-                onClick={() => setApprovalMode('auto')}
-                icon={<Check className={approvalMode === 'auto' ? '' : 'opacity-0'} />}
+                onClick={() => setApprovalMode('safe')}
+                icon={<Check className={approvalMode === 'safe' ? '' : 'opacity-0'} />}
               >
                 <span className="flex flex-col">
                   <span className="flex items-center gap-1.5">
-                    Auto-safe
+                    Safe · pre-approved tools
                     <ShieldCheck className="h-3 w-3 text-primary" />
                   </span>
                   <span className="text-xs text-muted-foreground">
@@ -483,12 +481,12 @@ export function ChatInput() {
                 </span>
               </DropdownItem>
               <DropdownItem
-                onClick={() => setApprovalMode('yolo')}
-                icon={<Check className={approvalMode === 'yolo' ? '' : 'opacity-0'} />}
+                onClick={() => setApprovalMode('bypass')}
+                icon={<Check className={approvalMode === 'bypass' ? '' : 'opacity-0'} />}
               >
                 <span className="flex flex-col">
                   <span className="flex items-center gap-1.5">
-                    YOLO
+                    Bypass · YOLO
                     <Zap className="h-3 w-3 text-amber-500" />
                   </span>
                   <span className="text-xs text-muted-foreground">
@@ -510,7 +508,7 @@ export function ChatInput() {
                   aria-label="Model"
                   title="Model — applies from the next message"
                 >
-                  {effectiveThinking && <Brain className="h-3.5 w-3.5" />}
+                  {thinking && <Brain className="h-3.5 w-3.5" />}
                   <span className="hidden sm:inline">{modelLabel ?? 'Model'}</span>
                   <ChevronDown className="h-3.5 w-3.5" />
                 </Button>
@@ -519,20 +517,21 @@ export function ChatInput() {
               <div className="px-2 pt-1 pb-1.5 text-[11px] text-muted-foreground select-none">
                 {modelLabel ?? 'Model'}
               </div>
-              <DropdownItem
-                onClick={alwaysThinking ? undefined : toggleThinking}
-                disabled={alwaysThinking}
-              >
+              {MODELS.map((m) => (
+                <DropdownItem
+                  key={m.id}
+                  icon={<Check className={m.id === modelId ? '' : 'opacity-0'} />}
+                >
+                  <span>{m.label}</span>
+                </DropdownItem>
+              ))}
+              <DropdownItem onClick={toggleThinking}>
                 <span className="flex w-full items-center justify-between gap-3">
                   <span className="flex items-center gap-2">
                     <Brain className="h-3.5 w-3.5" />
                     Thinking
                   </span>
-                  {alwaysThinking ? (
-                    <span className="text-xs text-muted-foreground">Always on</span>
-                  ) : (
-                    <Switch on={effectiveThinking} />
-                  )}
+                  <Switch on={thinking} />
                 </span>
               </DropdownItem>
             </DropdownMenu>
@@ -566,10 +565,10 @@ export function ChatInput() {
         </div>
       </div>
 
-      <ConfirmYoloDialog
-        isOpen={yoloConfirmOpen}
-        onConfirm={confirmYolo}
-        onClose={() => setYoloConfirmOpen(false)}
+      <ConfirmBypassDialog
+        isOpen={bypassConfirmOpen}
+        onConfirm={confirmBypass}
+        onClose={() => setBypassConfirmOpen(false)}
       />
     </div>
   );

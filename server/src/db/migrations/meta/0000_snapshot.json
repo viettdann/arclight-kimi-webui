@@ -1,5 +1,5 @@
 {
-  "id": "c5f1fc14-2d96-45ae-b69b-b23c03e2e6c7",
+  "id": "83b619ba-22e9-48ee-b1ca-4d2429c9e347",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -48,6 +48,45 @@
         },
         "created_at": {
           "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.app_settings": {
+      "name": "app_settings",
+      "schema": "",
+      "columns": {
+        "key": {
+          "name": "key",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "value": {
+          "name": "value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "isSecret": {
+          "name": "isSecret",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "updatedAt": {
+          "name": "updatedAt",
           "type": "timestamp",
           "primaryKey": false,
           "notNull": true,
@@ -512,168 +551,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.kimi_config": {
-      "name": "kimi_config",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "integer",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "defaults": {
-          "name": "defaults",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "provider": {
-          "name": "provider",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "models": {
-          "name": "models",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "services": {
-          "name": "services",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "loop_control": {
-          "name": "loop_control",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "background": {
-          "name": "background",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "notifications": {
-          "name": "notifications",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "mcp_client": {
-          "name": "mcp_client",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "hooks": {
-          "name": "hooks",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "extra_toml_override": {
-          "name": "extra_toml_override",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "''"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "kimi_config_singleton": {
-          "name": "kimi_config_singleton",
-          "value": "id = 1"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.kimi_session_files": {
-      "name": "kimi_session_files",
-      "schema": "",
-      "columns": {
-        "sessionId": {
-          "name": "sessionId",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "wireJsonl": {
-          "name": "wireJsonl",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "''"
-        },
-        "contextJsonl": {
-          "name": "contextJsonl",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "''"
-        },
-        "stateJson": {
-          "name": "stateJson",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "''"
-        },
-        "wireByteOffset": {
-          "name": "wireByteOffset",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "updatedAt": {
-          "name": "updatedAt",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "kimi_session_files_sessionId_kimi_sessions_id_fk": {
-          "name": "kimi_session_files_sessionId_kimi_sessions_id_fk",
-          "tableFrom": "kimi_session_files",
-          "tableTo": "kimi_sessions",
-          "columnsFrom": [
-            "sessionId"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.kimi_sessions": {
-      "name": "kimi_sessions",
+    "public.sessions": {
+      "name": "sessions",
       "schema": "",
       "columns": {
         "id": {
@@ -683,8 +562,8 @@
           "notNull": true,
           "default": "gen_random_uuid()"
         },
-        "user_id": {
-          "name": "user_id",
+        "userId": {
+          "name": "userId",
           "type": "text",
           "primaryKey": false,
           "notNull": true
@@ -720,13 +599,6 @@
           "notNull": true,
           "default": false
         },
-        "yoloMode": {
-          "name": "yoloMode",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
         "approvalMode": {
           "name": "approvalMode",
           "type": "text",
@@ -734,11 +606,18 @@
           "notNull": true,
           "default": "'ask'"
         },
-        "kimiSessionId": {
-          "name": "kimiSessionId",
+        "sdkSessionId": {
+          "name": "sdkSessionId",
           "type": "varchar(100)",
           "primaryKey": false,
           "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'idle'"
         },
         "totalTokens": {
           "name": "totalTokens",
@@ -746,6 +625,13 @@
           "primaryKey": false,
           "notNull": true,
           "default": 0
+        },
+        "totalCostUsd": {
+          "name": "totalCostUsd",
+          "type": "numeric(10, 6)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'0'"
         },
         "createdAt": {
           "name": "createdAt",
@@ -775,11 +661,11 @@
         }
       },
       "indexes": {
-        "kimi_sessions_user_idx": {
-          "name": "kimi_sessions_user_idx",
+        "sessions_user_idx": {
+          "name": "sessions_user_idx",
           "columns": [
             {
-              "expression": "user_id",
+              "expression": "userId",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -798,12 +684,84 @@
         }
       },
       "foreignKeys": {
-        "kimi_sessions_user_id_user_id_fk": {
-          "name": "kimi_sessions_user_id_user_id_fk",
-          "tableFrom": "kimi_sessions",
+        "sessions_userId_user_id_fk": {
+          "name": "sessions_userId_user_id_fk",
+          "tableFrom": "sessions",
           "tableTo": "user",
           "columnsFrom": [
-            "user_id"
+            "userId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.session_transcripts": {
+      "name": "session_transcripts",
+      "schema": "",
+      "columns": {
+        "sessionId": {
+          "name": "sessionId",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "sdkSessionId": {
+          "name": "sdkSessionId",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "workspaceCwd": {
+          "name": "workspaceCwd",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "content": {
+          "name": "content",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
+        },
+        "byteOffset": {
+          "name": "byteOffset",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "subagents": {
+          "name": "subagents",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "session_transcripts_sessionId_sessions_id_fk": {
+          "name": "session_transcripts_sessionId_sessions_id_fk",
+          "tableFrom": "session_transcripts",
+          "tableTo": "sessions",
+          "columnsFrom": [
+            "sessionId"
           ],
           "columnsTo": [
             "id"

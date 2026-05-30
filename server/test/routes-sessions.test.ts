@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'bun:test';
 import path from 'node:path';
-import type { Session } from '@moonshot-ai/kimi-agent-sdk';
 import { getTableName } from 'drizzle-orm';
 import { Hono } from 'hono';
 import type { SessionListItem } from 'shared/types';
@@ -8,13 +7,11 @@ import type { AuthVariables } from '../src/auth/middleware';
 import type { DB } from '../src/db';
 import type { AuditEvent } from '../src/lib/logger';
 import { createSessionsRouter } from '../src/routes/sessions';
-import { type ActiveSession, KimiSessionManager } from '../src/services/session-manager';
-import { stubSession } from './_helpers';
+import { type ActiveSession, SessionManager } from '../src/services/session-manager';
 
 // `routes-sessions.test.ts` covers the GET list shape + LIMIT and the entire
-// POST close matrix (in-memory teardown, DB-only path, idempotent, cross-user
-// 404, REST + WS race, audit emit). The WS-side close test sits here too so
-// the audit/source assertions stay co-located with the REST close.
+// DELETE close matrix (in-memory teardown, DB-only path, cross-user 404, audit
+// emit).
 
 // ─────────────────────────── Recording fake DB ───────────────────────────
 //
@@ -161,25 +158,6 @@ function makeRecordingDb(): RecordingDb {
   };
 }
 
-// ─────────────────────────── Stub Kimi session ───────────────────────────
-
-interface StubKimi {
-  closeCalls: number;
-  asSession: Session;
-}
-
-/**
- * Wraps `_helpers.ts:stubSession` and overrides `close` to count invocations.
- * Used to assert the close-once invariant across REST/WS race tests.
- */
-function makeStubKimi(): StubKimi {
-  const stub: StubKimi = { closeCalls: 0, asSession: stubSession() };
-  (stub.asSession as unknown as { close: () => Promise<void> }).close = async () => {
-    stub.closeCalls += 1;
-  };
-  return stub;
-}
-
 // ─────────────────────────── App scaffolding ───────────────────────────
 
 interface MockUser {
@@ -192,7 +170,7 @@ const DEFAULT_TEST_WORKSPACE_ROOT = '/tmp/kimi-webui-test';
 function buildApp(opts: {
   user: MockUser;
   db: DB;
-  manager: KimiSessionManager;
+  manager: SessionManager;
   audit: AuditEvent[];
   env?: { WORKSPACE_ROOT: string };
 }) {
@@ -216,18 +194,11 @@ function buildApp(opts: {
   return app;
 }
 
-function registerActive(
-  manager: KimiSessionManager,
-  sessionId: string,
-  userId: string,
-  kimiSession: Session,
-): ActiveSession {
+function registerActive(manager: SessionManager, sessionId: string, userId: string): ActiveSession {
   return manager.register({
     sessionId,
     userId,
     workDir: '/tmp/work',
-    kimiSessionId: `kimi-${sessionId}`,
-    kimiSession,
   });
 }
 
@@ -243,8 +214,8 @@ const aliceRow = (
   title: overrides.title ?? null,
   model: overrides.model ?? null,
   thinking: overrides.thinking ?? false,
-  kimiSessionId: 'kimi-alice-1',
   totalTokens: overrides.totalTokens ?? 0,
+  totalCostUsd: overrides.totalCostUsd ?? 0,
   createdAt: new Date('2026-04-30T00:00:00Z'),
   lastActiveAt: new Date('2026-04-30T01:00:00Z'),
 });
@@ -256,7 +227,7 @@ describe('GET /api/sessions', () => {
     const audit: AuditEvent[] = [];
     const fake = makeRecordingDb();
     fake.selectQueue.push([aliceRow({ id: 's1' }), aliceRow({ id: 's2' })]);
-    const manager = new KimiSessionManager();
+    const manager = new SessionManager();
     const app = buildApp({
       user: { id: 'alice', email: 'alice@example.com' },
       db: fake.db,
@@ -269,10 +240,10 @@ describe('GET /api/sessions', () => {
     const body = (await res.json()) as { sessions: SessionListItem[] };
     expect(body.sessions.map((s) => s.id)).toEqual(['s1', 's2']);
 
-    // Recorded chain shape: select kimi_sessions + 1 where + 1 orderBy + LIMIT 200.
+    // Recorded chain shape: select sessions + 1 where + 1 orderBy + LIMIT 200.
     expect(fake.selectCalls).toHaveLength(1);
     const sel = fake.selectCalls[0];
-    expect(sel?.table).toBe('kimi_sessions');
+    expect(sel?.table).toBe('sessions');
     expect(sel?.whereCalls).toBe(1);
     expect(sel?.orderByCalls).toBe(1);
     expect(sel?.limit).toBe(200);
@@ -281,7 +252,7 @@ describe('GET /api/sessions', () => {
   it('rejects unauthenticated requests with 401', async () => {
     const audit: AuditEvent[] = [];
     const fake = makeRecordingDb();
-    const manager = new KimiSessionManager();
+    const manager = new SessionManager();
     const app = new Hono<{ Variables: AuthVariables }>();
     app.use('*', async (c, next) => {
       c.set('user', null);
@@ -310,7 +281,7 @@ describe('GET /api/sessions — origin + localWorkDir', () => {
     const fake = makeRecordingDb();
     const localPath = path.join(ALICE_USER_ROOT, 'projA');
     fake.selectQueue.push([aliceRow({ id: 's-local', workDir: localPath, projectName: 'projA' })]);
-    const manager = new KimiSessionManager();
+    const manager = new SessionManager();
     const app = buildApp({
       user: { id: 'alice', email: 'alice@example.com' },
       db: fake.db,
@@ -334,7 +305,7 @@ describe('GET /api/sessions — origin + localWorkDir', () => {
     fake.selectQueue.push([
       aliceRow({ id: 's-foreign', workDir: '/legacy/office/path', projectName: 'projB' }),
     ]);
-    const manager = new KimiSessionManager();
+    const manager = new SessionManager();
     const app = buildApp({
       user: { id: 'alice', email: 'alice@example.com' },
       db: fake.db,
@@ -363,7 +334,7 @@ describe('GET /api/sessions — origin + localWorkDir', () => {
       aliceRow({ id: 's-foreign', workDir: '/etc/something', projectName: 'projB' }),
       aliceRow({ id: 's-other-root', workDir: '/ws-other/alice/projC', projectName: 'projC' }),
     ]);
-    const manager = new KimiSessionManager();
+    const manager = new SessionManager();
     const app = buildApp({
       user: { id: 'alice', email: 'alice@example.com' },
       db: fake.db,
@@ -385,8 +356,8 @@ describe('DELETE /api/sessions/:id', () => {
   it('DB-only path: deletes row + audit when session not in memory', async () => {
     const audit: AuditEvent[] = [];
     const fake = makeRecordingDb();
-    fake.selectQueue.push([{ workDir: '/tmp/work', kimiSessionId: 'kimi-sess-X' }]);
-    const manager = new KimiSessionManager();
+    fake.selectQueue.push([{ workDir: '/tmp/work', sdkSessionId: 'sdk-X' }]);
+    const manager = new SessionManager();
 
     const app = buildApp({
       user: { id: 'alice', email: 'alice@example.com' },
@@ -400,7 +371,7 @@ describe('DELETE /api/sessions/:id', () => {
     expect(await res.json()).toEqual({ ok: true });
 
     expect(fake.deleteCalls).toHaveLength(1);
-    expect(fake.deleteCalls[0]?.table).toBe('kimi_sessions');
+    expect(fake.deleteCalls[0]?.table).toBe('sessions');
 
     expect(audit).toContainEqual({
       userId: 'alice',
@@ -414,10 +385,9 @@ describe('DELETE /api/sessions/:id', () => {
   it('in-memory path: tears the session down first, then deletes', async () => {
     const audit: AuditEvent[] = [];
     const fake = makeRecordingDb();
-    fake.selectQueue.push([{ workDir: '/tmp/work', kimiSessionId: 'kimi-sess-A' }]);
-    const manager = new KimiSessionManager();
-    const stub = makeStubKimi();
-    registerActive(manager, 'sess-A', 'alice', stub.asSession);
+    fake.selectQueue.push([{ workDir: '/tmp/work', sdkSessionId: null }]);
+    const manager = new SessionManager();
+    registerActive(manager, 'sess-A', 'alice');
 
     const app = buildApp({
       user: { id: 'alice', email: 'alice@example.com' },
@@ -429,9 +399,7 @@ describe('DELETE /api/sessions/:id', () => {
     const res = await app.request('/api/sessions/sess-A', { method: 'DELETE' });
     expect(res.status).toBe(200);
 
-    // SDK was closed exactly once (via teardownActiveSession).
-    expect(stub.closeCalls).toBe(1);
-    // Manager freed the slot.
+    // Teardown freed the in-memory slot (interrupt → drain → unregister).
     expect(manager.hasSession('sess-A')).toBe(false);
     // DB delete fired.
     expect(fake.deleteCalls).toHaveLength(1);
@@ -445,7 +413,7 @@ describe('DELETE /api/sessions/:id', () => {
     const audit: AuditEvent[] = [];
     const fake = makeRecordingDb();
     fake.selectQueue.push([]);
-    const manager = new KimiSessionManager();
+    const manager = new SessionManager();
 
     const app = buildApp({
       user: { id: 'alice', email: 'alice@example.com' },
@@ -465,9 +433,8 @@ describe('DELETE /api/sessions/:id', () => {
     const fake = makeRecordingDb();
     // owner-scoped select filters out bob's row for alice → empty.
     fake.selectQueue.push([]);
-    const manager = new KimiSessionManager();
-    const stub = makeStubKimi();
-    registerActive(manager, 'sess-B', 'bob', stub.asSession);
+    const manager = new SessionManager();
+    registerActive(manager, 'sess-B', 'bob');
 
     const app = buildApp({
       user: { id: 'alice', email: 'alice@example.com' },
@@ -478,7 +445,7 @@ describe('DELETE /api/sessions/:id', () => {
 
     const res = await app.request('/api/sessions/sess-B', { method: 'DELETE' });
     expect(res.status).toBe(404);
-    expect(stub.closeCalls).toBe(0);
+    // Bob's session is untouched.
     expect(manager.hasSession('sess-B')).toBe(true);
     expect(fake.deleteCalls).toHaveLength(0);
     expect(audit).toEqual([]);

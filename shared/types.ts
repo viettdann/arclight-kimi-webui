@@ -20,7 +20,6 @@ export type WSMessageType =
   | 'snapshot'
   | 'replay_done'
   | 'turn_begin'
-  | 'step_begin'
   | 'text_delta'
   | 'thinking_delta'
   | 'tool_call'
@@ -35,7 +34,6 @@ export type WSMessageType =
   | 'parse_error'
   | 'compaction_begin'
   | 'compaction_end'
-  | 'steer_input'
   | 'turn_end'
   | 'session_created'
   | 'title_update'
@@ -55,7 +53,7 @@ export type WSMessageType =
 
 // ─────────────────────────── Domain types ───────────────────────────
 
-export const APPROVAL_MODES = ['ask', 'auto', 'yolo'] as const;
+export const APPROVAL_MODES = ['ask', 'safe', 'bypass'] as const;
 export type ApprovalMode = (typeof APPROVAL_MODES)[number];
 
 export type DisplayBlock =
@@ -68,21 +66,18 @@ export type DisplayBlock =
 export type Block =
   | { kind: 'user'; id: string; content: string; createdAt: string; status?: 'pending' | 'sent' }
   | {
+      // id = `${message.id}:${contentBlockIndex}` — stable across live & reload.
       kind: 'text';
       id: string;
-      turnIdx: number;
-      stepIdx: number;
-      partIdx: number;
       content: string;
       isStreaming: boolean;
       createdAt: string;
     }
   | {
+      // id = `${message.id}:${contentBlockIndex}`. `encrypted` = redacted thinking
+      // (empty text, signature-only).
       kind: 'thinking';
       id: string;
-      turnIdx: number;
-      stepIdx: number;
-      partIdx: number;
       content: string;
       encrypted: boolean;
       isStreaming: boolean;
@@ -111,9 +106,15 @@ export type Block =
       createdAt: string;
     }
   | {
+      // id = `subagent:${parentToolCallId}` where parentToolCallId is the Task
+      // tool_use.id. Nested blocks are attached at render time (live: routed by
+      // SDK `parent_tool_use_id`; reload: from the `subagents` JSONB via
+      // meta.toolUseId). `subagentType`/`description` come from `task_started`.
       kind: 'subagent';
       id: string;
       parentToolCallId: string;
+      subagentType?: string;
+      description?: string;
       blocks: Block[];
       isStreaming: boolean;
       createdAt: string;
@@ -139,7 +140,6 @@ export type Block =
       resolved?: boolean;
       createdAt: string;
     }
-  | { kind: 'steer'; id: string; content: string; createdAt: string }
   | { kind: 'error'; id: string; code: string; message: string; createdAt: string };
 
 export interface SessionListItem {
@@ -156,6 +156,7 @@ export interface SessionListItem {
   model: string | null;
   thinking: boolean;
   totalTokens: number;
+  totalCostUsd: number;
   createdAt: string;
   lastActiveAt: string;
 }
@@ -198,6 +199,7 @@ export interface SlashCommand {
 export interface SnapshotPayload {
   blocks: Block[];
   totalTokens: number;
+  totalCostUsd: number;
   title: string | null;
   pendingPrompt: { text: string; enqueuedAt: string } | null;
   /**
@@ -206,7 +208,6 @@ export interface SnapshotPayload {
    * reflect the true server state after reload — not a stale local default.
    */
   thinking: boolean;
-  yoloMode: boolean;
   approvalMode: ApprovalMode;
   /**
    * Slash commands available in this session's workDir. Carried in the snapshot
@@ -215,14 +216,8 @@ export interface SnapshotPayload {
    */
   slashCommands: SlashCommand[];
   live: {
-    /** True iff the server still has an in-flight Turn for this session. */
+    /** True iff the server still has an in-flight turn for this session. */
     turnInProgress: boolean;
-    turnIdx: number | null;
-    stepIdx: number | null;
-    /** Current part index of the in-flight thinking section (per turn+step). */
-    thinkPartIdx: number;
-    /** Current part index of the in-flight text section (per turn+step). */
-    textPartIdx: number;
   };
 }
 
@@ -237,26 +232,33 @@ export interface ReplayDonePayload {
 
 export interface TurnBeginPayload {
   userInput: string;
-}
-
-export interface StepBeginPayload {
-  stepNumber: number;
+  /** Server-assigned stable id for the echoed user block. */
+  id: string;
 }
 
 export interface TextDeltaPayload {
+  /** Stable block id `${message.id}:${contentBlockIndex}`. */
+  id: string;
   text: string;
-  /** Disambiguates multiple text segments within the same (turnIdx, stepIdx). */
-  partIdx: number;
+  /**
+   * When true, `text` is the FULL final content: the client SETS (replaces)
+   * the block and stops streaming. Otherwise `text` is an incremental append.
+   * The final commit repairs any prefix missed during a mid-stream reconnect.
+   */
+  final?: boolean;
 }
 
 export interface ThinkingDeltaPayload {
+  /** Stable block id `${message.id}:${contentBlockIndex}`. */
+  id: string;
   thinking: string;
   encrypted?: boolean;
-  /** Disambiguates multiple thinking segments within the same (turnIdx, stepIdx). */
-  partIdx: number;
+  /** Full-content commit + stop streaming when true (see TextDeltaPayload.final). */
+  final?: boolean;
 }
 
 export interface ToolCallPayload {
+  /** SDK `tool_use.id` (`toolu_…`) — also the block id. */
   id: string;
   name: string;
   arguments: unknown;
@@ -276,13 +278,25 @@ export interface ToolResultPayload {
 }
 
 export interface SubagentEventPayload {
+  /** Parent Task `tool_use.id` this subagent activity nests under. */
   parentToolCallId: string;
-  event: unknown;
+  /** From `task_started` — surfaced on the subagent block header. */
+  subagentType?: string;
+  description?: string;
+  /**
+   * A nested delta event applied to the subagent's own block list. Uses the
+   * same stable-id applicator as top-level events (text_delta/thinking_delta/
+   * tool_call/tool_call_delta/tool_result/turn_end). `null` for header-only
+   * frames (task_started/task_done) that just set subagentType/streaming.
+   */
+  inner: { type: WSMessageType; payload: unknown } | null;
 }
 
 export interface StatusUpdatePayload {
   tokenUsage: number;
   contextUsage: number;
+  /** Cumulative session cost in USD, from the SDK `result` message. */
+  totalCostUsd?: number;
 }
 
 export interface ApprovalRequestPayload {
@@ -327,13 +341,10 @@ export interface ParseErrorPayload {
   raw?: string;
 }
 
-/** Echo of a steer-input from any user — broadcast back to all attached sockets. */
-export interface SteerInputPayload {
-  content: string;
-}
-
-// Mirrors `RunResult.status` from `@moonshot-ai/kimi-agent-sdk`. Pump errors
-// (thrown during iteration) surface via the `error` event, not `turn_end`.
+/**
+ * The turn's terminal status. Pump errors (thrown during iteration) surface
+ * via the `error` event, not `turn_end`.
+ */
 export type TurnEndStatus = 'finished' | 'cancelled' | 'max_steps_reached';
 
 export interface TurnEndPayload {
@@ -369,7 +380,6 @@ export interface CreateSessionPayload {
   workDir: string;
   model?: string;
   thinking?: boolean;
-  yoloMode?: boolean;
   approvalMode?: ApprovalMode;
 }
 
@@ -386,7 +396,6 @@ export interface SendMessagePayload {
    * exactly when it first takes effect. Omitted fields are left unchanged.
    */
   thinking?: boolean;
-  yoloMode?: boolean;
   approvalMode?: ApprovalMode;
 }
 
@@ -401,6 +410,9 @@ export interface ApproveToolPayload {
 export interface AnswerQuestionPayload {
   requestId: string;
   answers: Record<string, string>;
+  /** Optional per-question free-text notes, forwarded into AskUserQuestion's
+   *  `updatedInput.annotations`. */
+  annotations?: Record<string, { notes?: string }>;
 }
 
 export type InterruptTurnPayload = Record<string, never>;
@@ -594,7 +606,7 @@ export interface OverviewResponse {
   };
 }
 
+// Re-export config types so `shared/types` entrypoint covers everything.
+export * from './types/config';
 // Re-export git-credential types so `shared/types` entrypoint covers everything.
 export * from './types/git-credentials';
-// Re-export kimi-config types so `shared/types` entrypoint covers everything.
-export * from './types/kimi-config';

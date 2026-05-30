@@ -1,8 +1,8 @@
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router';
 import { Button } from '@/components/ui/button';
 import { showToast } from '../../components/toast-provider';
-import { useKimiConfigStore } from '../../lib/kimi-config-store';
+import { useConfigStore } from '../../lib/config-store';
 import { cn } from '../../lib/utils';
 
 interface NavItem {
@@ -10,7 +10,7 @@ interface NavItem {
   label: string;
   description: string;
   end?: boolean;
-  /** Hide top-level Save/Discard/Test buttons (for non-kimi-config sub-routes). */
+  /** Hide top-level Save/Discard buttons (for non-config sub-routes). */
   hideEditChrome?: boolean;
 }
 
@@ -21,8 +21,7 @@ const NAV_ITEMS: NavItem[] = [
     description: 'System info & status',
     hideEditChrome: true,
   },
-  { to: 'provider', label: 'Provider', description: 'API credentials & models' },
-  { to: 'kimi', label: 'Kimi config', description: 'CLI behavior & integrations' },
+  { to: 'claude', label: 'Claude', description: 'Provider, models & defaults' },
   {
     to: 'access',
     label: 'Members & access',
@@ -32,16 +31,13 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 export function SettingsView() {
-  const loadStatus = useKimiConfigStore((s) => s.loadStatus);
-  const loadError = useKimiConfigStore((s) => s.loadError);
-  const dirty = useKimiConfigStore((s) => s.dirty);
-  const saving = useKimiConfigStore((s) => s.saving);
-  const testing = useKimiConfigStore((s) => s.testing);
-  const testResult = useKimiConfigStore((s) => s.testResult);
-  const load = useKimiConfigStore((s) => s.load);
-  const save = useKimiConfigStore((s) => s.save);
-  const discard = useKimiConfigStore((s) => s.discard);
-  const test = useKimiConfigStore((s) => s.test);
+  const loadStatus = useConfigStore((s) => s.loadStatus);
+  const loadError = useConfigStore((s) => s.loadError);
+  const dirty = useConfigStore((s) => s.dirty);
+  const saving = useConfigStore((s) => s.saving);
+  const load = useConfigStore((s) => s.load);
+  const save = useConfigStore((s) => s.save);
+  const discard = useConfigStore((s) => s.discard);
 
   const { pathname } = useLocation();
   const activeNav = NAV_ITEMS.find((item) => pathname.startsWith(`/settings/${item.to}`));
@@ -60,20 +56,6 @@ export function SettingsView() {
       showToast({ message: `Failed to load configuration: ${loadError}`, type: 'error' });
     }
   }, [loadStatus, loadError]);
-
-  // Surface test results via toast (banner was removed). Only fire when the
-  // testResult ref changes — testResult is mutated atomically by store.test().
-  const lastTestRef = useRef(testResult);
-  useEffect(() => {
-    if (testResult && testResult !== lastTestRef.current) {
-      lastTestRef.current = testResult;
-      showToast(
-        testResult.ok
-          ? { message: 'Test connection succeeded', type: 'info' }
-          : { message: `Test connection failed: ${testResult.error}`, type: 'error' },
-      );
-    }
-  }, [testResult]);
 
   async function handleSave() {
     const res = await save();
@@ -146,15 +128,6 @@ export function SettingsView() {
               </p>
             </div>
             <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => void test()}
-                disabled={testing}
-              >
-                {testing ? 'Testing…' : 'Test connection'}
-              </Button>
               {dirty && (
                 <Button
                   type="button"

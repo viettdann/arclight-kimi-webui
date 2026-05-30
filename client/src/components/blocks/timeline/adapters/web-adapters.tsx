@@ -1,13 +1,10 @@
 import { Globe, Link as LinkIcon } from 'lucide-react';
 import type { Adapter } from '../types';
-import { parseArgs, readArgString, statusOf } from '../types';
+import { readArgString, statusOf } from '../types';
 
+/** Claude `WebSearch` — `query`. */
 export const SearchWebAdapter: Adapter = (ctx) => {
-  const args = parseArgs(ctx.call);
-  const query =
-    (args && typeof args.query === 'string' && args.query) ||
-    (args && typeof args.q === 'string' && args.q) ||
-    '';
+  const query = readArgString(ctx.call, 'query');
   const output = typeof ctx.result?.output === 'string' ? ctx.result.output : '';
   const status = statusOf(ctx);
   return {
@@ -24,6 +21,7 @@ export const SearchWebAdapter: Adapter = (ctx) => {
   };
 };
 
+/** Claude `WebFetch` — `url`, `prompt`. */
 export const FetchURLAdapter: Adapter = (ctx) => {
   const url = readArgString(ctx.call, 'url');
   const output = typeof ctx.result?.output === 'string' ? ctx.result.output : '';

@@ -55,7 +55,7 @@ const unsubscribeMessage = wsClient.on('message', (ev: MessageEvent) => {
       useChatStore.getState().loadSnapshot(msg.sessionId, msg.payload as SnapshotPayload);
       void router.navigate(`/session/${msg.sessionId}`);
     } else {
-      useChatStore.getState().applyEvent(msg.sessionId, msg.type, msg.payload);
+      useChatStore.getState().applyEvent(msg.sessionId, msg.type, msg.payload, msg.seq);
     }
   } catch (err) {
     console.error('Failed to parse or route WS message:', err);

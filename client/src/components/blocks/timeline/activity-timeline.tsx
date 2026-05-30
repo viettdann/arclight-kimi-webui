@@ -166,7 +166,7 @@ function buildRows(items: RailBlock[]): BuildResult {
         shape.icon = <ShieldAlert className="h-3.5 w-3.5 text-amber-500" />;
         shape.status = 'ok';
         shape.badge = <PendingApprovalBadge />;
-        if (b.name === 'Shell') {
+        if (b.name === 'Bash') {
           const command = readArgString(b, 'command');
           shape.detail = (
             <div className="rounded-md border border-border/70 border-l-2 border-l-amber-500/60 overflow-hidden">
@@ -222,20 +222,27 @@ function bump(m: Map<string, number>, key: string) {
 }
 
 const SUMMARY_PRIORITY = [
-  'WriteFile',
-  'StrReplaceFile',
-  'SetTodoList',
-  'Shell',
-  'SearchWeb',
-  'FetchURL',
+  // edits/writes first
+  'Write',
+  'Edit',
+  'MultiEdit',
+  'NotebookEdit',
+  'TodoWrite',
+  // commands
+  'Bash',
+  'BashOutput',
+  'KillShell',
+  // reads/searches
   'Glob',
   'Grep',
-  'ReadFile',
-  'ReadMediaFile',
-  'TaskList',
-  'TaskOutput',
-  'TaskStop',
-  'ExitPlanMode',
+  'Read',
+  // web
+  'WebSearch',
+  'WebFetch',
+  // delegation + questions
+  'Task',
+  'AskUserQuestion',
+  // native thinking
   'Think',
 ];
 
@@ -273,23 +280,23 @@ function summarize(verbCount: Map<string, number>): SummarySegment[] {
 function countLabel(verb: string, n: number, tool: string): string {
   // Pick a noun suffix per tool. Keep it short.
   const noun: Record<string, string> = {
-    WriteFile: n === 1 ? 'file' : 'files',
-    StrReplaceFile: n === 1 ? 'file' : 'files',
-    Shell: n === 1 ? 'command' : 'commands',
+    Write: n === 1 ? 'file' : 'files',
+    Edit: n === 1 ? 'file' : 'files',
+    MultiEdit: n === 1 ? 'file' : 'files',
+    NotebookEdit: n === 1 ? 'notebook' : 'notebooks',
+    Bash: n === 1 ? 'command' : 'commands',
+    BashOutput: '',
+    KillShell: n === 1 ? 'shell' : 'shells',
     Glob: n === 1 ? 'search' : 'searches',
     Grep: n === 1 ? 'search' : 'searches',
-    SearchWeb: n === 1 ? 'query' : 'queries',
-    FetchURL: n === 1 ? 'URL' : 'URLs',
-    ReadFile: n === 1 ? 'file' : 'files',
-    ReadMediaFile: 'media',
+    WebSearch: n === 1 ? 'query' : 'queries',
+    WebFetch: n === 1 ? 'URL' : 'URLs',
+    Read: n === 1 ? 'file' : 'files',
+    Task: n === 1 ? 'task' : 'tasks',
+    AskUserQuestion: n === 1 ? 'question' : 'questions',
     // Verb "Thought" is already a complete phrase for n===1 — only add the
     // noun for plural counts to avoid "Thought thought".
     Think: n === 1 ? '' : 'thoughts',
-    SetTodoList: 'todo',
-    TaskList: '',
-    TaskOutput: '',
-    TaskStop: '',
-    ExitPlanMode: '',
   };
   const suffix = noun[tool];
   if (suffix == null || suffix === '') return verb;
