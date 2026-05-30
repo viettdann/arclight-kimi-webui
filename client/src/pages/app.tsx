@@ -76,7 +76,7 @@ export function Shell() {
               M
             </div>
             <span className="text-sm font-semibold truncate text-sidebar-foreground">
-              {sessionId ? sessionTitle || 'Chat Session' : 'More Than Coding'}
+              {sessionId ? sessionTitle || 'Chat Session' : 'More Than Code'}
             </span>
           </div>
 

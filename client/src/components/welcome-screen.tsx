@@ -28,7 +28,7 @@ export function WelcomeScreen() {
         <div className="flex items-center justify-center gap-3">
           <h1 className="text-4xl font-bold tracking-tight md:text-5xl">
             <span className="text-foreground">More Than </span>
-            <span className="gradient-text">Coding</span>
+            <span className="gradient-text">Code</span>
           </h1>
           <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-semibold text-primary">
             BETA
