@@ -5,9 +5,8 @@ import { SessionManager } from '../src/services/session-manager';
 import type { WSData } from '../src/ws/upgrade';
 
 // Pure-logic tests: no DB, no SDK. We attach fake sockets to a real
-// SessionManager and verify broadcastEvent stamps a monotonic seq, pushes
-// into the per-session buffer, and fans out to every OPEN socket while
-// skipping CLOSED ones.
+// SessionManager and verify broadcastEvent stamps a monotonic seq and fans out
+// to every OPEN socket while skipping CLOSED ones.
 
 class FakeWS {
   readyState = 1; // OPEN
@@ -33,7 +32,7 @@ function setup(sessionId: string) {
 }
 
 describe('broadcastEvent', () => {
-  it('assigns monotonic seq and pushes into buffer', () => {
+  it('assigns monotonic seq', () => {
     const { manager, active } = setup('s1');
     const ws = new FakeWS();
     manager.attachWS(active, asWS(ws));
@@ -44,8 +43,6 @@ describe('broadcastEvent', () => {
     expect(m1.seq).toBe(1);
     expect(m2.seq).toBe(2);
     expect(active.lastSeq).toBe(2);
-    expect(active.eventBuffer.lastSeq).toBe(2);
-    expect(active.eventBuffer.since(0).map((m) => m.seq)).toEqual([1, 2]);
   });
 
   it('fans out to every attached socket', () => {
@@ -86,8 +83,6 @@ describe('broadcastEvent', () => {
     expect(open.sent.length).toBe(1);
     expect(closing.sent.length).toBe(0);
     expect(closed.sent.length).toBe(0);
-    // Buffer still got the message — late reconnects can replay it.
-    expect(active.eventBuffer.since(0).length).toBe(1);
   });
 
   it('continues fanout when one socket throws on send', () => {

@@ -3,6 +3,8 @@
 `@moonshot-ai/kimi-agent-sdk@0.1.8` → `@anthropic-ai/claude-agent-sdk@0.3.158`.
 Binary `claude` 2.1.158. Runtime `bun`. Single deployment, single server. Process chạy **non-root**.
 
+> **Status — verified 2026-05-30 (`refactor/claude-agent-sdk`).** Shipped. Typecheck + biome sạch; 32 isolated server test file pass; live SDK probe (claude 2.1.158) xác nhận assistant message **split** (1 content block / message, cùng `message.id`), `renderTranscript` Block[] parity, và bố cục file subagent. Doc này mô tả hệ thống đã ship.
+
 ## Locked decisions
 
 - Drop DB hoàn toàn. Xoá migration cũ, regen từ schema mới. Không backfill.
@@ -48,7 +50,7 @@ function TM(cwd) {                              // encoder cwd → tên folder
 | 3 file (wire/context/state.json) | 1 JSONL transcript |
 | `kimiSessionId` | `sdkSessionId` (lấy từ `msg.session_id` ở message đầu) |
 
-**Bảo toàn:** wire protocol (`shared/types.ts` `Block[]`/`WSMessage`/payloads), project/workspace/clone, auth/allowlist/git-credentials, ActiveSession registry, eventBuffer/seq, reconcile-on-startup. Migration thay *producer*, không đổi *hợp đồng client* (trừ bỏ `steer`).
+**Bảo toàn:** wire protocol (`shared/types.ts` `Block[]`/`WSMessage`/payloads), project/workspace/clone, auth/allowlist/git-credentials, ActiveSession registry, per-session seq counter, reconcile-on-startup. Migration thay *producer*, không đổi *hợp đồng client* (trừ bỏ `steer`).
 
 ---
 
@@ -77,7 +79,7 @@ function TM(cwd) {                              // encoder cwd → tên folder
 ## Phase 1 — Config (key-value) + env
 
 **New `server/src/services/config.ts`** (port từ reference `services/config.ts`):
-- Bảng `app_settings` (Phase 2). `getConfig(key)`: cache 60s → DB → `process.env` fallback. `seedAppSettings`, `loadStartupConfig`, `diffSettings`, `syncSettings`, `maskSecret`.
+- Bảng `app_settings` (Phase 2). `getConfig(key)`: cache 60s → DB → `process.env` fallback. `seedAppSettings`, `loadStartupConfig`, `getAllSettings` (masked DTO), `updateSettings` (upsert; `null` = giữ nguyên), `maskSecret`.
 - `SEED_KEYS`:
 
 | key | secret | default |
@@ -119,7 +121,7 @@ async function buildAgentEnv(): Promise<Record<string,string>> {
 }
 ```
 
-**New `server/src/routes/config.ts`:** `GET /api/config` (masked) + `PATCH /api/config` (diff/sync) + `POST /api/config/test` (one-shot `query()` validate auth — port `test-connection` qua SDK).
+**New `server/src/routes/config.ts`:** `GET /api/config` (masked) + `PATCH /api/config` (`updateSettings` upsert + `clearSlashCommandsCache()`) + `POST /api/config/test` (one-shot `query()` validate auth).
 
 **Checkpoint:** `buildAgentEnv()` trả đúng tập biến theo provider; `which claude` resolve; `APP_CONFIG_DIR` được tạo. oauth: `CLAUDE_CODE_OAUTH_TOKEN` env + `CLAUDE_CONFIG_DIR` rỗng (không file credentials) auth đủ.
 
@@ -201,7 +203,7 @@ const q = query({ prompt: bridge.iterable, options: {
   ...permissionOptions(approvalMode),          // xem bảng dưới
   pathToClaudeCodeExecutable: await getClaudeCodePath(),
   env: await buildAgentEnv(),
-  toolConfig: { askUserQuestion: { previewFormat: 'html' } },
+  toolConfig: { askUserQuestion: { previewFormat: 'markdown' } },  // option.preview → QuestionOptionDTO.preview → markdown render
   ...(resume && { resume: sdkSessionId }),
   stderr: (line) => log.debug({ line }),
 }})
@@ -284,9 +286,9 @@ const subagentDir    = (cwd, id) => join(PROJECTS, encodeCwd(cwd), id, 'subagent
 ### `transcript-render.ts` (NEW — JSONL → `Block[]`)
 Thay `wireEventsToBlocks`. **Tái dùng từ `wire-events.ts`** (giữ tới hết Phase 4): `mapDisplayBlocks` (shell/diff → `DisplayBlock[]`), `contentPartsToText`, thuật toán subagent-nesting (`subagentBlocksByParent`, đệ quy theo `parent_tool_use_id`), suy `turnIdx/stepIdx/partIdx` tuần tự. Viết mới **chỉ** front-end parse: dòng JSONL → cấu trúc trung gian (thay parser Kimi-wire `parseWireFromBytes`). Đọc từng dòng `content` trong DB (**không cần đĩa**) → `Block[]` đúng `shared/types.ts`:
 - line `type:'assistant'` → `text`/`thinking`/`tool_call` blocks.
-- line `type:'user'` (tool_result) → `tool_result` block + `displayBlocks` qua `mapDisplayBlocks`.
-- line `type:'user'` (prompt người dùng) → `user` block.
-- subagent transcript (từ `subagents` JSONB) → lồng vào `subagent` block theo `parent_tool_use_id`.
+- line `type:'user'` (tool_result) → `tool_result` block + `displayBlocks` (qua `display-blocks.ts` `toDisplayBlocks`).
+- line `type:'user'` (prompt người dùng, content **string**) → `user` block. Bỏ `isMeta`, command-wrapper, và `isCompactSummary` (tóm tắt nén — không phải hội thoại). Content **array** chỉ xử lý `tool_result` (khớp live-consumer; prompt thật luôn là string).
+- subagent transcript (từ `subagents` JSONB) → lồng `subagent` block dưới Task `tool_call`: parent = `meta.toolUseId`, fallback `toolUseResult.agentId` ↔ tên file `agent-<id>` (binary cũ chỉ ghi `agentType`/`description`).
 - Chốt: tự parse từ `content` (không dùng `getSessionMessages` — nó cần file trên đĩa; mirror-DB parse thẳng `content`).
 
 Xoá `wire-events.ts` sau khi các phần trên đã chuyển vào `transcript-render.ts`.
@@ -323,19 +325,19 @@ Xoá `wire-events.ts` sau khi các phần trên đã chuyển vào `transcript-r
 | `result` | `turn_end` (+ usage→`status_update`); `appendTranscript` fire-and-forget; trigger title nếu chưa có |
 | error iteration | `error` (phân loại timeout/process_died/api_error/user_abort) |
 
-`turn_begin`/`step_begin`/`step_interrupted`: phát từ vòng đời turn trong session-manager (không từ SDKMessage trực tiếp).
+`turn_begin`: phát ở đầu lượt từ handler/session-manager (không từ SDKMessage trực tiếp). Interrupt không có event riêng — `query.interrupt()` khiến SDK trả `result`, consumer phát `turn_end` như thường.
 
 ### `ws/events.ts` (REWRITE)
-Xoá `translateStreamEvent` (Kimi). Giữ helper broadcast/buffer/seq. Logic dịch chuyển vào `output-consumer.ts`.
+Xoá `translateStreamEvent` (Kimi). Giữ helper broadcast/seq. Logic dịch chuyển vào `output-consumer.ts`.
 
 ### `ws/handlers.ts` (ADAPT — giữ message types, bỏ steer)
 9 handler → 8 (bỏ `steer_input`):
 - `create_session` → tạo DB row + `createMessageBridge` + `query()` + `consumeQueryOutput`; broadcast `session_created`.
-- `send_message` → rate-limit + slash intercept; áp `thinking/approvalMode` (nếu đổi: `setPermissionMode`/`setModel` hoặc tạo query mới); `bridge.push`.
+- `send_message` → rate-limit + slash intercept; áp live (nếu đổi): `approvalMode`→`setPermissionMode`, `thinking`→`setMaxThinkingTokens(null|0)`, `model`→`setModel`; persist DB; `bridge.push`.
 - `approve_tool` → resolve `approve:${requestId}`.
 - `answer_question` → resolve `question-answer:${requestId}` (`answers` + `annotations`).
 - `interrupt_turn` → `query.interrupt()`.
-- `subscribe` → snapshot + replay buffer từ `lastSeq` + `replay_done`.
+- `subscribe` → snapshot + `replay_done`. Snapshot thay thế toàn bộ block list (single-source); không có event buffer/replay-since; `SubscribePayload.lastSeq` hiện không dùng.
 - `resume_session` → `restoreTranscript` TRƯỚC → `query({resume})` → consume.
 - `adopt_project` → giữ nguyên (project logic).
 
@@ -366,7 +368,7 @@ Single-server, in-memory WS state mất khi restart → khi khởi động:
 - **Xoá:** raw-toml, background, services, hooks, agent panels (Phase 0).
 - **`provider-panel.tsx` REWRITE:** radio `CLAUDE_PROVIDER` (oauth | api). `oauth` → field `CLAUDE_CODE_OAUTH_TOKEN`. `api` → `ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN` + `ANTHROPIC_MODEL`. Nút "Test connection" → `POST /api/config/test`.
 - **`models-panel.tsx` REWRITE:** `DEFAULT_MODEL` chọn từ `claude-opus-4-8` / `claude-sonnet-4-6` / `claude-haiku-4-5-20251001`.
-- **`kimi-defaults-panel.tsx` → `defaults-panel.tsx`:** default approvalMode/thinking.
+- **`kimi-defaults-panel.tsx` → `defaults-panel.tsx`:** default approvalMode/thinking; `new-session-store` gửi kèm `create_session` (+ `DEFAULT_MODEL`).
 - **`kimi-section.tsx`** → rename + trỏ panel mới.
 - `api/kimi-config.ts` + `lib/kimi-config-store.ts` → `api/config.ts` + `lib/config-store.ts` (key-value).
 
@@ -384,14 +386,14 @@ Remap tên tool Kimi → Claude. Giữ cấu trúc adapter:
 | todo-adapter | `TodoWrite` items |
 | fallback-adapter | tool lạ |
 
-Thêm adapter cho `AskUserQuestion` (render options + preview html) và `Glob`/`Grep`.
+Thêm adapter cho `AskUserQuestion` (render options + preview markdown trong `question-card.tsx` qua markdown renderer sẵn có) và `Glob`/`Grep`.
 
 ### Composer / store
-- `chat-input.tsx`: selector `approvalMode` 3 trị — `ask` / `safe` (Safe · pre-approved tools) / `bypass` (Bypass · YOLO); giữ `thinking`; model list đổi sang Claude. Bỏ UI steer, bỏ toggle `yoloMode` riêng.
+- `chat-input.tsx`: selector `approvalMode` 3 trị — `ask` / `safe` (Safe · pre-approved tools) / `bypass` (Bypass · YOLO); giữ `thinking`; model list Claude (chọn → gửi kèm `send_message.model` → `setModel`). Bỏ UI steer, bỏ toggle `yoloMode` riêng.
 - `chat-store.ts`, `chat-view.tsx`: bỏ xử lý `steer_input`/`steer` block; còn lại giữ (wire không đổi).
 
 ### Shared
-- `shared/types.ts`: `APPROVAL_MODES = ['ask','safe','bypass'] as const`; bỏ `yoloMode` khỏi `CreateSessionPayload`/`SendMessagePayload`/`SnapshotPayload`/`SessionListItem`; bỏ `'steer_input'` (cả 2 chiều) khỏi `WSMessageType` + `SteerInputPayload` + `steer` khỏi `Block`; sửa comment `TurnEndStatus` (bỏ tham chiếu Kimi); thêm `totalCostUsd` nếu hiển thị; `kimiSessionId`→`sdkSessionId`.
+- `shared/types.ts`: `APPROVAL_MODES = ['ask','safe','bypass'] as const`; bỏ `yoloMode` khỏi `CreateSessionPayload`/`SendMessagePayload`/`SnapshotPayload`/`SessionListItem`; bỏ `'steer_input'` (cả 2 chiều) khỏi `WSMessageType` + `SteerInputPayload` + `steer` khỏi `Block`; sửa comment `TurnEndStatus` (bỏ tham chiếu Kimi); thêm `totalCostUsd`; `kimiSessionId`→`sdkSessionId`; thêm `SendMessagePayload.model?` + `QuestionOptionDTO.preview?`.
 - `shared/types/kimi-config.ts` → `shared/types/config.ts` (DTO key-value).
 
 **Checkpoint:** UI build sạch; tạo session từ UI, thấy stream/approve/question/title; settings provider-switch lưu được.
@@ -402,7 +404,7 @@ Thêm adapter cho `AskUserQuestion` (render options + preview html) và `Glob`/`
 
 - `bun run typecheck` (toàn monorepo) sạch.
 - `bunx biome check` sạch.
-- `bun --filter server test` (isolated runner) — viết lại test cho: `buildAgentEnv` (provider switch + whitelist), `encodeCwd`/transcript path, `transcript-render` (JSONL→blocks), `canUseTool` (3 tier), config diff/sync. Mỗi file 1 process (giữ isolation invariant).
+- `bun --filter server test` (isolated runner) — test cho: `buildAgentEnv` (provider switch + whitelist), `encodeCwd`/transcript path, `transcript-render` (JSONL→blocks; index cumulative; subagent agentId-fallback; compaction-summary filter), `output-consumer` (live block-id parity vs reload), `canUseTool` (3 tier), config get/update. Mỗi file 1 process (giữ isolation invariant).
 - Smoke: `claude` qua `which`; oauth + api provider; resume sau restart; interrupt giữa turn; `bypass` (`bypassPermissions`) chạy non-root, sandbox off, không cần `bwrap`; `AskUserQuestion` vẫn tới user dưới `bypass`.
 
 ---

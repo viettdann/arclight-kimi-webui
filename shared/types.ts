@@ -1,4 +1,4 @@
-// Kimi WebUI shared contract — copied from design doc.
+// Shared client/server wire contract.
 // Server and client must agree on this surface verbatim.
 
 import type { GitProvider } from './types/git-credentials';
@@ -30,8 +30,6 @@ export type WSMessageType =
   | 'approval_request'
   | 'approval_response'
   | 'question_request'
-  | 'step_interrupted'
-  | 'parse_error'
   | 'compaction_begin'
   | 'compaction_end'
   | 'turn_end'
@@ -172,21 +170,23 @@ export interface FileEntry {
 export interface QuestionOptionDTO {
   label: string;
   description?: string;
+  /** Per-option preview content for AskUserQuestion; from the SDK option's `preview` field. */
+  preview?: string;
 }
 
 export interface QuestionItemDTO {
   question: string;
   header?: string;
   options: QuestionOptionDTO[];
-  /** Normalized from SDK snake_case `multi_select`. */
+  /** Mirrors the SDK camelCase `multiSelect` field. */
   multiSelect?: boolean;
 }
 
 /**
  * One slash command available in a session's workDir, mirroring the SDK
  * `SlashCommandInfo` (and `InitializeResult.slash_commands`). Surfaced to the
- * composer picker; sourced from a warm-init ProtocolClient probe keyed by
- * `(workDir, skillsDir)`, NOT from the live session.
+ * composer picker; sourced from a `query()` probe keyed by `workDir`, and
+ * refreshed from the live session's system/init.
  */
 export interface SlashCommand {
   name: string;
@@ -325,21 +325,8 @@ export interface QuestionRequestPayload {
   questions: QuestionItemDTO[];
 }
 
-export type StepInterruptedPayload = Record<string, never>;
 export type CompactionBeginPayload = Record<string, never>;
 export type CompactionEndPayload = Record<string, never>;
-
-/**
- * Carries either a SDK `WireEvent` ParseError (envelope decode of one wire
- * frame failed — `rawType` set) or a top-level `StreamEvent` ParseError
- * (raw frame text — `raw` set). Both surface to the client as `parse_error`.
- */
-export interface ParseErrorPayload {
-  code: string;
-  message: string;
-  rawType?: string;
-  raw?: string;
-}
 
 /**
  * The turn's terminal status. Pump errors (thrown during iteration) surface
@@ -397,9 +384,10 @@ export interface SendMessagePayload {
    */
   thinking?: boolean;
   approvalMode?: ApprovalMode;
+  /** Model switch to apply for this turn onward; the server applies it via `Query.setModel`. */
+  model?: string;
 }
 
-// Mirrors `ApprovalResponse` from `@moonshot-ai/kimi-agent-sdk`.
 export type ApprovalResponse = 'approve' | 'approve_for_session' | 'reject';
 
 export interface ApproveToolPayload {
@@ -496,7 +484,7 @@ export interface ProjectSummary {
   workDir: string;
   /**
    * `local` when the workspace folder exists on the current machine.
-   * `foreign` when only `kimi_sessions` rows reference this projectName.
+   * `foreign` when only `sessions` rows reference this projectName.
    * Foreign projects become local on the first successful adoption
    * (which mkdir's the folder via `ensureWorkDir`).
    */
@@ -561,7 +549,7 @@ export interface ProjectListResponse {
 
 export interface ProjectDeleteResponse {
   ok: true;
-  /** Number of `kimi_sessions` rows removed for the project. */
+  /** Number of `sessions` rows removed for the project. */
   sessionCount: number;
 }
 

@@ -73,6 +73,12 @@ function parseLines(content: string): AnyRecord[] {
  */
 function isRenderableUserString(rec: AnyRecord, content: string): boolean {
   if (rec.isMeta === true) return false;
+  // Compaction summary lines (`/compact` or auto-compact) are `type:'user'`
+  // with a large string body. They are bookkeeping injected for the model, not
+  // a prompt the user typed — the live path never renders them as a bubble
+  // (it surfaces compaction via the compaction_begin/end events), so drop them
+  // on reload too.
+  if (rec.isCompactSummary === true) return false;
   const trimmed = content.trim();
   if (!trimmed) return false;
   if (/^<\/?(?:local-)?command[-a-z]*>/i.test(trimmed)) return false;
@@ -91,6 +97,11 @@ export function renderTranscript(
   const toolNameByCallId = new Map<string, string>();
   // tool_use.id → the tool_use.input (needed by toDisplayBlocks on result).
   const toolInputByCallId = new Map<string, unknown>();
+  // subagent agentId (the `agent-<id>` file stem) → parent Task tool_use.id.
+  // Recovered from a tool_result line's `toolUseResult.agentId`; lets
+  // attachSubagents nest a subagent under its Task even when the subagent's
+  // meta.json omits `toolUseId` (older binaries wrote only agentType/description).
+  const agentIdToParent = new Map<string, string>();
 
   // contentBlockIndex bookkeeping: reset the per-message counter whenever the
   // assistant `message.id` changes (consecutive same-id lines increment it).
@@ -183,6 +194,10 @@ export function renderTranscript(
           if (!isRecord(item)) continue;
           if (asString(item.type) !== 'tool_result') continue;
           const toolUseId = asString(item.tool_use_id);
+          // Record the agentId → parent-Task linkage for subagent nesting.
+          const tur = isRecord(rec.toolUseResult) ? rec.toolUseResult : undefined;
+          const agentId = tur ? asString(tur.agentId) : '';
+          if (agentId && toolUseId) agentIdToParent.set(agentId, toolUseId);
           const toolName = toolNameByCallId.get(toolUseId) ?? '';
           const toolInput = toolInputByCallId.get(toolUseId);
           let displayBlocks: DisplayBlock[] = [];
@@ -221,19 +236,25 @@ export function renderTranscript(
     }
   }
 
-  attachSubagents(blocks, subagents);
+  attachSubagents(blocks, subagents, agentIdToParent);
   return blocks;
 }
 
 /**
  * For each persisted subagent (`agent-<id>.meta.json` + `agent-<id>.jsonl` in
  * the `subagents` map), recursively render its transcript and insert the
- * resulting `subagent` block immediately AFTER its parent Task `tool_call`
- * (matched by `meta.toolUseId` === toolCallId). Older meta lacking `toolUseId`
- * (or with no matching Task) is appended at the end — best-effort, no reliance
+ * resulting `subagent` block immediately AFTER its parent Task `tool_call`.
+ * The parent id is `meta.toolUseId` when present, else recovered from
+ * `agentIdToParent` (built from `toolUseResult.agentId` on the Task's result
+ * line — the linkage that survives meta.json omitting `toolUseId`). A subagent
+ * with no resolvable parent is appended at the end — best-effort, no reliance
  * on positional turn/step indices.
  */
-function attachSubagents(blocks: Block[], subagents?: Record<string, string> | null): void {
+function attachSubagents(
+  blocks: Block[],
+  subagents: Record<string, string> | null | undefined,
+  agentIdToParent: Map<string, string>,
+): void {
   if (!subagents) return;
 
   for (const [filename, fileContents] of Object.entries(subagents)) {
@@ -251,7 +272,10 @@ function attachSubagents(blocks: Block[], subagents?: Record<string, string> | n
     const agentJsonl = subagents[jsonlName];
     if (typeof agentJsonl !== 'string') continue;
 
-    const toolUseId = asString(meta.toolUseId);
+    // `agent-<agentId>.meta.json` → agentId; resolve parent: explicit meta field
+    // first, else the agentId↔tool_result linkage recovered while walking.
+    const agentId = filename.replace(/^agent-/, '').replace(/\.meta\.json$/, '');
+    const toolUseId = asString(meta.toolUseId) || agentIdToParent.get(agentId) || '';
     const nestedBlocks = renderTranscript(agentJsonl, null);
 
     const subagentBlock: Block = {

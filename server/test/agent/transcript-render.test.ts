@@ -336,4 +336,56 @@ describe('renderTranscript', () => {
     expect(renderTranscript('', null)).toEqual([]);
     expect(renderTranscript('\n\n  \n')).toEqual([]);
   });
+
+  it('nests a subagent via the agentId↔tool_result linkage when meta omits toolUseId', () => {
+    // Current binaries write `toolUseId` in meta, but older ones wrote only
+    // agentType/description. The parent Task must still be recovered from the
+    // result line's `toolUseResult.agentId`, matched to the `agent-<agentId>`
+    // file stem — otherwise the subagent orphan-appends and reload diverges
+    // from the live (task_started.tool_use_id) nesting.
+    const main = [
+      assistantLine('msg_M', {
+        type: 'tool_use',
+        id: 'toolu_parent',
+        name: 'Task',
+        input: { description: 'do work', subagent_type: 'Explore' },
+      }),
+      toolResultLine('uuid-res', 'toolu_parent', 'done', {
+        toolUseResult: { agentId: 'a1b2c3', status: 'completed' },
+      }),
+    ].join('\n');
+
+    const subagents = {
+      'agent-a1b2c3.jsonl': assistantLine('msg_SA', { type: 'text', text: 'sub reply' }),
+      // meta WITHOUT toolUseId — the fallback path under test.
+      'agent-a1b2c3.meta.json': JSON.stringify({ agentType: 'Explore', description: 'do work' }),
+    };
+
+    const blocks = renderTranscript(main, subagents);
+    const sa = byKind(blocks, 'subagent')[0]!;
+    expect(sa.id).toBe('subagent:toolu_parent');
+    expect(sa.parentToolCallId).toBe('toolu_parent');
+    expect(sa.subagentType).toBe('Explore');
+    const taskIdx = blocks.findIndex((b) => b.kind === 'tool_call' && b.id === 'toolu_parent');
+    const saIdx = blocks.findIndex((b) => b.kind === 'subagent');
+    expect(saIdx).toBe(taskIdx + 1);
+  });
+
+  it('drops a compaction summary instead of rendering it as a user bubble', () => {
+    const jsonl = [
+      userPromptLine(
+        'compact-1',
+        'This session is being continued from a previous conversation...',
+        {
+          isCompactSummary: true,
+          isVisibleInTranscriptOnly: true,
+        },
+      ),
+      userPromptLine('real-1', 'a real prompt'),
+    ].join('\n');
+
+    const users = byKind(renderTranscript(jsonl), 'user');
+    expect(users).toHaveLength(1);
+    expect(users[0]!.content).toBe('a real prompt');
+  });
 });

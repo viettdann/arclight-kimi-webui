@@ -205,17 +205,3 @@ export async function restoreTranscript(sessionId: string): Promise<void> {
     'transcript restored from DB',
   );
 }
-
-/**
- * Locate an on-disk transcript by `sdkSessionId` alone, scanning every project
- * dir. SDK session ids are globally unique, so at most one match exists. Used
- * as a resume fallback when the originating cwd is unknown. Returns the
- * absolute path, or `null` if none is found.
- */
-export async function findTranscriptBySessionId(sdkSessionId: string): Promise<string | null> {
-  const glob = new Bun.Glob(`*/${sdkSessionId}.jsonl`);
-  for await (const rel of glob.scan({ cwd: PROJECTS, onlyFiles: true })) {
-    return join(PROJECTS, rel);
-  }
-  return null;
-}

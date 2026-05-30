@@ -8,12 +8,11 @@ import type {
   QuestionRequestPayload,
   StatusUpdatePayload,
 } from 'shared/types';
-import { createEventBuffer, type EventBuffer } from '../lib/event-buffer';
 import type { WSData } from '../ws/upgrade';
 import type { MessageBridge } from './agent/message-bridge';
 
 // In-memory registry of active Claude Agent SDK sessions. Single-instance only —
-// no cross-process coordination, by design. WS fan-out state, EventBuffer, the
+// no cross-process coordination, by design. WS fan-out state, the
 // streaming-input bridge, the live `query` handle, and pending approval/question
 // promises all live here for the lifetime of the process.
 
@@ -62,7 +61,6 @@ export interface ActiveSession {
   /** True while a query is consuming/emitting for this session. */
   turnInProgress: boolean;
   wsSet: Set<ServerWebSocket<WSData>>;
-  eventBuffer: EventBuffer;
   pendingApprovals: Map<string, PendingApproval>;
   pendingQuestions: Map<string, PendingQuestion>;
   /** Last assigned outbound seq. Monotonic per session. */
@@ -93,7 +91,6 @@ export interface RegisterArgs {
   model?: string | null;
   thinking?: boolean;
   approvalMode?: ApprovalMode;
-  bufferCapacity?: number;
 }
 
 export type RestoreFn = (sessionId: string) => Promise<ActiveSession>;
@@ -123,7 +120,6 @@ export class SessionManager {
       approvalMode: args.approvalMode ?? 'ask',
       turnInProgress: false,
       wsSet: new Set(),
-      eventBuffer: createEventBuffer(args.bufferCapacity),
       pendingApprovals: new Map(),
       pendingQuestions: new Map(),
       lastSeq: 0,

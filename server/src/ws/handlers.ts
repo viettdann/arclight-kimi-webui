@@ -39,6 +39,7 @@ import {
   sessionManager as defaultManager,
   type SessionManager,
 } from '../services/session-manager';
+import { getSlashCommands } from '../services/slash-commands-cache';
 import { buildSnapshot } from '../services/snapshot';
 import { deriveProjectName } from '../services/work-dir';
 import { closeAuthExpired } from './close-codes';
@@ -415,6 +416,13 @@ async function handleCreateSession(
   // The envelope's sessionId is the signal; the body is empty.
   broadcastEvent<SessionCreatedPayload>(active, 'session_created', {}, deps.manager);
 
+  // Fire-and-forget warm-init: populate the slash-command cache (real probe, no
+  // cacheOnly) and broadcast the result so the freshly created session's picker
+  // is hot without waiting for the first live `system`/`init` message.
+  void getSlashCommands(active.workDir)
+    .then((commands) => broadcastEvent(active, 'slash_commands', { commands }, deps.manager))
+    .catch(() => {});
+
   // Initial snapshot + replay_done to the requesting socket. No query yet — the
   // subprocess is spawned lazily on the first send_message.
   await sendSnapshot(ws, active);
@@ -465,14 +473,31 @@ async function handleSendMessage(
     flagChanges.approvalMode = payload.approvalMode;
   }
   if (flagChanges.thinking !== undefined || flagChanges.approvalMode !== undefined) {
-    if (flagChanges.thinking !== undefined) active.thinking = flagChanges.thinking;
+    if (flagChanges.thinking !== undefined) {
+      active.thinking = flagChanges.thinking;
+      // A live query honors thinking changes in place — null re-enables adaptive
+      // thinking, 0 disables it — so the running subprocess applies it without a
+      // respawn.
+      await active.query?.setMaxThinkingTokens(flagChanges.thinking ? null : 0);
+    }
     if (flagChanges.approvalMode !== undefined) {
       active.approvalMode = flagChanges.approvalMode;
-      // A live query keeps its own permission mode; nudge it in place. (Thinking
-      // is read at query construction, so it takes effect on the next spawn.)
+      // A live query keeps its own permission mode; nudge it in place.
       await active.query?.setPermissionMode(mapMode(flagChanges.approvalMode));
     }
     await deps.db.update(schema.sessions).set(flagChanges).where(eq(schema.sessions.id, sessionId));
+  }
+
+  // Per-session model switch. Only when the composer rides along a model that
+  // differs from the active one. A live query honors it in place; without one we
+  // still record the choice so the lazy spawn picks it up.
+  if (payload.model !== undefined && payload.model !== active.model) {
+    active.model = payload.model;
+    await active.query?.setModel(payload.model);
+    await deps.db
+      .update(schema.sessions)
+      .set({ model: payload.model })
+      .where(eq(schema.sessions.id, sessionId));
   }
 
   await ensureQuery(active);
