@@ -1,41 +1,39 @@
+import { AskUserQuestionAdapter } from './adapters/askuserquestion-adapter';
+import {
+  EditFileAdapter,
+  MultiEditFileAdapter,
+  NotebookEditAdapter,
+} from './adapters/edit-adapters';
 import { FallbackAdapter } from './adapters/fallback-adapter';
 import {
   GlobAdapter,
   GrepAdapter,
   ReadFileAdapter,
-  ReadMediaAdapter,
-  StrReplaceFileAdapter,
   WriteFileAdapter,
 } from './adapters/file-adapters';
-import { ShellAdapter } from './adapters/shell-adapter';
-import {
-  ExitPlanModeAdapter,
-  TaskListAdapter,
-  TaskOutputAdapter,
-  TaskStopAdapter,
-} from './adapters/task-adapters';
-import { ThinkToolAdapter } from './adapters/think-adapter';
+import { BashOutputAdapter, KillShellAdapter, ShellAdapter } from './adapters/shell-adapter';
+import { TaskAdapter } from './adapters/task-adapters';
 import { SetTodoListAdapter } from './adapters/todo-adapter';
 import { FetchURLAdapter, SearchWebAdapter } from './adapters/web-adapters';
 import type { Adapter } from './types';
 
-/** Tool name → adapter. Names match kimi-cli built-in tools. */
+/** Tool name → adapter. Names match Claude Agent SDK built-in tools. */
 const REGISTRY: Record<string, Adapter> = {
-  ReadFile: ReadFileAdapter,
-  ReadMediaFile: ReadMediaAdapter,
+  Read: ReadFileAdapter,
+  Write: WriteFileAdapter,
+  Edit: EditFileAdapter,
+  MultiEdit: MultiEditFileAdapter,
+  NotebookEdit: NotebookEditAdapter,
   Glob: GlobAdapter,
   Grep: GrepAdapter,
-  WriteFile: WriteFileAdapter,
-  StrReplaceFile: StrReplaceFileAdapter,
-  Shell: ShellAdapter,
-  Think: ThinkToolAdapter,
-  SetTodoList: SetTodoListAdapter,
-  SearchWeb: SearchWebAdapter,
-  FetchURL: FetchURLAdapter,
-  TaskList: TaskListAdapter,
-  TaskOutput: TaskOutputAdapter,
-  TaskStop: TaskStopAdapter,
-  ExitPlanMode: ExitPlanModeAdapter,
+  Bash: ShellAdapter,
+  BashOutput: BashOutputAdapter,
+  KillShell: KillShellAdapter,
+  TodoWrite: SetTodoListAdapter,
+  WebSearch: SearchWebAdapter,
+  WebFetch: FetchURLAdapter,
+  Task: TaskAdapter,
+  AskUserQuestion: AskUserQuestionAdapter,
 };
 
 export function adapterFor(name: string): Adapter {
@@ -44,19 +42,21 @@ export function adapterFor(name: string): Adapter {
 
 /** Public verb shown in the auto-collapse summary; aggregates by verb category. */
 export const SUMMARY_VERB: Record<string, string> = {
-  WriteFile: 'Created',
-  StrReplaceFile: 'Edited',
-  SetTodoList: 'Updated Todos',
-  Shell: 'Ran command',
+  Write: 'Created',
+  Edit: 'Edited',
+  MultiEdit: 'Edited',
+  NotebookEdit: 'Edited',
+  TodoWrite: 'Updated Todos',
+  Bash: 'Ran command',
+  BashOutput: 'Read output',
+  KillShell: 'Killed shell',
   Glob: 'Searched',
   Grep: 'Searched',
-  SearchWeb: 'Searched web',
-  FetchURL: 'Fetched',
-  ReadFile: 'Read',
-  ReadMediaFile: 'Read media',
+  WebSearch: 'Searched web',
+  WebFetch: 'Fetched',
+  Read: 'Read',
+  Task: 'Delegated',
+  AskUserQuestion: 'Asked',
+  // Native thinking blocks aggregate under the synthetic "Think" key.
   Think: 'Thought',
-  TaskList: 'Listed tasks',
-  TaskOutput: 'Read task output',
-  TaskStop: 'Stopped task',
-  ExitPlanMode: 'Exited plan mode',
 };

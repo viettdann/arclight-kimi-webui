@@ -8,18 +8,15 @@ import { type AuthVariables, requireAuth } from '../auth/middleware';
 import { type DB, db as defaultDb, schema } from '../db';
 import { env as defaultEnv, type Env } from '../env';
 import { auditLog as defaultAuditLog, logger } from '../lib/logger';
-import { kimiPaths } from '../services/kimi-config/paths';
+import { projectTranscriptDir, transcriptPath } from '../services/agent/transcript-store';
 import { teardownActiveSession } from '../services/session-lifecycle';
-import {
-  sessionManager as defaultManager,
-  type KimiSessionManager,
-} from '../services/session-manager';
+import { sessionManager as defaultManager, type SessionManager } from '../services/session-manager';
 
 const SESSIONS_LIST_LIMIT = 200;
 
 export interface SessionsRouterDeps {
   db: DB;
-  manager: KimiSessionManager;
+  manager: SessionManager;
   auditLog: typeof defaultAuditLog;
   env: Pick<Env, 'WORKSPACE_ROOT'>;
 }
@@ -51,9 +48,9 @@ export function createSessionsRouter(deps: SessionsRouterDeps): Hono<{ Variables
 
     const rows = await db
       .select()
-      .from(schema.kimiSessions)
-      .where(eq(schema.kimiSessions.userId, user.id))
-      .orderBy(desc(schema.kimiSessions.lastActiveAt))
+      .from(schema.sessions)
+      .where(eq(schema.sessions.userId, user.id))
+      .orderBy(desc(schema.sessions.lastActiveAt))
       .limit(SESSIONS_LIST_LIMIT);
 
     // Hoist user root out of the row loop: slug(email) and the WORKSPACE_ROOT
@@ -73,6 +70,7 @@ export function createSessionsRouter(deps: SessionsRouterDeps): Hono<{ Variables
         model: r.model,
         thinking: r.thinking,
         totalTokens: r.totalTokens,
+        totalCostUsd: Number(r.totalCostUsd),
         projectName: r.projectName,
         createdAt: r.createdAt.toISOString(),
         lastActiveAt: r.lastActiveAt.toISOString(),
@@ -84,8 +82,8 @@ export function createSessionsRouter(deps: SessionsRouterDeps): Hono<{ Variables
   });
 
   // DELETE /:id — hard delete. If in memory, tear the session down first so the
-  // SDK is shut down and any in-flight backup drains. Then remove the Kimi
-  // session dir on disk (best-effort) and DELETE the row. `session_files` is
+  // SDK is shut down and any in-flight backup drains. Then remove the on-disk
+  // transcript (best-effort) and DELETE the row. `session_transcripts` is
   // removed via ON DELETE CASCADE.
   sessions.delete('/:id', async (c) => {
     const user = c.var.user;
@@ -94,11 +92,11 @@ export function createSessionsRouter(deps: SessionsRouterDeps): Hono<{ Variables
 
     const [row] = await db
       .select({
-        workDir: schema.kimiSessions.workDir,
-        kimiSessionId: schema.kimiSessions.kimiSessionId,
+        workDir: schema.sessions.workDir,
+        sdkSessionId: schema.sessions.sdkSessionId,
       })
-      .from(schema.kimiSessions)
-      .where(and(eq(schema.kimiSessions.id, id), eq(schema.kimiSessions.userId, user.id)))
+      .from(schema.sessions)
+      .where(and(eq(schema.sessions.id, id), eq(schema.sessions.userId, user.id)))
       .limit(1);
     if (!row) {
       return c.json({ error: 'not_found' }, 404);
@@ -109,18 +107,23 @@ export function createSessionsRouter(deps: SessionsRouterDeps): Hono<{ Variables
       await teardownActiveSession(active, { manager, db });
     }
 
-    if (row.kimiSessionId) {
-      const sessionDir = kimiPaths().sessionDir(row.workDir, row.kimiSessionId);
+    if (row.sdkSessionId) {
+      // Remove this session's on-disk transcript: the `<sdkSessionId>.jsonl`
+      // file and the `<sdkSessionId>/` subtree (subagent transcripts). Both sit
+      // under the shared per-cwd project dir, so sibling sessions are untouched.
+      const jsonl = transcriptPath(row.workDir, row.sdkSessionId);
+      const subtree = path.join(projectTranscriptDir(row.workDir), row.sdkSessionId);
       try {
-        await rm(sessionDir, { recursive: true, force: true });
+        await rm(jsonl, { force: true });
+        await rm(subtree, { recursive: true, force: true });
       } catch (err) {
-        logger.warn({ err, sessionId: id, sessionDir }, 'failed to remove kimi session dir');
+        logger.warn({ err, sessionId: id, jsonl }, 'failed to remove session transcript');
       }
     }
 
     await db
-      .delete(schema.kimiSessions)
-      .where(and(eq(schema.kimiSessions.id, id), eq(schema.kimiSessions.userId, user.id)));
+      .delete(schema.sessions)
+      .where(and(eq(schema.sessions.id, id), eq(schema.sessions.userId, user.id)));
 
     auditLog({
       userId: user.id,

@@ -61,7 +61,7 @@ function bundleSubagents(blocks: Block[]): RenderItem[] {
 
 /**
  * Group sequential rail-eligible blocks into ActivityTimeline segments.
- * Everything else (user, text, steer, approval_request, question_request,
+ * Everything else (user, text, approval_request, question_request,
  * subagent-bundle) renders standalone — preserving the original ordering so
  * Timeline / bubble / Timeline interleaving works naturally.
  */

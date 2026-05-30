@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
-import { KimiSessionManager } from '../../src/services/session-manager';
+import { SessionManager } from '../../src/services/session-manager';
 import { handleMessage, setHandlerDeps } from '../../src/ws/handlers';
 import { asWS, FakeWS, makeFakeDb } from '../_helpers';
 
@@ -9,12 +9,12 @@ import { asWS, FakeWS, makeFakeDb } from '../_helpers';
 // `<WORKSPACE_ROOT>/<userSlug>/<projectName>`. We carve a unique slug per test
 // to avoid cross-test FS interference inside that root.
 
-let manager: KimiSessionManager;
+let manager: SessionManager;
 let userSlug: string;
 let workspaceRoot: string;
 
 beforeEach(async () => {
-  manager = new KimiSessionManager();
+  manager = new SessionManager();
   workspaceRoot = '/tmp/kimi-webui-test';
   // Unique slug per test, materialised under workspaceRoot.
   const dir = await mkdtemp(path.join(workspaceRoot, 'adopt-test-'));

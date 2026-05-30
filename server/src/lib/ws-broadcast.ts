@@ -1,6 +1,6 @@
 import type { ServerWebSocket } from 'bun';
 import type { WSMessage, WSMessageType } from 'shared/types';
-import type { ActiveSession, KimiSessionManager } from '../services/session-manager';
+import type { ActiveSession, SessionManager } from '../services/session-manager';
 import { snapshot } from '../ws/registry';
 import type { WSData } from '../ws/upgrade';
 
@@ -21,7 +21,7 @@ export function broadcastEvent<T>(
   active: ActiveSession,
   type: WSMessageType,
   payload: T,
-  manager: KimiSessionManager,
+  manager: SessionManager,
 ): WSMessage<T> {
   const seq = manager.allocSeq(active);
   const msg: WSMessage<T> = {

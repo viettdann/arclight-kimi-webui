@@ -1,7 +1,6 @@
 import { Bot, ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Block } from 'shared/types';
-import { stripHarnessTags } from '../../lib/harness-tags';
 import { BlockRegistry } from './block-registry';
 import { ActivityTimeline } from './timeline/activity-timeline';
 import { groupRailSegments } from './timeline/group-rail-segments';
@@ -37,11 +36,17 @@ export function SubagentBundle({ toolCall, subagent, toolResult }: SubagentBundl
   // concatenates head (args) + tail (argsStreaming) before JSON.parse so
   // description/prompt/subagent_type resolve even when chunked.
   const argsObj = parseArgs(toolCall);
-  const description = argsObj && 'description' in argsObj ? String(argsObj.description ?? '') : '';
+  const argsDescription =
+    argsObj && 'description' in argsObj ? String(argsObj.description ?? '') : '';
   const promptRaw = argsObj && 'prompt' in argsObj ? String(argsObj.prompt ?? '') : '';
-  const promptPreview = promptRaw ? stripHarnessTags(promptRaw).slice(0, 240) : '';
-  const subagentType =
+  const promptPreview = promptRaw.slice(0, 240);
+  const argsSubagentType =
     argsObj && 'subagent_type' in argsObj ? String(argsObj.subagent_type ?? '') : '';
+  // Prefer the SDK-authoritative values carried on the subagent block (set from
+  // `task_started`, available early in the live stream and on reload from the
+  // subagents meta). Fall back to the Task tool_call args.
+  const subagentType = subagent?.subagentType || argsSubagentType;
+  const description = subagent?.description || argsDescription;
 
   return (
     <div className="rounded-xl border border-primary/25 bg-primary/2 shadow-sm backdrop-blur-sm overflow-hidden animate-in fade-in duration-200">

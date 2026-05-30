@@ -1,10 +1,10 @@
-import { Eye, FilePlus2, Image as ImageIcon, PencilLine, Search } from 'lucide-react';
+import { Eye, FilePlus2, Search } from 'lucide-react';
 import type { DisplayBlock } from 'shared/types';
 import { basename } from '../../../../lib/file-icons';
 import { FileBadge } from '../file-badge';
 import { FileRow, FileRowsFromDisplay } from '../file-row';
 import type { Adapter, AdapterContext, RailRowShape } from '../types';
-import { parseArgs, readArgString, statusOf } from '../types';
+import { readArgString, statusOf } from '../types';
 
 function plainOutput(ctx: AdapterContext): string {
   const o = ctx.result?.output;
@@ -12,24 +12,15 @@ function plainOutput(ctx: AdapterContext): string {
   return '';
 }
 
+/** Claude `Read` — `file_path` (plus optional `offset`/`limit`). Handles text and media. */
 export const ReadFileAdapter: Adapter = (ctx): RailRowShape => {
-  const path = readArgString(ctx.call, 'path');
+  const path = readArgString(ctx.call, 'file_path');
   const status = statusOf(ctx);
   return {
     icon: <Eye className="h-3.5 w-3.5" />,
     verb: 'Read',
     inline: path ? <FileInlineToken path={path} /> : undefined,
     status,
-  };
-};
-
-export const ReadMediaAdapter: Adapter = (ctx): RailRowShape => {
-  const path = readArgString(ctx.call, 'path');
-  return {
-    icon: <ImageIcon className="h-3.5 w-3.5" />,
-    verb: 'Read media',
-    inline: path ? <FileInlineToken path={path} /> : undefined,
-    status: statusOf(ctx),
   };
 };
 
@@ -43,14 +34,15 @@ function FileInlineToken({ path }: { path: string }) {
   );
 }
 
+/** Claude `Write` — `file_path`, `content`. */
 export const WriteFileAdapter: Adapter = (ctx): RailRowShape => {
-  const path = readArgString(ctx.call, 'path');
+  const path = readArgString(ctx.call, 'file_path');
   const display = (ctx.result?.displayBlocks ?? []) as DisplayBlock[];
   const diffs = display.filter(
     (d): d is Extract<DisplayBlock, { type: 'diff' }> => d.type === 'diff',
   );
   // Detail prefers display-derived FileRows (with stats). Fallback to single
-  // bare FileRow from args.path when no display data arrived (e.g. streaming).
+  // bare FileRow from args.file_path when no display data arrived (e.g. streaming).
   let detail: RailRowShape['detail'];
   if (diffs.length > 0) {
     detail = <FileRowsFromDisplay blocks={display} />;
@@ -67,34 +59,9 @@ export const WriteFileAdapter: Adapter = (ctx): RailRowShape => {
   };
 };
 
-export const StrReplaceFileAdapter: Adapter = (ctx): RailRowShape => {
-  const path = readArgString(ctx.call, 'path');
-  const display = (ctx.result?.displayBlocks ?? []) as DisplayBlock[];
-  const diffs = display.filter(
-    (d): d is Extract<DisplayBlock, { type: 'diff' }> => d.type === 'diff',
-  );
-  let detail: RailRowShape['detail'];
-  if (diffs.length > 0) {
-    detail = <FileRowsFromDisplay blocks={display} />;
-  } else if (path) {
-    detail = <FileRow path={path} />;
-  }
-  const count = diffs.length || (path ? 1 : 0);
-  const verb = count > 1 ? `Edited ${count} files` : 'Edited 1 file';
-  return {
-    icon: <PencilLine className="h-3.5 w-3.5" />,
-    verb,
-    detail,
-    status: statusOf(ctx),
-  };
-};
-
+/** Claude `Glob` — `pattern`, `path`. */
 export const GlobAdapter: Adapter = (ctx): RailRowShape => {
-  const obj = parseArgs(ctx.call);
-  const pattern =
-    (obj && typeof obj.pattern === 'string' && obj.pattern) ||
-    (obj && typeof obj.glob === 'string' && obj.glob) ||
-    '';
+  const pattern = readArgString(ctx.call, 'pattern');
   const output = plainOutput(ctx).trim();
   const lines = output ? output.split('\n').filter(Boolean) : [];
   const status = statusOf(ctx);
@@ -119,13 +86,11 @@ export const GlobAdapter: Adapter = (ctx): RailRowShape => {
   };
 };
 
+/** Claude `Grep` — `pattern`, `path`, `glob`, `output_mode`. */
 export const GrepAdapter: Adapter = (ctx): RailRowShape => {
-  const obj = parseArgs(ctx.call);
-  const pattern =
-    (obj && typeof obj.pattern === 'string' && obj.pattern) ||
-    (obj && typeof obj.regex === 'string' && obj.regex) ||
-    '';
+  const pattern = readArgString(ctx.call, 'pattern');
   const path = readArgString(ctx.call, 'path');
+  const glob = readArgString(ctx.call, 'glob');
   const output = plainOutput(ctx).trim();
   const status = statusOf(ctx);
   let detail: RailRowShape['detail'];
@@ -140,13 +105,14 @@ export const GrepAdapter: Adapter = (ctx): RailRowShape => {
       );
     }
   }
+  const scope = path ? basename(path) || path : glob;
   return {
     icon: <Search className="h-3.5 w-3.5" />,
     verb: 'Searched',
     inline: (
       <span className="font-mono text-muted-foreground/75">
         {pattern}
-        {path && <span className="text-muted-foreground/55"> · {basename(path) || path}</span>}
+        {scope && <span className="text-muted-foreground/55"> · {scope}</span>}
       </span>
     ),
     detail,

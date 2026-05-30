@@ -30,7 +30,7 @@ describe('isAutoApprovable — read-only tools', () => {
     expect(isAutoApprovable('read', { args: { path: '.env' } })).toBe(false);
     expect(isAutoApprovable('read', { args: { path: 'config/.env.local' } })).toBe(false);
     expect(isAutoApprovable('read', { args: { file: '.env.production' } })).toBe(false);
-    expect(isAutoApprovable('view', { args: { target: 'deploy/.env.staging' } })).toBe(false);
+    expect(isAutoApprovable('read', { args: { target: 'deploy/.env.staging' } })).toBe(false);
     expect(isAutoApprovable('read', { args: { path: 'secrets/id_rsa' } })).toBe(false);
     expect(isAutoApprovable('read', { args: { path: 'certs/server.pem' } })).toBe(false);
   });
@@ -104,24 +104,24 @@ describe('isShellCommandSafe', () => {
 
 describe('isAutoApprovable — shell tools', () => {
   it('approves a shell tool with a vetted read-only command', () => {
-    expect(isAutoApprovable('shell', { command: 'find apps -name "*.sln"' })).toBe(true);
+    expect(isAutoApprovable('Bash', { command: 'find apps -name "*.sln"' })).toBe(true);
     expect(isAutoApprovable('bash', { command: 'ls -la' })).toBe(true);
   });
 
   it('asks for a shell tool with a side-effecting command', () => {
-    expect(isAutoApprovable('shell', { command: 'rm -rf /' })).toBe(false);
+    expect(isAutoApprovable('Bash', { command: 'rm -rf /' })).toBe(false);
   });
 
   it('asks for a shell tool with no command (fail-safe)', () => {
-    expect(isAutoApprovable('shell', {})).toBe(false);
+    expect(isAutoApprovable('Bash', {})).toBe(false);
   });
 
   it('falls back to the command when extracted from args', () => {
-    expect(isAutoApprovable('shell', { command: 'cat .env' })).toBe(false);
+    expect(isAutoApprovable('Bash', { command: 'cat .env' })).toBe(false);
   });
 
-  it('matches tool names case-insensitively (SDK reports "Shell", "Read")', () => {
-    expect(isAutoApprovable('Shell', { command: 'find . -name x 2>/dev/null' })).toBe(true);
+  it('matches tool names case-insensitively (SDK reports "Bash", "Read")', () => {
+    expect(isAutoApprovable('Bash', { command: 'find . -name x 2>/dev/null' })).toBe(true);
     expect(isAutoApprovable('Read', { args: { path: 'src/a.ts' } })).toBe(true);
     expect(isAutoApprovable('Read', { args: { path: '.env' } })).toBe(false);
   });

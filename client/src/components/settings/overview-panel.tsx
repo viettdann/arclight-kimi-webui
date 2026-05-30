@@ -1,15 +1,16 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import type { OverviewResponse } from 'shared/types';
+import { isClaudeProvider } from 'shared/types/config';
 import { Button } from '@/components/ui/button';
 import { Section } from '@/components/ui/section';
 import { fetchOverview } from '../../api/overview';
-import { useKimiConfigStore } from '../../lib/kimi-config-store';
+import { MODELS, useConfigStore } from '../../lib/config-store';
 import { cn } from '../../lib/utils';
 
 export function OverviewPanel() {
-  const status = useKimiConfigStore((s) => s.status);
-  const config = useKimiConfigStore((s) => s.config);
+  const loadStatus = useConfigStore((s) => s.loadStatus);
+  const getValue = useConfigStore((s) => s.getValue);
 
   const [overview, setOverview] = useState<OverviewResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -35,7 +36,6 @@ export function OverviewPanel() {
 
   return (
     <div className="space-y-6">
-      <ConfigStatusCard />
       <ProviderSummaryCard />
 
       <Section
@@ -61,80 +61,35 @@ export function OverviewPanel() {
           <p className="text-sm text-muted-foreground">Loading…</p>
         )}
       </Section>
-
-      {status?.system && (
-        <Section
-          title="System info (read-only)"
-          description="Process-level constants resolved at server startup."
-        >
-          <dl className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-            <SystemRow label="Workspace root" value={status.system.workspaceRoot} mono />
-            <SystemRow
-              label="Max upload"
-              value={`${(status.system.maxUploadBytes / (1024 * 1024)).toFixed(0)} MB (${status.system.maxUploadBytes.toLocaleString()} bytes)`}
-            />
-            <SystemRow label="Log level" value={status.system.logLevel} />
-            <SystemRow label="Port" value={`:${status.system.port}`} mono />
-            <SystemRow label="Node env" value={status.system.nodeEnv} />
-          </dl>
-        </Section>
-      )}
     </div>
   );
 
-  function ConfigStatusCard() {
-    if (!status) return null;
-    const ready = status.ready;
-    return (
-      <Section title="Configuration status" description="Auth mode and missing fields.">
-        <div className="flex flex-wrap items-center gap-3 text-sm">
-          <span
-            className={cn(
-              'rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider border',
-              ready
-                ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-700 dark:text-emerald-300'
-                : 'bg-amber-500/10 border-amber-500/40 text-amber-700 dark:text-amber-300',
-            )}
-          >
-            {ready ? 'Ready' : 'Incomplete'}
-          </span>
-          <span className="text-muted-foreground">
-            Auth mode: <code className="font-mono text-foreground">{status.authMode}</code>
-          </span>
-          {status.missing.length > 0 && (
-            <span className="text-muted-foreground">
-              Missing:{' '}
-              {status.missing.map((m, i) => (
-                <span key={m}>
-                  <code className="font-mono text-destructive">{m}</code>
-                  {i < status.missing.length - 1 ? ', ' : ''}
-                </span>
-              ))}{' '}
-              ·{' '}
-              <Link to="/settings/provider" className="underline hover:no-underline">
-                Fix in Provider
-              </Link>
-            </span>
-          )}
-        </div>
-      </Section>
-    );
-  }
-
   function ProviderSummaryCard() {
-    if (!config) return null;
-    const defaultModel = config.models[config.defaults.model];
+    if (loadStatus !== 'ready') return null;
+
+    const providerRaw = getValue('CLAUDE_PROVIDER');
+    const provider = isClaudeProvider(providerRaw) ? providerRaw : '—';
+    const modelId = getValue('DEFAULT_MODEL');
+    const modelLabel = MODELS.find((m) => m.id === modelId)?.label ?? modelId ?? '—';
+    const baseUrl = getValue('ANTHROPIC_BASE_URL');
+
     return (
-      <Section title="Provider" description="Current credentials and default model.">
+      <Section
+        title="Provider"
+        description="Auth mode and default model."
+        actions={
+          <Link
+            to="/settings/provider"
+            className="text-xs underline hover:no-underline text-muted-foreground"
+          >
+            Edit in Provider
+          </Link>
+        }
+      >
         <dl className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-          <SystemRow label="Type" value={config.provider.type} />
-          <SystemRow label="Base URL" value={config.provider.baseUrl || '—'} mono />
-          <SystemRow label="Default model key" value={config.defaults.model} mono />
-          <SystemRow
-            label="Model id"
-            value={defaultModel?.model ?? '— (model not in models map)'}
-            mono
-          />
+          <SystemRow label="Auth mode" value={provider} mono />
+          <SystemRow label="Default model" value={modelLabel} mono />
+          {provider === 'api' && <SystemRow label="Base URL" value={baseUrl || '—'} mono />}
         </dl>
       </Section>
     );

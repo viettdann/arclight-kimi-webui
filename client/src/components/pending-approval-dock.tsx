@@ -88,7 +88,7 @@ export function PendingApprovalDock() {
 
   if (!current) return null;
 
-  const isShell = toolCall?.name === 'Shell';
+  const isShell = toolCall?.name === 'Bash';
   const command = isShell && toolCall ? readArgString(toolCall, 'command') : '';
   const headline = (current.description ?? '').trim() || (current.action ?? '').trim();
   const queueExtra = pending.length - 1;

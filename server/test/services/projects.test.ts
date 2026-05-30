@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { AuditEvent } from '../../src/lib/logger';
@@ -10,7 +10,7 @@ import {
   ProjectNotFoundError,
   statProjectForUser,
 } from '../../src/services/projects';
-import { KimiSessionManager } from '../../src/services/session-manager';
+import { SessionManager } from '../../src/services/session-manager';
 import { makeFakeDb } from '../_helpers';
 
 async function gitInit(dir: string): Promise<void> {
@@ -293,36 +293,21 @@ describe('statProjectForUser', () => {
 });
 
 describe('deleteProjectForUser', () => {
-  let shareDir: string;
   let audit: AuditEvent[];
-  let manager: KimiSessionManager;
+  let manager: SessionManager;
 
-  beforeEach(async () => {
-    shareDir = await mkdtemp(path.join(tmpdir(), 'kimi-del-share-'));
+  beforeEach(() => {
     audit = [];
-    manager = new KimiSessionManager();
+    manager = new SessionManager();
   });
 
-  afterEach(async () => {
-    await rm(shareDir, { recursive: true, force: true });
-  });
-
-  it('local project: removes folder + DB rows + kimi.json entry, emits audit', async () => {
+  it('local project: removes folder + DB rows, emits audit', async () => {
     const localWorkDir = path.join(userRoot, 'proj');
     await mkdir(localWorkDir, { recursive: true, mode: 0o700 });
     await writeFile(path.join(localWorkDir, 'file.txt'), 'data');
-    await writeFile(
-      path.join(shareDir, 'kimi.json'),
-      JSON.stringify({
-        work_dirs: [
-          { path: localWorkDir, kaos: 'local', last_session_id: null },
-          { path: '/other', kaos: 'local', last_session_id: null },
-        ],
-      }),
-    );
 
     const fake = makeFakeDb();
-    fake.selectQueue.push([{ id: 's1', workDir: localWorkDir, kimiSessionId: 'kid1' }]);
+    fake.selectQueue.push([{ id: 's1', workDir: localWorkDir }]);
 
     const result = await deleteProjectForUser({
       userId: USER_ID,
@@ -332,16 +317,12 @@ describe('deleteProjectForUser', () => {
       env: { WORKSPACE_ROOT: tmpRoot },
       manager,
       auditLog: (e) => audit.push(e),
-      shareDir,
     });
 
     expect(result).toEqual({ sessionCount: 1 });
     await expect(stat(localWorkDir)).rejects.toBeDefined();
 
     expect(fake.calls.filter((c) => c.op === 'delete')).toHaveLength(1);
-
-    const kimi = JSON.parse(await readFile(path.join(shareDir, 'kimi.json'), 'utf8'));
-    expect(kimi.work_dirs).toEqual([{ path: '/other', kaos: 'local', last_session_id: null }]);
 
     expect(audit).toContainEqual({
       userId: USER_ID,
@@ -353,7 +334,7 @@ describe('deleteProjectForUser', () => {
 
   it('foreign project (no local folder, has rows): deletes DB rows only', async () => {
     const fake = makeFakeDb();
-    fake.selectQueue.push([{ id: 's1', workDir: '/remote/machine/proj', kimiSessionId: null }]);
+    fake.selectQueue.push([{ id: 's1', workDir: '/remote/machine/proj' }]);
 
     const result = await deleteProjectForUser({
       userId: USER_ID,
@@ -363,7 +344,6 @@ describe('deleteProjectForUser', () => {
       env: { WORKSPACE_ROOT: tmpRoot },
       manager,
       auditLog: (e) => audit.push(e),
-      shareDir,
     });
 
     expect(result).toEqual({ sessionCount: 1 });
@@ -382,7 +362,6 @@ describe('deleteProjectForUser', () => {
       env: { WORKSPACE_ROOT: tmpRoot },
       manager,
       auditLog: (e) => audit.push(e),
-      shareDir,
     });
 
     expect(result).toBe('not_found');
@@ -405,7 +384,6 @@ describe('deleteProjectForUser', () => {
       env: { WORKSPACE_ROOT: tmpRoot },
       manager,
       auditLog: (e) => audit.push(e),
-      shareDir,
     });
 
     expect(result).toEqual({ sessionCount: 0 });

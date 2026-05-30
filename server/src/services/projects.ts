@@ -7,13 +7,11 @@ import { type DB, schema } from '../db';
 import type { Env } from '../env';
 import { type auditLog as defaultAuditLog, logger } from '../lib/logger';
 import { resolveUserPath } from '../lib/path-guard';
+import { projectTranscriptDir } from './agent/transcript-store';
 import { cloningProjectNamesForUser } from './git/clone-registry';
 import { inspectRepo } from './git/inspect';
-import { kimiPaths } from './kimi-config/paths';
-import { resolveShareDir } from './kimi-config/share-dir';
-import { removeKimiMetadata } from './kimi-config/share-metadata';
 import { teardownActiveSession } from './session-lifecycle';
-import type { KimiSessionManager } from './session-manager';
+import type { SessionManager } from './session-manager';
 
 export interface ListProjectsForUserArgs {
   userId: string;
@@ -25,7 +23,7 @@ export interface ListProjectsForUserArgs {
 /**
  * Returns the union of:
  *   - directories under `<WORKSPACE_ROOT>/<slug(userEmail)>/` (origin=local)
- *   - `kimi_sessions.projectName` values that don't have a corresponding local
+ *   - `sessions.projectName` values that don't have a corresponding local
  *     folder yet (origin=foreign).
  *
  * Owns the `mkdir -p userRoot` step so callers don't have to. Output is sorted
@@ -41,9 +39,9 @@ export async function listProjectsForUser({
   // DB query has no FS dependency, so it runs concurrently with mkdir+readdir.
   // readdir still serialises behind mkdir (ENOENT otherwise).
   const dbRowsP = db
-    .selectDistinct({ projectName: schema.kimiSessions.projectName })
-    .from(schema.kimiSessions)
-    .where(eq(schema.kimiSessions.userId, userId));
+    .selectDistinct({ projectName: schema.sessions.projectName })
+    .from(schema.sessions)
+    .where(eq(schema.sessions.userId, userId));
   await mkdir(userRoot, { recursive: true, mode: 0o700 });
   const [dirents, dbRows] = await Promise.all([
     readdir(userRoot, { withFileTypes: true }),
@@ -94,7 +92,7 @@ export interface AdoptProjectResult {
   sessionCount: number;
 }
 
-/** Thrown when no `kimi_sessions` rows match `(userId, projectName)`. */
+/** Thrown when no `sessions` rows match `(userId, projectName)`. */
 export class ProjectNotFoundError extends Error {
   constructor(projectName: string) {
     super(`project not found: ${projectName}`);
@@ -103,7 +101,7 @@ export class ProjectNotFoundError extends Error {
 }
 
 /**
- * Adopt every `kimi_sessions` row matching (userId, projectName) onto the local
+ * Adopt every `sessions` row matching (userId, projectName) onto the local
  * machine: materialise the project folder under `<WORKSPACE_ROOT>/<slug>/`,
  * then cascade-rewrite each sibling row's `workDir` to the local path.
  *
@@ -118,22 +116,18 @@ export async function adoptProjectForUser({
   env,
 }: AdoptProjectForUserArgs): Promise<AdoptProjectResult> {
   const rows = await db
-    .select({ id: schema.kimiSessions.id })
-    .from(schema.kimiSessions)
-    .where(
-      and(eq(schema.kimiSessions.userId, userId), eq(schema.kimiSessions.projectName, projectName)),
-    );
+    .select({ id: schema.sessions.id })
+    .from(schema.sessions)
+    .where(and(eq(schema.sessions.userId, userId), eq(schema.sessions.projectName, projectName)));
   if (rows.length === 0) throw new ProjectNotFoundError(projectName);
 
   const workDir = path.join(env.WORKSPACE_ROOT, userSlug, projectName);
   await mkdir(workDir, { recursive: true, mode: 0o700 });
 
   await db
-    .update(schema.kimiSessions)
+    .update(schema.sessions)
     .set({ workDir })
-    .where(
-      and(eq(schema.kimiSessions.userId, userId), eq(schema.kimiSessions.projectName, projectName)),
-    );
+    .where(and(eq(schema.sessions.userId, userId), eq(schema.sessions.projectName, projectName)));
 
   return { projectName, workDir, sessionCount: rows.length };
 }
@@ -183,37 +177,32 @@ export interface DeleteProjectForUserArgs {
   projectName: string;
   db: DB;
   env: Pick<Env, 'WORKSPACE_ROOT'>;
-  manager: KimiSessionManager;
+  manager: SessionManager;
   auditLog: typeof defaultAuditLog;
-  /** Override the Kimi share dir (tests). Defaults to `resolveShareDir()`. */
-  shareDir?: string;
 }
 
 /**
- * Hard-delete a project and every session under it, in the only crash-safe
- * order for a wire-first restore model:
+ * Hard-delete a project and every session under it, in a crash-safe order:
  *
  *   1. Tear down any in-memory sessions so the SDK stops writing first.
- *   2. **DB-first**: `DELETE kimi_sessions WHERE (userId, projectName)` — one
- *      atomic statement; `kimi_session_files` (the JSONL restore source) goes
- *      via ON DELETE CASCADE. Past this point `restoreFromBackup` can no longer
- *      resurrect the project.
- *   3. Best-effort disk cleanup: each session's `.kimi/sessions/<hash>` dir,
- *      then the project folder under the user root (the user's real code).
- *   4. Best-effort `kimi.json` cleanup: drop the local workDir entry plus any
- *      distinct session workDirs.
+ *   2. **DB-first**: `DELETE sessions WHERE (userId, projectName)` — one atomic
+ *      statement; `session_transcripts` rows go via ON DELETE CASCADE. Past
+ *      this point the project can no longer be restored from the DB.
+ *   3. Best-effort disk cleanup: each recorded workDir's transcript dir under
+ *      `CLAUDE_CONFIG_DIR/projects/<enc(cwd)>`, then the project folder under
+ *      the user root (the user's real code).
  *
- * Steps 3–4 are best-effort (logged, non-fatal): the authoritative deletion
- * already completed in step 2, and any residue is inert and removed by a retry.
+ * Step 3 is best-effort (logged, non-fatal): the authoritative deletion already
+ * completed in step 2, and any residue is inert and removed by a retry.
  *
  * Existence = DB rows **or** a local folder, so a retry after a partial
  * (crashed) prior delete still cleans up the leftover folder — self-healing,
  * no tombstone needed. Returns `'not_found'` when neither exists.
  *
- * Disk removal only ever touches local-derived paths (`kimiPaths().sessionDir`
- * is always under the local `.kimi/sessions/<md5(workDir)>`, and the project
- * folder is path-guarded), so a foreign session's remote `workDir` string is
- * never `rm`-ed directly.
+ * Disk removal only ever touches local-derived paths: the project folder is
+ * path-guarded, and transcript dirs are encoded from the recorded workDir, so a
+ * foreign session's remote `workDir` only ever maps to a (non-existent) encoded
+ * dir name — never `rm`-ed as a raw path.
  */
 export async function deleteProjectForUser({
   userId,
@@ -223,7 +212,6 @@ export async function deleteProjectForUser({
   env,
   manager,
   auditLog,
-  shareDir,
 }: DeleteProjectForUserArgs): Promise<{ sessionCount: number } | 'not_found'> {
   const userRoot = path.join(env.WORKSPACE_ROOT, slug(userEmail));
 
@@ -238,14 +226,11 @@ export async function deleteProjectForUser({
 
   const rows = await db
     .select({
-      id: schema.kimiSessions.id,
-      workDir: schema.kimiSessions.workDir,
-      kimiSessionId: schema.kimiSessions.kimiSessionId,
+      id: schema.sessions.id,
+      workDir: schema.sessions.workDir,
     })
-    .from(schema.kimiSessions)
-    .where(
-      and(eq(schema.kimiSessions.userId, userId), eq(schema.kimiSessions.projectName, projectName)),
-    );
+    .from(schema.sessions)
+    .where(and(eq(schema.sessions.userId, userId), eq(schema.sessions.projectName, projectName)));
 
   // Existence = DB rows OR a local folder. Only stat the folder when there are
   // no rows — that's the only case where the folder decides not_found. The
@@ -267,33 +252,24 @@ export async function deleteProjectForUser({
     }
   }
 
-  // 2. DB-first authoritative delete. CASCADE removes kimi_session_files.
+  // 2. DB-first authoritative delete. CASCADE removes session_transcripts.
   if (rows.length > 0) {
     await db
-      .delete(schema.kimiSessions)
-      .where(
-        and(
-          eq(schema.kimiSessions.userId, userId),
-          eq(schema.kimiSessions.projectName, projectName),
-        ),
-      );
+      .delete(schema.sessions)
+      .where(and(eq(schema.sessions.userId, userId), eq(schema.sessions.projectName, projectName)));
   }
 
-  // 3a. Best-effort: per-session on-disk Kimi runtime dirs.
-  // Each session dir is an independent path; remove them concurrently. Per-item
-  // try/catch keeps the batch best-effort (one failure never rejects the rest).
-  const paths = kimiPaths();
+  // 3a. Best-effort: remove the per-cwd transcript dirs the claude binary wrote.
+  // Each dir is independent; remove them concurrently. Per-item try/catch keeps
+  // the batch best-effort (one failure never rejects the rest).
+  const workDirs = new Set<string>([localWorkDir, ...rows.map((r) => r.workDir)]);
   await Promise.all(
-    rows.map(async (r) => {
-      if (!r.kimiSessionId) return;
-      const sessionDir = paths.sessionDir(r.workDir, r.kimiSessionId);
+    [...workDirs].map(async (wd) => {
+      const dir = projectTranscriptDir(wd);
       try {
-        await rm(sessionDir, { recursive: true, force: true });
+        await rm(dir, { recursive: true, force: true });
       } catch (err) {
-        logger.warn(
-          { err, projectName, sessionDir },
-          'deleteProject: failed to remove session dir',
-        );
+        logger.warn({ err, projectName, dir }, 'deleteProject: failed to remove transcript dir');
       }
     }),
   );
@@ -306,20 +282,6 @@ export async function deleteProjectForUser({
       { err, projectName, localWorkDir },
       'deleteProject: failed to remove project folder',
     );
-  }
-
-  // 4. Best-effort: drop kimi.json entries (local workDir + any session workDirs).
-  const resolvedShareDir = shareDir ?? resolveShareDir();
-  const workDirs = new Set<string>([localWorkDir, ...rows.map((r) => r.workDir)]);
-  for (const wd of workDirs) {
-    try {
-      await removeKimiMetadata(resolvedShareDir, wd);
-    } catch (err) {
-      logger.warn(
-        { err, projectName, workDir: wd },
-        'deleteProject: failed to remove kimi.json entry',
-      );
-    }
   }
 
   auditLog({ userId, action: 'project_delete', path: projectName, bytes: 0 });

@@ -15,6 +15,7 @@
       "!**/.vite",
       "!**/build",
       "!docs",
+      "!reference",
       "!certs",
       "!workspace",
       "!server/src/db/migrations",

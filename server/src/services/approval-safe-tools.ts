@@ -12,11 +12,11 @@ import { logger } from '../lib/logger';
  */
 export const DEFAULT_SAFE_TOOLS: readonly string[] = [
   'read',
-  'ls',
   'glob',
   'grep',
-  'view',
-  'search',
+  'webfetch',
+  'websearch',
+  'bashoutput',
 ];
 
 const DEFAULT_SAFE_SET: ReadonlySet<string> = new Set(DEFAULT_SAFE_TOOLS);
@@ -24,9 +24,9 @@ const DEFAULT_SAFE_SET: ReadonlySet<string> = new Set(DEFAULT_SAFE_TOOLS);
 /**
  * Tool names that run an arbitrary shell command. The tool name alone is never
  * enough to auto-approve — the command string is vetted by
- * {@link isShellCommandSafe}.
+ * {@link isShellCommandSafe}. Claude's shell tool is `Bash` (compared lowercased).
  */
-const SHELL_TOOL_SET: ReadonlySet<string> = new Set(['shell', 'bash', 'sh', 'command']);
+const SHELL_TOOL_SET: ReadonlySet<string> = new Set(['bash']);
 
 /**
  * Read-only shell binaries safe to auto-approve. A command auto-approves only

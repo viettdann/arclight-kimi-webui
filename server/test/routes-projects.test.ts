@@ -7,7 +7,7 @@ import type { ProjectListResponse, ProjectSummary } from 'shared/types';
 import type { AuthVariables } from '../src/auth/middleware';
 import type { AuditEvent } from '../src/lib/logger';
 import { createProjectsRoutes } from '../src/routes/projects';
-import { KimiSessionManager } from '../src/services/session-manager';
+import { SessionManager } from '../src/services/session-manager';
 import { makeFakeDb } from './_helpers';
 
 interface MockUser {
@@ -45,7 +45,7 @@ function buildApp(opts: BuildOpts): {
         opts.audit.push(e);
       },
       db: fake.db,
-      manager: new KimiSessionManager(),
+      manager: new SessionManager(),
     }),
   );
   return { app, fake };
