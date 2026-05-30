@@ -10,6 +10,7 @@ import {
   varchar,
 } from 'drizzle-orm/pg-core';
 import { user } from './auth';
+import { providers } from './providers';
 
 export const sessions = pgTable(
   'sessions',
@@ -22,6 +23,7 @@ export const sessions = pgTable(
     projectName: varchar({ length: 255 }).notNull(),
     title: varchar({ length: 255 }),
     model: varchar({ length: 100 }),
+    providerId: uuid().references(() => providers.id, { onDelete: 'set null' }),
     thinking: boolean().notNull().default(false),
     approvalMode: text().notNull().default('ask'), // ask | safe | bypass
     sdkSessionId: varchar({ length: 100 }),

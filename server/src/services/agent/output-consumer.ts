@@ -24,9 +24,11 @@ import type {
 import { db, schema } from '../../db';
 import { logger } from '../../lib/logger';
 import { broadcastEvent } from '../../lib/ws-broadcast';
+import { resolveProviderForUser } from '../providers/resolve';
 import type { ActiveSession } from '../session-manager';
 import { sessionManager } from '../session-manager';
 import { toDisplayBlocks } from './display-blocks';
+import { buildAgentEnv } from './env';
 import { generateTitle } from './title';
 import { appendTranscript, backupSubagents } from './transcript-store';
 
@@ -479,9 +481,13 @@ export async function consumeQueryOutput(active: ActiveSession): Promise<void> {
     if (row?.title) return; // already titled
     if (!firstUserMessage) return; // nothing to title from
 
+    const provider = await resolveProviderForUser(db, active.userId, active.providerId);
+    if (!provider) return;
+    const env = buildAgentEnv(provider);
+
     let title: string | null;
     try {
-      title = await generateTitle(firstUserMessage);
+      title = await generateTitle(firstUserMessage, env);
     } catch (err) {
       log.warn({ err, sessionId: active.sessionId }, 'title generation threw');
       return;

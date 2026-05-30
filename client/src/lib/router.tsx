@@ -1,11 +1,11 @@
 import { createBrowserRouter, Navigate } from 'react-router';
 import { ErrorView } from '../components/error-view';
 import { GitCredentialsPanel } from '../components/preferences/git-credentials-panel';
+import { PersonalProvidersPanel } from '../components/preferences/personal-providers-panel';
 import { RequireAdmin } from '../components/require-admin';
 import { RequireAuth } from '../components/require-auth';
 import { AccessControlPanel } from '../components/settings/access-control-panel';
 import { DefaultsPanel } from '../components/settings/defaults-panel';
-import { ModelsPanel } from '../components/settings/models-panel';
 import { OverviewPanel } from '../components/settings/overview-panel';
 import { ProviderPanel } from '../components/settings/provider-panel';
 import { SettingsSection } from '../components/settings/settings-section';
@@ -43,7 +43,6 @@ export const router = createBrowserRouter([
                 children: [
                   { index: true, element: <Navigate to="provider" replace /> },
                   { path: 'provider', element: <ProviderPanel /> },
-                  { path: 'models', element: <ModelsPanel /> },
                   { path: 'defaults', element: <DefaultsPanel /> },
                 ],
               },
@@ -61,6 +60,7 @@ export const router = createBrowserRouter([
             children: [
               { index: true, element: <Navigate to="git-credentials" replace /> },
               { path: 'git-credentials', element: <GitCredentialsPanel /> },
+              { path: 'providers', element: <PersonalProvidersPanel /> },
             ],
           },
         ],

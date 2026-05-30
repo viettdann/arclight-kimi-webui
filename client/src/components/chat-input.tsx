@@ -5,8 +5,8 @@ import type { ApprovalMode } from 'shared/types';
 import { Button } from '@/components/ui/button';
 import { DropdownItem, DropdownMenu } from '@/components/ui/dropdown-menu';
 import { useChatStore } from '../lib/chat-store';
-import { MODELS, resolveModel, useConfigStore } from '../lib/config-store';
 import { useDraftStore } from '../lib/draft-store';
+import { labelFor, useProvidersStore } from '../lib/providers-store';
 import { useSessionsStore } from '../lib/sessions-store';
 import { sendWS } from '../lib/ws-send';
 import { ConfirmBypassDialog } from './confirm-bypass-dialog';
@@ -60,21 +60,30 @@ export function ChatInput() {
   const [bypassConfirmOpen, setBypassConfirmOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Config carries the default model used when the session has none. Cached fetch.
-  const ensureConfigLoaded = useConfigStore((s) => s.ensureLoaded);
-  // Subscribe to the loaded DEFAULT_MODEL so the label re-resolves after fetch.
-  useConfigStore((s) => s.settings.DEFAULT_MODEL?.value);
-  useEffect(() => ensureConfigLoaded(), [ensureConfigLoaded]);
+  // Load available providers catalog on mount.
+  const { available, ensureLoaded } = useProvidersStore();
+  // biome-ignore lint/correctness/useExhaustiveDependencies: one-shot on mount
+  useEffect(() => {
+    ensureLoaded();
+  }, []);
 
-  const sessionModel = useSessionsStore(
-    (s) => s.sessions.find((x) => x.id === sessionId)?.model ?? null,
-  );
+  // Read the session's providerId + model from sessions store.
+  const sessionEntry = useSessionsStore((s) => s.sessions.find((x) => x.id === sessionId) ?? null);
+  const sessionProviderId = sessionEntry?.providerId ?? null;
+  const sessionModel = sessionEntry?.model ?? null;
+
   // Model picks are local UI state until the user sends (mirrors thinking/approval):
-  // the chosen model rides along with the next `send_message` and the server applies
-  // it via `Query.setModel`. `null` → fall back to the session/default model.
+  // the chosen (providerId, modelId) pair rides along with the next `send_message`.
+  // null → fall back to session values.
+  const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
-  // Resolve the chosen model first; otherwise the session's model, otherwise default.
-  const { id: modelId, label: modelLabel } = resolveModel(selectedModel ?? sessionModel);
+
+  // Effective selection — local override wins, else session values.
+  const effectiveProviderId = selectedProviderId ?? sessionProviderId;
+  const effectiveModel = selectedModel ?? sessionModel;
+
+  // Human-readable label for the current selection.
+  const modelLabel = labelFor(available, effectiveProviderId, effectiveModel) ?? 'Select a model';
 
   const session = useChatStore((s) => (sessionId ? s.sessions[sessionId] : null));
   const isTurnInProgress = session?.isTurnInProgress ?? false;
@@ -93,6 +102,7 @@ export function ChatInput() {
   // own model (or the default) rather than a leftover pick from a prior session.
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset is keyed on sessionId only.
   useEffect(() => {
+    setSelectedProviderId(null);
     setSelectedModel(null);
   }, [sessionId]);
 
@@ -126,11 +136,17 @@ export function ChatInput() {
     useChatStore.getState().addPendingUserBlock(sessionId, content);
     // Composer flags ride along with the send — no separate message. The server
     // applies them just before spawning the turn and persists only real flips.
-    // A pending model override is included only when the user picked one; omitted
-    // leaves the session's current model unchanged.
+    // Both model and providerId are included when the user made an override pick;
+    // omitting them leaves the session's current selection unchanged.
     sendWS(
       'send_message',
-      { content, thinking, approvalMode, model: selectedModel ?? undefined },
+      {
+        content,
+        thinking,
+        approvalMode,
+        model: selectedModel ?? sessionModel ?? undefined,
+        providerId: selectedProviderId ?? sessionProviderId ?? undefined,
+      },
       sessionId,
     );
   };
@@ -194,6 +210,10 @@ export function ChatInput() {
     : isTurnInProgress
       ? 'Agent is running — press Stop to halt'
       : 'Ask anything...';
+
+  // Build flat model lists for dropdown.
+  const builtinProviders = available?.builtin ?? [];
+  const personalProviders = available?.personal ?? [];
 
   return (
     <div className="mx-auto w-full max-w-3xl px-3 pb-4 md:px-4 md:pb-6 shrink-0">
@@ -316,23 +336,73 @@ export function ChatInput() {
                   title="Model — applies from the next message"
                 >
                   {thinking && <Brain className="h-3.5 w-3.5" />}
-                  <span className="hidden sm:inline">{modelLabel ?? 'Model'}</span>
+                  <span className="hidden sm:inline max-w-[16ch] truncate">{modelLabel}</span>
                   <ChevronDown className="h-3.5 w-3.5" />
                 </Button>
               }
             >
-              <div className="px-2 pt-1 pb-1.5 text-[11px] text-muted-foreground select-none">
-                {modelLabel ?? 'Model'}
+              <div className="px-2 pt-1 pb-1.5 text-[11px] text-muted-foreground select-none truncate max-w-[20ch]">
+                {modelLabel}
               </div>
-              {MODELS.map((m) => (
-                <DropdownItem
-                  key={m.id}
-                  onClick={() => setSelectedModel(m.id)}
-                  icon={<Check className={m.id === modelId ? '' : 'opacity-0'} />}
-                >
-                  <span>{m.label}</span>
-                </DropdownItem>
-              ))}
+
+              {builtinProviders.length > 0 && (
+                <>
+                  <div className="px-2 pt-1.5 pb-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground select-none">
+                    Built-in
+                  </div>
+                  {builtinProviders.flatMap((provider) =>
+                    provider.models.map((m) => {
+                      const isActive =
+                        effectiveProviderId === provider.id && effectiveModel === m.modelId;
+                      return (
+                        <DropdownItem
+                          key={`${provider.id}/${m.modelId}`}
+                          onClick={() => {
+                            setSelectedProviderId(provider.id);
+                            setSelectedModel(m.modelId);
+                          }}
+                          icon={<Check className={isActive ? '' : 'opacity-0'} />}
+                        >
+                          <span>{`${provider.namespace}/${m.displayName ?? m.modelId}`}</span>
+                        </DropdownItem>
+                      );
+                    }),
+                  )}
+                </>
+              )}
+
+              {personalProviders.length > 0 && (
+                <>
+                  <div className="px-2 pt-1.5 pb-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground select-none">
+                    Personal
+                  </div>
+                  {personalProviders.flatMap((provider) =>
+                    provider.models.map((m) => {
+                      const isActive =
+                        effectiveProviderId === provider.id && effectiveModel === m.modelId;
+                      return (
+                        <DropdownItem
+                          key={`${provider.id}/${m.modelId}`}
+                          onClick={() => {
+                            setSelectedProviderId(provider.id);
+                            setSelectedModel(m.modelId);
+                          }}
+                          icon={<Check className={isActive ? '' : 'opacity-0'} />}
+                        >
+                          <span>{`${provider.namespace}/${m.displayName ?? m.modelId}`}</span>
+                        </DropdownItem>
+                      );
+                    }),
+                  )}
+                </>
+              )}
+
+              {builtinProviders.length === 0 && personalProviders.length === 0 && (
+                <div className="px-2 py-2 text-xs text-muted-foreground select-none">
+                  No providers configured
+                </div>
+              )}
+
               <DropdownItem onClick={toggleThinking}>
                 <span className="flex w-full items-center justify-between gap-3">
                   <span className="flex items-center gap-2">

@@ -1,6 +1,5 @@
 import type { CreateSessionPayload, ProjectSummary, SessionListItem } from 'shared/types';
 import { create } from 'zustand';
-import { useConfigStore } from './config-store';
 import { router } from './router';
 import { useSessionDefaultsStore } from './session-defaults-store';
 import { useSessionsStore } from './sessions-store';
@@ -88,13 +87,10 @@ export const useNewSessionStore = create<NewSessionState>((set, get) => ({
     );
     set((s) => ({ pending: { ...s.pending, [name]: true } }));
 
-    // Seed the new session from the user's Session Defaults (approval/thinking)
-    // and the configured DEFAULT_MODEL. An empty/unloaded DEFAULT_MODEL omits
-    // `model`, letting the server pick its own default.
+    // Seed the new session from the user's Session Defaults (approval/thinking).
+    // model and providerId are omitted — the server fills them via defaultSelectionForUser.
     const { approvalMode, thinking } = useSessionDefaultsStore.getState();
-    const model = useConfigStore.getState().getValue('DEFAULT_MODEL').trim();
     const payload: CreateSessionPayload = { workDir: project.workDir, approvalMode, thinking };
-    if (model) payload.model = model;
     sendWS('create_session', payload);
   },
 }));

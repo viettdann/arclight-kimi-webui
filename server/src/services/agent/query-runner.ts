@@ -5,7 +5,9 @@ import {
   type SDKUserMessage,
 } from '@anthropic-ai/claude-agent-sdk';
 import type { ApprovalMode } from 'shared/types';
+import { db } from '../../db';
 import { logger } from '../../lib/logger';
+import { ProviderUnavailableError, resolveProviderForUser } from '../providers/resolve';
 import type { ActiveSession } from '../session-manager';
 import { buildCanUseTool } from './approval';
 import { buildAgentEnv } from './env';
@@ -51,7 +53,9 @@ export async function startQuery(
   opts: { prompt: AsyncIterable<SDKUserMessage>; resume?: string | null },
 ): Promise<Query> {
   const abortController = new AbortController();
-  const env = await buildAgentEnv();
+  const provider = await resolveProviderForUser(db, active.userId, active.providerId);
+  if (!provider) throw new ProviderUnavailableError('no provider selected');
+  const env = buildAgentEnv(provider);
 
   const q = query({
     prompt: opts.prompt,

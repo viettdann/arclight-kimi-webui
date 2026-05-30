@@ -2,8 +2,7 @@ import { NavLink, Outlet } from 'react-router';
 import { cn } from '../../lib/utils';
 
 const SUB_TABS: { to: string; label: string }[] = [
-  { to: 'provider', label: 'Provider' },
-  { to: 'models', label: 'Models' },
+  { to: 'provider', label: 'Built-in' },
   { to: 'defaults', label: 'Defaults' },
 ];
 

@@ -1,20 +1,23 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import type { OverviewResponse } from 'shared/types';
-import { isClaudeProvider } from 'shared/types/config';
 import { Button } from '@/components/ui/button';
 import { Section } from '@/components/ui/section';
 import { fetchOverview } from '../../api/overview';
-import { MODELS, useConfigStore } from '../../lib/config-store';
+import { useProvidersStore } from '../../lib/providers-store';
 import { cn } from '../../lib/utils';
 
 export function OverviewPanel() {
-  const loadStatus = useConfigStore((s) => s.loadStatus);
-  const getValue = useConfigStore((s) => s.getValue);
+  const { available, ensureLoaded } = useProvidersStore();
 
   const [overview, setOverview] = useState<OverviewResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: one-shot on mount
+  useEffect(() => {
+    ensureLoaded();
+  }, []);
 
   async function load() {
     setLoading(true);
@@ -34,9 +37,37 @@ export function OverviewPanel() {
     void load();
   }, []);
 
+  // Derive provider summary from available catalog.
+  const builtinProviders = available?.builtin ?? [];
+  const personalProviders = available?.personal ?? [];
+  const builtinPublicCount = builtinProviders.filter((p) => p.visibility === 'public').length;
+  const totalModels =
+    builtinProviders.reduce((acc, p) => acc + p.models.length, 0) +
+    personalProviders.reduce((acc, p) => acc + p.models.length, 0);
+
   return (
     <div className="space-y-6">
-      <ProviderSummaryCard />
+      <Section
+        title="Providers"
+        description="Summary of available providers and models."
+        actions={
+          <Link
+            to="/settings/claude/provider"
+            className="text-xs underline hover:no-underline text-muted-foreground"
+          >
+            Edit in Provider
+          </Link>
+        }
+      >
+        <dl className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+          <SystemRow
+            label="Built-in providers"
+            value={`${builtinProviders.length} (${builtinPublicCount} public)`}
+          />
+          <SystemRow label="Personal providers" value={String(personalProviders.length)} />
+          <SystemRow label="Total models" value={String(totalModels)} />
+        </dl>
+      </Section>
 
       <Section
         title="Runtime"
@@ -63,37 +94,6 @@ export function OverviewPanel() {
       </Section>
     </div>
   );
-
-  function ProviderSummaryCard() {
-    if (loadStatus !== 'ready') return null;
-
-    const providerRaw = getValue('CLAUDE_PROVIDER');
-    const provider = isClaudeProvider(providerRaw) ? providerRaw : '—';
-    const modelId = getValue('DEFAULT_MODEL');
-    const modelLabel = MODELS.find((m) => m.id === modelId)?.label ?? modelId ?? '—';
-    const baseUrl = getValue('ANTHROPIC_BASE_URL');
-
-    return (
-      <Section
-        title="Provider"
-        description="Auth mode and default model."
-        actions={
-          <Link
-            to="/settings/provider"
-            className="text-xs underline hover:no-underline text-muted-foreground"
-          >
-            Edit in Provider
-          </Link>
-        }
-      >
-        <dl className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-          <SystemRow label="Auth mode" value={provider} mono />
-          <SystemRow label="Default model" value={modelLabel} mono />
-          {provider === 'api' && <SystemRow label="Base URL" value={baseUrl || '—'} mono />}
-        </dl>
-      </Section>
-    );
-  }
 }
 
 function RuntimeGrid({ overview }: { overview: OverviewResponse }) {

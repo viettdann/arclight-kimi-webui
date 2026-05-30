@@ -151,6 +151,8 @@ export interface SessionListItem {
   origin: 'local' | 'foreign';
   title: string | null;
   model: string | null;
+  /** Provider that owns `model`; null when unset or orphaned. */
+  providerId: string | null;
   thinking: boolean;
   totalTokens: number;
   totalCostUsd: number;
@@ -342,6 +344,8 @@ export interface SubscribePayload {
 export interface CreateSessionPayload {
   workDir: string;
   model?: string;
+  /** Provider that owns `model`. Identity of a selection is (providerId, model). */
+  providerId?: string;
   thinking?: boolean;
   approvalMode?: ApprovalMode;
 }
@@ -362,6 +366,8 @@ export interface SendMessagePayload {
   approvalMode?: ApprovalMode;
   /** Model switch to apply for this turn onward; the server applies it via `Query.setModel`. */
   model?: string;
+  /** Provider switch to apply alongside `model`; changes the subprocess env. */
+  providerId?: string;
 }
 
 export type ApprovalResponse = 'approve' | 'approve_for_session' | 'reject';
@@ -570,7 +576,5 @@ export interface OverviewResponse {
   };
 }
 
-// Re-export config types so `shared/types` entrypoint covers everything.
-export * from './types/config';
 // Re-export git-credential types so `shared/types` entrypoint covers everything.
 export * from './types/git-credentials';

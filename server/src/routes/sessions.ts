@@ -68,6 +68,7 @@ export function createSessionsRouter(deps: SessionsRouterDeps): Hono<{ Variables
         origin: r.workDir === localWorkDir ? 'local' : 'foreign',
         title: r.title,
         model: r.model,
+        providerId: r.providerId,
         thinking: r.thinking,
         totalTokens: r.totalTokens,
         totalCostUsd: Number(r.totalCostUsd),
