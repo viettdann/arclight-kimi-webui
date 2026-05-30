@@ -1,16 +1,7 @@
-import {
-  Brain,
-  Check,
-  ChevronDown,
-  Send,
-  ShieldCheck,
-  Square,
-  SquareSlash,
-  Zap,
-} from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Brain, Check, ChevronDown, Send, ShieldCheck, Square, Zap } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router';
-import type { ApprovalMode, SlashCommand } from 'shared/types';
+import type { ApprovalMode } from 'shared/types';
 import { Button } from '@/components/ui/button';
 import { DropdownItem, DropdownMenu } from '@/components/ui/dropdown-menu';
 import { useChatStore } from '../lib/chat-store';
@@ -19,12 +10,6 @@ import { useDraftStore } from '../lib/draft-store';
 import { useSessionsStore } from '../lib/sessions-store';
 import { sendWS } from '../lib/ws-send';
 import { ConfirmBypassDialog } from './confirm-bypass-dialog';
-
-// Modes are resolved client-side: SDK still provides the description for these
-// command names, but they are grouped under "Modes" instead of "Commands".
-const MODE_COMMANDS = ['afk'];
-// Excluded from every group — handled by dedicated UI, not the composer.
-const EXCLUDED_COMMANDS = new Set(['plan', 'yolo']);
 
 // Sessions where the user has acknowledged the bypass-permissions warning.
 // Switching to bypass confirms once per session (per app load); switching away
@@ -39,36 +24,6 @@ const ENTER_INSERTS_NEWLINE =
   typeof window !== 'undefined' &&
   typeof window.matchMedia === 'function' &&
   window.matchMedia('(pointer: coarse)').matches;
-
-// `startIdx` is the offset of the group's first item within the flat
-// `flatItems` list, so highlight maps to the flat index without a render-time
-// counter mutation.
-type CommandGroup = { label: string; items: SlashCommand[]; startIdx: number };
-
-/** Extract the query from text starting with '/': the part after '/' up to the first space. */
-function parseSlashQuery(text: string): string | null {
-  if (text[0] !== '/') return null;
-  const rest = text.slice(1);
-  // A space means the command is already chosen → close the picker.
-  if (/\s/.test(rest)) return null;
-  return rest;
-}
-
-function matchesQuery(cmd: SlashCommand, query: string): boolean {
-  if (!query) return true;
-  const q = query.toLowerCase();
-  const haystacks = [cmd.name, ...(cmd.aliases ?? [])].map((s) => s.toLowerCase());
-  return haystacks.some((h) => h.includes(q));
-}
-
-/** startsWith ranks above includes (lower rank sorts first). */
-function matchRank(cmd: SlashCommand, query: string): number {
-  if (!query) return 1;
-  const q = query.toLowerCase();
-  const haystacks = [cmd.name, ...(cmd.aliases ?? [])].map((s) => s.toLowerCase());
-  if (haystacks.some((h) => h.startsWith(q))) return 0;
-  return 1;
-}
 
 function Switch({ on }: { on: boolean }) {
   return (
@@ -104,9 +59,6 @@ export function ChatInput() {
   );
   const [bypassConfirmOpen, setBypassConfirmOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  // True while the leading '/' was injected by the toggle button (not typed by
-  // the user). Escape strips that injected '/'; a user-typed '/' is kept.
-  const slashFromToggleRef = useRef(false);
 
   // Config carries the default model used when the session has none. Cached fetch.
   const ensureConfigLoaded = useConfigStore((s) => s.ensureLoaded);
@@ -126,8 +78,6 @@ export function ChatInput() {
 
   const session = useChatStore((s) => (sessionId ? s.sessions[sessionId] : null));
   const isTurnInProgress = session?.isTurnInProgress ?? false;
-  const slashCommands =
-    useChatStore((s) => (sessionId ? s.sessions[sessionId]?.slashCommands : null)) ?? [];
 
   // Approval mode + thinking mirror the true state from the snapshot (survive
   // reload). Changing them → optimistic store update + WS send; applied from the
@@ -139,56 +89,12 @@ export function ChatInput() {
     sessionId ? (s.sessions[sessionId]?.thinking ?? false) : false,
   );
 
-  const [highlightIdx, setHighlightIdx] = useState(0);
-
   // Switching sessions drops the pending model override so each session shows its
   // own model (or the default) rather than a leftover pick from a prior session.
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset is keyed on sessionId only.
   useEffect(() => {
     setSelectedModel(null);
   }, [sessionId]);
-
-  const query = parseSlashQuery(text);
-
-  // Filtered command groups: Commands, Skills, Modes (keep this order).
-  const { groups, flatItems } = useMemo(() => {
-    if (query === null) return { groups: [] as CommandGroup[], flatItems: [] as SlashCommand[] };
-    const filtered = slashCommands
-      .filter((c) => !EXCLUDED_COMMANDS.has(c.name))
-      .filter((c) => matchesQuery(c, query))
-      .sort((a, b) => matchRank(a, query) - matchRank(b, query));
-
-    const skills: SlashCommand[] = [];
-    const modes: SlashCommand[] = [];
-    const commands: SlashCommand[] = [];
-    for (const c of filtered) {
-      if (c.name.startsWith('skill:')) skills.push(c);
-      else if (MODE_COMMANDS.includes(c.name)) modes.push(c);
-      else commands.push(c);
-    }
-
-    const built: CommandGroup[] = [];
-    let offset = 0;
-    const push = (label: string, items: SlashCommand[]) => {
-      if (!items.length) return;
-      built.push({ label, items, startIdx: offset });
-      offset += items.length;
-    };
-    push('Commands', commands);
-    push('Skills', skills);
-    push('Modes', modes);
-
-    return { groups: built, flatItems: built.flatMap((g) => g.items) };
-  }, [query, slashCommands]);
-
-  // Only show the picker when something matches — typing a path like
-  // `/path/to/file` matches nothing, so it closes instead of lingering.
-  const isPickerOpen = query !== null && !isTurnInProgress && flatItems.length > 0;
-
-  // Keep highlight in range as the filtered list shrinks on each keystroke.
-  useEffect(() => {
-    if (highlightIdx >= flatItems.length) setHighlightIdx(0);
-  }, [flatItems.length, highlightIdx]);
 
   const handleInput = useCallback(() => {
     const el = textareaRef.current;
@@ -205,37 +111,6 @@ export function ChatInput() {
     handleInput();
   }, [text]);
 
-  const onChangeText = (value: string) => {
-    setText(value);
-    setHighlightIdx(0);
-    // Once the picker is no longer active, the injected '/' is moot.
-    if (parseSlashQuery(value) === null) slashFromToggleRef.current = false;
-  };
-
-  const selectCommand = (cmd: SlashCommand) => {
-    setText(`/${cmd.name} `);
-    setHighlightIdx(0);
-    slashFromToggleRef.current = false;
-    const el = textareaRef.current;
-    if (el) {
-      el.focus();
-      el.style.height = 'auto';
-    }
-  };
-
-  // Open the picker without clobbering a draft: prepend '/' so parseSlashQuery
-  // matches. Already starts with '/' → just refocus (that '/' is the user's).
-  const openSlashPicker = () => {
-    if (!sessionId) return;
-    setText((t) => {
-      if (t.startsWith('/')) return t;
-      slashFromToggleRef.current = true;
-      return `/${t}`;
-    });
-    setHighlightIdx(0);
-    textareaRef.current?.focus();
-  };
-
   const stopTurn = () => {
     if (!sessionId) return;
     sendWS('interrupt_turn', {}, sessionId);
@@ -245,7 +120,6 @@ export function ChatInput() {
     if (!text.trim() || !sessionId || isTurnInProgress) return;
     const content = text.trim();
     setText('');
-    slashFromToggleRef.current = false;
     const el = textareaRef.current;
     if (el) el.style.height = 'auto';
 
@@ -291,41 +165,6 @@ export function ChatInput() {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (isPickerOpen) {
-      if (flatItems.length > 0) {
-        if (e.key === 'ArrowDown') {
-          e.preventDefault();
-          setHighlightIdx((i) => (i + 1) % flatItems.length);
-          return;
-        }
-        if (e.key === 'ArrowUp') {
-          e.preventDefault();
-          setHighlightIdx((i) => (i - 1 + flatItems.length) % flatItems.length);
-          return;
-        }
-        if (e.key === 'Enter' && !e.shiftKey) {
-          e.preventDefault();
-          const cmd = flatItems[highlightIdx];
-          if (cmd) selectCommand(cmd);
-          return;
-        }
-      }
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        if (slashFromToggleRef.current) {
-          // The leading '/' was injected by the toggle: strip it, keeping only
-          // what the user typed (empty → fully cleared).
-          setText((t) => (t.startsWith('/') ? t.slice(1) : t));
-          slashFromToggleRef.current = false;
-        } else {
-          // User typed '/': keep it, just close the picker by ending the query
-          // with a space so parseSlashQuery returns null.
-          setText((t) => (t.includes(' ') ? t : `${t} `));
-        }
-        return;
-      }
-    }
-
     if (e.key === 'Enter') {
       // Ctrl/Cmd+Enter always sends. Plain Enter sends only on fine-pointer
       // devices; on touch it falls through to insert a newline. Shift+Enter and
@@ -363,46 +202,10 @@ export function ChatInput() {
           isTurnInProgress ? 'border-primary/30' : 'border-border'
         }`}
       >
-        {isPickerOpen && (
-          <div className="absolute bottom-full left-0 right-0 mb-2 z-30">
-            <div className="rounded-lg border border-border/70 bg-popover/95 backdrop-blur supports-[backdrop-filter]:bg-popover/85 shadow-lg max-h-72 overflow-y-auto py-1">
-              {groups.map((group) => (
-                <div key={group.label}>
-                  <div className="px-3 pt-2 pb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground select-none">
-                    {group.label}
-                  </div>
-                  {group.items.map((cmd, i) => {
-                    const idx = group.startIdx + i;
-                    const active = idx === highlightIdx;
-                    return (
-                      <button
-                        key={cmd.name}
-                        type="button"
-                        onMouseEnter={() => setHighlightIdx(idx)}
-                        onClick={() => selectCommand(cmd)}
-                        className={`flex w-full flex-col items-start gap-0.5 px-3 py-1.5 text-left ${
-                          active ? 'bg-accent text-accent-foreground' : 'text-foreground'
-                        }`}
-                      >
-                        <span className="text-sm font-mono">/{cmd.name}</span>
-                        {cmd.description && (
-                          <span className="text-xs text-muted-foreground line-clamp-1">
-                            {cmd.description}
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
         <textarea
           ref={textareaRef}
           value={text}
-          onChange={(e) => onChangeText(e.target.value)}
+          onChange={(e) => setText(e.target.value)}
           onInput={handleInput}
           onKeyDown={handleKeyDown}
           placeholder={placeholderText}
@@ -415,29 +218,15 @@ export function ChatInput() {
 
         <div className="flex items-center justify-between px-3 pb-2.5">
           {/* Thinking status badge — display only; toggle lives in the model menu. */}
-          <div className="flex items-center gap-1.5">
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              onClick={openSlashPicker}
-              disabled={!sessionId}
-              aria-label="Slash commands"
-              title="Slash commands"
-              className="text-muted-foreground cursor-pointer"
-            >
-              <SquareSlash className="h-4 w-4" />
-            </Button>
-            <span
-              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium select-none ${
-                thinking ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
-              }`}
-              title="Thinking status — change it in the model menu"
-            >
-              <Brain className="h-3.5 w-3.5" />
-              {thinking ? 'Thinking on' : 'Thinking off'}
-            </span>
-          </div>
+          <span
+            className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium select-none ${
+              thinking ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
+            }`}
+            title="Thinking status — change it in the model menu"
+          >
+            <Brain className="h-3.5 w-3.5" />
+            {thinking ? 'Thinking on' : 'Thinking off'}
+          </span>
 
           <div className="flex items-center gap-2">
             <DropdownMenu

@@ -3,7 +3,6 @@ import type {
   SDKMessage,
   SDKPartialAssistantMessage,
   SDKResultMessage,
-  SDKSystemMessage,
   SDKTaskNotificationMessage,
   SDKTaskStartedMessage,
   SDKUserMessage,
@@ -11,7 +10,6 @@ import type {
 import { eq } from 'drizzle-orm';
 import type {
   ErrorPayload,
-  SlashCommand,
   StatusUpdatePayload,
   SubagentEventPayload,
   TextDeltaPayload,
@@ -28,7 +26,6 @@ import { logger } from '../../lib/logger';
 import { broadcastEvent } from '../../lib/ws-broadcast';
 import type { ActiveSession } from '../session-manager';
 import { sessionManager } from '../session-manager';
-import { setSlashCommands } from '../slash-commands-cache';
 import { toDisplayBlocks } from './display-blocks';
 import { generateTitle } from './title';
 import { appendTranscript, backupSubagents } from './transcript-store';
@@ -391,10 +388,6 @@ export async function consumeQueryOutput(active: ActiveSession): Promise<void> {
 
   function handleSystem(msg: SDKMessage & { type: 'system' }): void {
     switch (msg.subtype) {
-      case 'init': {
-        void emitSlashCommands(msg as SDKSystemMessage);
-        break;
-      }
       case 'compact_boundary': {
         broadcastEvent(active, 'compaction_begin', {}, sessionManager);
         broadcastEvent(active, 'compaction_end', {}, sessionManager);
@@ -425,30 +418,11 @@ export async function consumeQueryOutput(active: ActiveSession): Promise<void> {
         }
         break;
       }
-      // task_progress / task_updated / thinking_tokens / permission_denied /
+      // init / task_progress / task_updated / thinking_tokens / permission_denied /
       // status / api_retry / etc. → skipped (no client-facing surface in MVP).
       default:
         break;
     }
-  }
-
-  /** Read the SDK's supported commands, cache them, and broadcast `slash_commands`. */
-  async function emitSlashCommands(msg: SDKSystemMessage): Promise<void> {
-    let commands: SlashCommand[];
-    try {
-      const raw = await active.query?.supportedCommands();
-      commands = (raw ?? []).map((c) => ({
-        name: c.name,
-        description: typeof c.description === 'string' ? c.description : '',
-        aliases: Array.isArray(c.aliases) ? c.aliases.filter((a) => typeof a === 'string') : [],
-      }));
-    } catch (err) {
-      log.warn({ err, sessionId: active.sessionId }, 'supportedCommands failed — using raw names');
-      // Fall back to the raw name list carried on the init message.
-      commands = (msg.slash_commands ?? []).map((name) => ({ name, description: '', aliases: [] }));
-    }
-    setSlashCommands(active.workDir, commands);
-    broadcastEvent(active, 'slash_commands', { commands }, sessionManager);
   }
 
   async function handleResult(msg: SDKResultMessage): Promise<void> {

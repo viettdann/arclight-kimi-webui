@@ -16,7 +16,6 @@ import {
   resolveSavedProviderConfig,
 } from '../services/agent/env';
 import { getAllSettings, updateSettings } from '../services/config';
-import { clearSlashCommandsCache } from '../services/slash-commands-cache';
 
 export interface ConfigRouterDeps {
   db: DB;
@@ -40,9 +39,6 @@ export function createConfigRouter(deps: ConfigRouterDeps): Hono<{ Variables: Au
   router.patch('/', async (c) => {
     const body = (await c.req.json()) as ConfigPatchRequest;
     await updateSettings(body.settings ?? []);
-    // A provider/model/settings change can alter the slash-command list, so
-    // drop the per-workDir cache to avoid serving a stale picker.
-    clearSlashCommandsCache();
     const res: ConfigResponse = { settings: await getAllSettings() };
     return c.json(res);
   });

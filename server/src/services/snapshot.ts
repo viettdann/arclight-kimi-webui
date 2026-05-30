@@ -1,9 +1,8 @@
 import { eq } from 'drizzle-orm';
-import type { ApprovalMode, SlashCommand, SnapshotPayload } from 'shared/types';
+import type { ApprovalMode, SnapshotPayload } from 'shared/types';
 import { type DB, db, schema } from '../db';
 import { renderTranscript } from './agent/transcript-render';
 import { type SessionManager, sessionManager } from './session-manager';
-import { getSlashCommands } from './slash-commands-cache';
 
 export interface BuildSnapshotArgs {
   sessionId: string;
@@ -39,16 +38,6 @@ export async function buildSnapshot(args: BuildSnapshotArgs): Promise<SnapshotPa
     ? renderTranscript(transcript.content, normalizeSubagents(transcript.subagents))
     : [];
 
-  // Snapshot reads slash commands from cache only — it must never spawn a
-  // warm-init probe (that would add seconds of latency to every reconnect).
-  // create_session / reconnect own the warm-init and re-broadcast the list.
-  let slashCommands: SlashCommand[] = [];
-  try {
-    slashCommands = await getSlashCommands(sessRow.workDir, { cacheOnly: true });
-  } catch {
-    slashCommands = [];
-  }
-
   const pendingPrompt =
     sessRow.pendingPrompt != null && sessRow.pendingEnqueuedAt != null
       ? { text: sessRow.pendingPrompt, enqueuedAt: sessRow.pendingEnqueuedAt.toISOString() }
@@ -62,7 +51,6 @@ export async function buildSnapshot(args: BuildSnapshotArgs): Promise<SnapshotPa
     pendingPrompt,
     thinking: sessRow.thinking,
     approvalMode: sessRow.approvalMode as ApprovalMode,
-    slashCommands,
     live: {
       turnInProgress: manager.peek(args.sessionId)?.turnInProgress ?? false,
     },
@@ -84,7 +72,6 @@ export function emptySnapshot(): SnapshotPayload {
     pendingPrompt: null,
     thinking: false,
     approvalMode: 'ask',
-    slashCommands: [],
     live: {
       turnInProgress: false,
     },

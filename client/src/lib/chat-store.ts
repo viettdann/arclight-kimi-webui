@@ -4,8 +4,6 @@ import type {
   Block,
   DisplayBlock,
   QuestionItemDTO,
-  SlashCommand,
-  SlashCommandsPayload,
   SnapshotPayload,
   StatusUpdatePayload,
   WSMessageType,
@@ -21,7 +19,6 @@ export interface ChatSessionState {
   /** Cumulative session cost in USD, from `status_update`/snapshot. */
   totalCostUsd: number | null;
   title: string | null;
-  slashCommands: SlashCommand[];
   pendingPrompt: { text: string; enqueuedAt: string } | null;
   isTurnInProgress: boolean;
   /** Per-session agent flags, mirrored from the snapshot (true server state). */
@@ -48,7 +45,6 @@ const createDefaultSessionState = (): ChatSessionState => ({
   contextUsage: null,
   totalCostUsd: null,
   title: null,
-  slashCommands: [],
   pendingPrompt: null,
   isTurnInProgress: false,
   thinking: true,
@@ -374,7 +370,6 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           contextUsage: null,
           totalCostUsd: payload.totalCostUsd ?? null,
           title: payload.title,
-          slashCommands: payload.slashCommands ?? [],
           pendingPrompt: payload.pendingPrompt,
           isTurnInProgress: payload.live.turnInProgress,
           thinking: payload.thinking ?? true,
@@ -421,11 +416,6 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         case 'title_update':
           if (payload?.title) session.title = payload.title;
           break;
-        case 'slash_commands': {
-          const commands = (payload as SlashCommandsPayload)?.commands;
-          if (Array.isArray(commands)) session.slashCommands = commands;
-          break;
-        }
         default:
           break;
       }
