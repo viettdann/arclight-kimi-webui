@@ -37,7 +37,7 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Welcome back</DialogTitle>
-          <DialogDescription>Sign in to continue to More Than Coding</DialogDescription>
+          <DialogDescription>Sign in to continue to More Than Code</DialogDescription>
         </DialogHeader>
 
         <Button

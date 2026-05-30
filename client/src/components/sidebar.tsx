@@ -298,7 +298,7 @@ export function Sidebar({ isOpen, onClose, onLoginClick }: SidebarProps) {
           <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground font-bold text-sm">
             M
           </div>
-          <span className="text-sm font-semibold">More Than Coding</span>
+          <span className="text-sm font-semibold">More Than Code</span>
         </div>
 
         {/* Nav items */}

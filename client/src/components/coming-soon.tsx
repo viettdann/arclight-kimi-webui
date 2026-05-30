@@ -27,7 +27,7 @@ export function ComingSoon() {
         </div>
         <h1 className="mt-5 text-xl font-bold tracking-tight text-slate-900">Coming soon</h1>
         <p className="mt-2 text-sm leading-relaxed text-slate-500">
-          Your access to More Than Coding is pending. We'll let you in as soon as your account is
+          Your access to More Than Code is pending. We'll let you in as soon as your account is
           enabled — no action needed on your side.
         </p>
         {email && (
