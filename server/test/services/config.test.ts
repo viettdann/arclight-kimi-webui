@@ -31,10 +31,9 @@ const fakeDb = {
   select: () => ({ from: async () => state.rows }),
   insert: () => ({
     values: (vals: any) => {
-      // `seedAppSettings` awaits `.values([...])` directly; `updateSettings`
-      // awaits `.values({...}).onConflictDoUpdate(...)`. Record at `.values()`
-      // time (the one common call point) and hand back an awaitable that also
-      // exposes `onConflictDoUpdate` — covering both call shapes once each.
+      // `updateSettings` awaits `.values({...}).onConflictDoUpdate(...)`. Record
+      // at `.values()` time and hand back an awaitable that also exposes
+      // `onConflictDoUpdate`. The array branch tolerates batch-insert callers.
       const arr = Array.isArray(vals) ? vals : [vals];
       state.insertCalls += 1;
       state.inserted.push(...arr);
@@ -49,15 +48,8 @@ const fakeDb = {
 
 mock.module('../../src/db', () => ({ db: fakeDb }));
 
-const {
-  maskSecret,
-  getConfig,
-  clearConfigCache,
-  getAllSettings,
-  updateSettings,
-  seedAppSettings,
-  SEED_KEYS,
-} = await import('../../src/services/config');
+const { maskSecret, getConfig, clearConfigCache, getAllSettings, updateSettings, SEED_KEYS } =
+  await import('../../src/services/config');
 
 beforeEach(() => {
   state.findFirstResult = undefined;
@@ -81,41 +73,70 @@ describe('maskSecret', () => {
   });
 });
 
-describe('getConfig — resolution order + cache', () => {
+describe('getConfig — resolution order (DB > ENV > Default) + cache', () => {
+  // ANTHROPIC_BASE_URL: a known key with no code default — exercises the DB/ENV
+  // layers. CLAUDE_PROVIDER: a known key with default 'oauth' — exercises the
+  // Default layer. Save/restore env so host values don't leak across tests.
+  let savedBaseUrl: string | undefined;
+  let savedProvider: string | undefined;
+
+  beforeEach(() => {
+    savedBaseUrl = process.env.ANTHROPIC_BASE_URL;
+    savedProvider = process.env.CLAUDE_PROVIDER;
+    delete process.env.ANTHROPIC_BASE_URL;
+    delete process.env.CLAUDE_PROVIDER;
+  });
   afterEach(() => {
-    delete process.env.__CFG_TEST__;
+    if (savedBaseUrl === undefined) delete process.env.ANTHROPIC_BASE_URL;
+    else process.env.ANTHROPIC_BASE_URL = savedBaseUrl;
+    if (savedProvider === undefined) delete process.env.CLAUDE_PROVIDER;
+    else process.env.CLAUDE_PROVIDER = savedProvider;
+  });
+
+  it('throws on an unknown key — code is the source of truth', async () => {
+    await expect(getConfig('__NOT_A_REAL_KEY__')).rejects.toThrow(/unknown config key/);
   });
 
   it('falls back to process.env when no DB row exists', async () => {
     state.findFirstResult = undefined;
-    process.env.__CFG_TEST__ = 'from-env';
-    expect(await getConfig('__CFG_TEST__')).toBe('from-env');
+    process.env.ANTHROPIC_BASE_URL = 'from-env';
+    expect(await getConfig('ANTHROPIC_BASE_URL')).toBe('from-env');
   });
 
   it('prefers a non-empty DB value over process.env', async () => {
-    state.findFirstResult = { key: '__CFG_TEST__', value: 'from-db', isSecret: false };
-    process.env.__CFG_TEST__ = 'from-env';
-    expect(await getConfig('__CFG_TEST__')).toBe('from-db');
+    state.findFirstResult = { key: 'ANTHROPIC_BASE_URL', value: 'from-db', isSecret: false };
+    process.env.ANTHROPIC_BASE_URL = 'from-env';
+    expect(await getConfig('ANTHROPIC_BASE_URL')).toBe('from-db');
   });
 
   it('treats an empty-string DB value as unset and falls back to env', async () => {
-    state.findFirstResult = { key: '__CFG_TEST__', value: '', isSecret: false };
-    process.env.__CFG_TEST__ = 'from-env';
-    expect(await getConfig('__CFG_TEST__')).toBe('from-env');
+    state.findFirstResult = { key: 'ANTHROPIC_BASE_URL', value: '', isSecret: false };
+    process.env.ANTHROPIC_BASE_URL = 'from-env';
+    expect(await getConfig('ANTHROPIC_BASE_URL')).toBe('from-env');
+  });
+
+  it('falls back to the code default when DB and env are both unset', async () => {
+    state.findFirstResult = undefined; // CLAUDE_PROVIDER env cleared in beforeEach
+    expect(await getConfig('CLAUDE_PROVIDER')).toBe('oauth');
+  });
+
+  it('returns undefined for a known key with no DB/env/default value', async () => {
+    state.findFirstResult = undefined; // ANTHROPIC_BASE_URL has no default
+    expect(await getConfig('ANTHROPIC_BASE_URL')).toBeUndefined();
   });
 
   it('caches within the TTL — a second read does not hit the DB', async () => {
-    state.findFirstResult = { key: 'K', value: 'v', isSecret: false };
-    expect(await getConfig('K')).toBe('v');
-    expect(await getConfig('K')).toBe('v');
+    state.findFirstResult = { key: 'ANTHROPIC_BASE_URL', value: 'v', isSecret: false };
+    expect(await getConfig('ANTHROPIC_BASE_URL')).toBe('v');
+    expect(await getConfig('ANTHROPIC_BASE_URL')).toBe('v');
     expect(state.findFirstCalls).toBe(1);
   });
 
   it('re-queries after clearConfigCache', async () => {
-    state.findFirstResult = { key: 'K', value: 'v', isSecret: false };
-    await getConfig('K');
+    state.findFirstResult = { key: 'ANTHROPIC_BASE_URL', value: 'v', isSecret: false };
+    await getConfig('ANTHROPIC_BASE_URL');
     clearConfigCache();
-    await getConfig('K');
+    await getConfig('ANTHROPIC_BASE_URL');
     expect(state.findFirstCalls).toBe(2);
   });
 });
@@ -194,26 +215,5 @@ describe('updateSettings — upsert + guards', () => {
     await updateSettings([{ key: 'CLAUDE_PROVIDER', value: 'api' }]);
     await getConfig('CLAUDE_PROVIDER'); // cache cleared → must re-query
     expect(state.findFirstCalls).toBe(2);
-  });
-});
-
-describe('seedAppSettings — only missing keys', () => {
-  it('inserts only the keys absent from the DB, in a single batch', async () => {
-    state.rows = [{ key: 'CLAUDE_PROVIDER', value: 'oauth', isSecret: false }];
-    await seedAppSettings();
-    expect(state.insertCalls).toBe(1);
-    const keys = state.inserted.map((r) => r.key).sort();
-    expect(keys).not.toContain('CLAUDE_PROVIDER');
-    expect(keys).toEqual(
-      SEED_KEYS.filter((s) => s.key !== 'CLAUDE_PROVIDER')
-        .map((s) => s.key)
-        .sort(),
-    );
-  });
-
-  it('inserts nothing when every seed key already exists', async () => {
-    state.rows = SEED_KEYS.map((s) => ({ key: s.key, value: 'x', isSecret: s.isSecret }));
-    await seedAppSettings();
-    expect(state.insertCalls).toBe(0);
   });
 });
