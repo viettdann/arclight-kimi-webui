@@ -124,6 +124,26 @@ describe('request_context_usage', () => {
     );
     expect(wsErrors(bob).at(-1)?.payload.code).toBe('not_found');
   });
+
+  it('skips silently for a session with no provider (no error, no broadcast)', async () => {
+    // No live query attached and no provider pinned: ensureQuery throws
+    // ProviderUnavailableError. The passive probe must swallow it rather than
+    // surface a SYSTEM_ERROR on a freshly created session.
+    const active = registerOwned();
+    expect(active.query).toBeNull();
+    expect(active.providerId).toBeNull();
+    setHandlerDeps({ manager, db: makeFakeDb().db });
+
+    const alice = new FakeWS('alice');
+    await handleMessage(
+      asWS(alice),
+      JSON.stringify({ type: 'request_context_usage', sessionId: 'sess-1' }),
+    );
+
+    expect(wsErrors(alice)).toHaveLength(0);
+    expect(broadcasts.find((b) => b.type === 'context_usage')).toBeUndefined();
+    expect(broadcasts.find((b) => b.type === 'error')).toBeUndefined();
+  });
 });
 
 describe('compact_session', () => {
