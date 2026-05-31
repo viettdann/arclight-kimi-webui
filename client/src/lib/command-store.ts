@@ -7,6 +7,8 @@ import { create } from 'zustand';
 interface CommandState {
   commandsBySession: Record<string, CommandInfo[]>;
   setCommands: (sessionId: string, commands: CommandInfo[]) => void;
+  /** Drop a session's catalog when the session is deleted. */
+  removeSession: (sessionId: string) => void;
 }
 
 export const useCommandStore = create<CommandState>((set) => ({
@@ -15,5 +17,12 @@ export const useCommandStore = create<CommandState>((set) => ({
     set((state) => ({
       commandsBySession: { ...state.commandsBySession, [sessionId]: commands },
     }));
+  },
+  removeSession: (sessionId) => {
+    set((state) => {
+      if (!(sessionId in state.commandsBySession)) return state;
+      const { [sessionId]: _removed, ...rest } = state.commandsBySession;
+      return { commandsBySession: rest };
+    });
   },
 }));
