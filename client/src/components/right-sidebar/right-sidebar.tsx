@@ -32,6 +32,12 @@ export function RightSidebar({ sessionId }: RightSidebarProps) {
     sessionId ? (s.sessions[sessionId]?.contextEpoch ?? 0) : 0,
   );
 
+  // Force the panel closed on every session switch — open state is scoped to the
+  // chat you're looking at, not carried into the next one.
+  useEffect(() => {
+    close();
+  }, [sessionId, close]);
+
   // While open, request fresh context usage on open, on session switch, and once
   // per completed turn (contextEpoch). The server doesn't push context_usage on
   // its own, and the snapshot's cached value can be stale.
