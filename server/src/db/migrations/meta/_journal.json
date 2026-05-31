@@ -15,6 +15,13 @@
       "when": 1780206057373,
       "tag": "0001_provider_constraints",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1780232187801,
+      "tag": "0002_add_effort_to_sessions",
+      "breakpoints": true
     }
   ]
 }

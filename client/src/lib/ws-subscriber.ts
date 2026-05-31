@@ -1,7 +1,13 @@
-import type { CloneProgressPayload, SnapshotPayload, WSMessage } from 'shared/types';
+import type {
+  CloneProgressPayload,
+  CommandsAvailablePayload,
+  SnapshotPayload,
+  WSMessage,
+} from 'shared/types';
 import { showToast } from '@/components/toast-provider';
 import { useChatStore } from './chat-store';
 import { useCloneProgressStore } from './clone-progress-store';
+import { useCommandStore } from './command-store';
 import { cloneErrorMessage, useProjectsStore } from './projects-store';
 import { router } from './router';
 import { wsClient } from './ws-client';
@@ -52,8 +58,16 @@ const unsubscribeMessage = wsClient.on('message', (ev: MessageEvent) => {
     if (!msg.sessionId) return;
 
     if (msg.type === 'snapshot') {
-      useChatStore.getState().loadSnapshot(msg.sessionId, msg.payload as SnapshotPayload);
+      const payload = msg.payload as SnapshotPayload;
+      useChatStore.getState().loadSnapshot(msg.sessionId, payload);
+      useCommandStore.getState().setCommands(msg.sessionId, payload.commands ?? []);
       void router.navigate(`/session/${msg.sessionId}`);
+    } else if (msg.type === 'commands_available') {
+      // Routed before applyEvent so the catalog lands in the command store
+      // instead of being mis-applied as a chat block event.
+      useCommandStore
+        .getState()
+        .setCommands(msg.sessionId, (msg.payload as CommandsAvailablePayload).commands);
     } else {
       useChatStore.getState().applyEvent(msg.sessionId, msg.type, msg.payload, msg.seq);
     }

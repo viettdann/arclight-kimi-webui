@@ -1,6 +1,7 @@
 // Shared client/server wire contract.
 // Server and client must agree on this surface verbatim.
 
+import type { CommandInfo } from './commands';
 import type { GitProvider } from './types/git-credentials';
 
 // ─────────────────────────── WebSocket envelope ───────────────────────────
@@ -38,6 +39,7 @@ export type WSMessageType =
   | 'title_update'
   | 'project_adopted'
   | 'clone_progress'
+  | 'commands_available'
   | 'error'
   // client → server
   | 'subscribe'
@@ -53,6 +55,10 @@ export type WSMessageType =
 
 export const APPROVAL_MODES = ['ask', 'safe', 'bypass'] as const;
 export type ApprovalMode = (typeof APPROVAL_MODES)[number];
+
+export const EFFORT_LEVELS = ['low', 'medium', 'high'] as const;
+/** Reasoning effort exposed in the composer. `null` means the provider default. */
+export type EffortLevel = (typeof EFFORT_LEVELS)[number];
 
 export type DisplayBlock =
   | { type: 'shell'; command: string; language: string }
@@ -199,10 +205,22 @@ export interface SnapshotPayload {
    */
   thinking: boolean;
   approvalMode: ApprovalMode;
+  /** Reasoning effort, applied from the prompt it rides with onward; `null` is the provider default. */
+  effort: EffortLevel | null;
+  /**
+   * Dynamic command/skill catalog for this session's workDir, captured from the
+   * live session's `system/init`. Empty until the first turn populates it.
+   */
+  commands: CommandInfo[];
   live: {
     /** True iff the server still has an in-flight turn for this session. */
     turnInProgress: boolean;
   };
+}
+
+/** Dynamic command/skill catalog, broadcast when a live session reports `init`. */
+export interface CommandsAvailablePayload {
+  commands: CommandInfo[];
 }
 
 export interface ReplayDonePayload {
@@ -356,6 +374,8 @@ export interface CreateSessionPayload {
   providerId?: string;
   thinking?: boolean;
   approvalMode?: ApprovalMode;
+  /** Initial reasoning effort; `null` or omitted is the provider default. */
+  effort?: EffortLevel | null;
 }
 
 export interface ResumeSessionPayload {
@@ -376,6 +396,11 @@ export interface SendMessagePayload {
   model?: string;
   /** Provider switch to apply alongside `model`; changes the subprocess env. */
   providerId?: string;
+  /**
+   * Reasoning effort to apply for this prompt onward. `null` resets to the
+   * provider default; an omitted field leaves the current effort unchanged.
+   */
+  effort?: EffortLevel | null;
 }
 
 export type ApprovalResponse = 'approve' | 'approve_for_session' | 'reject';

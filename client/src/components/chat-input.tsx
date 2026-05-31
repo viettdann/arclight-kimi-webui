@@ -1,15 +1,24 @@
-import { Brain, Check, ChevronDown, Send, ShieldCheck, Square, Zap } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Brain, Check, ChevronDown, Gauge, Send, ShieldCheck, Square, Zap } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router';
-import type { ApprovalMode } from 'shared/types';
+import {
+  BUILTIN_COMMANDS,
+  type CommandInfo,
+  classifyCommand,
+  parseSlashCommand,
+} from 'shared/commands';
+import { type ApprovalMode, EFFORT_LEVELS, type EffortLevel } from 'shared/types';
 import { Button } from '@/components/ui/button';
 import { DropdownItem, DropdownMenu } from '@/components/ui/dropdown-menu';
 import { useChatStore } from '../lib/chat-store';
+import { useCommandStore } from '../lib/command-store';
 import { useDraftStore } from '../lib/draft-store';
 import { isResolvable, labelFor, useProvidersStore } from '../lib/providers-store';
 import { useSessionsStore } from '../lib/sessions-store';
 import { sendWS } from '../lib/ws-send';
 import { ConfirmBypassDialog } from './confirm-bypass-dialog';
+import { SlashCommandMenu } from './slash-command-menu';
+import { showToast } from './toast-provider';
 
 // Sessions where the user has acknowledged the bypass-permissions warning.
 // Switching to bypass confirms once per session (per app load); switching away
@@ -24,6 +33,24 @@ const ENTER_INSERTS_NEWLINE =
   typeof window !== 'undefined' &&
   typeof window.matchMedia === 'function' &&
   window.matchMedia('(pointer: coarse)').matches;
+
+// Picker opens only on a bare leading-slash token (no whitespace, no args). The
+// capture group is the filter. Any space/newline closes it — the user is typing
+// arguments.
+const SLASH_PICKER_RE = /^\/([\w-]*)$/;
+
+// Effort selector options. `null` renders as "Default" (provider default); the
+// rest derive from EFFORT_LEVELS so the picker never drifts from the wire type.
+const EFFORT_OPTIONS: { value: EffortLevel | null; label: string }[] = [
+  { value: null, label: 'Default' },
+  ...EFFORT_LEVELS.map((value) => ({
+    value,
+    label: value.charAt(0).toUpperCase() + value.slice(1),
+  })),
+];
+
+// Group order for the picker: Commands (builtin, then project) before Skills.
+const KIND_ORDER: Record<CommandInfo['kind'], number> = { builtin: 0, project: 1, skill: 2 };
 
 function Switch({ on }: { on: boolean }) {
   return (
@@ -109,6 +136,62 @@ export function ChatInput() {
   const thinking = useChatStore((s) =>
     sessionId ? (s.sessions[sessionId]?.thinking ?? false) : false,
   );
+  // Reasoning effort mirrors the snapshot; `null` is the provider default.
+  const effort = useChatStore((s) => (sessionId ? (s.sessions[sessionId]?.effort ?? null) : null));
+
+  // Slash-command picker state. `activeIndex` is the keyboard cursor into the
+  // filtered `items`; `pickerDismissed` is set by Esc and reset when the text
+  // stops matching the slash pattern (see the effect below).
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [pickerDismissed, setPickerDismissed] = useState(false);
+
+  // Dynamic catalog the live session reported (commands + skills).
+  const dynamicCommands = useCommandStore((s) =>
+    sessionId ? (s.commandsBySession[sessionId] ?? []) : [],
+  );
+
+  // Merge built-ins with the dynamic catalog, deduped by name (builtin wins),
+  // then order by group (commands before skills). This is the full catalog used
+  // for classify-on-send; the picker filters it further.
+  const mergedCatalog = useMemo(() => {
+    const byName = new Map<string, CommandInfo>();
+    for (const cmd of dynamicCommands) byName.set(cmd.name, cmd);
+    // Built-ins win on name collision.
+    for (const cmd of BUILTIN_COMMANDS) byName.set(cmd.name, cmd);
+    return [...byName.values()].sort((a, b) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind]);
+  }, [dynamicCommands]);
+
+  // Derive the picker open state + filter from the current text.
+  const slashMatch = SLASH_PICKER_RE.exec(text);
+  const pickerFilter = slashMatch?.[1] ?? '';
+
+  const slashOpen = Boolean(slashMatch);
+
+  // Filtered, ordered list shown in the picker (and the index space for
+  // `activeIndex`). Names that start with the filter rank before mere includes.
+  const pickerItems = useMemo(() => {
+    if (!slashOpen) return [];
+    const f = pickerFilter.toLowerCase();
+    const matched = mergedCatalog.filter((c) => c.name.toLowerCase().includes(f));
+    return matched.sort((a, b) => {
+      const groupDiff = KIND_ORDER[a.kind] - KIND_ORDER[b.kind];
+      if (groupDiff !== 0) return groupDiff;
+      const aStarts = a.name.toLowerCase().startsWith(f) ? 0 : 1;
+      const bStarts = b.name.toLowerCase().startsWith(f) ? 0 : 1;
+      return aStarts - bStarts;
+    });
+  }, [slashOpen, pickerFilter, mergedCatalog]);
+
+  const pickerOpen = slashOpen && !pickerDismissed && pickerItems.length > 0;
+
+  // Reset the keyboard cursor + dismissed flag whenever the text no longer
+  // matches the slash pattern (or a fresh slash is typed). `pickerFilter` is a
+  // trigger only — a new filter restarts the cursor at the top of the new list.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: pickerFilter is an intentional trigger, not read in the body.
+  useEffect(() => {
+    if (!slashOpen) setPickerDismissed(false);
+    setActiveIndex(0);
+  }, [slashOpen, pickerFilter]);
 
   // Switching sessions drops the pending model override so each session shows its
   // own model (or the default) rather than a leftover pick from a prior session.
@@ -141,6 +224,23 @@ export function ChatInput() {
   const sendMessage = () => {
     if (!text.trim() || !sessionId || isTurnInProgress) return;
     const content = text.trim();
+
+    // Classify slash-commands before sending. An unsupported command never
+    // reaches the CLI — surface the replacement hint and leave the draft intact
+    // so the user can edit it.
+    if (content.startsWith('/')) {
+      const parsed = parseSlashCommand(content);
+      if (parsed) {
+        const result = classifyCommand(parsed.name, {
+          dynamic: mergedCatalog.map((c) => c.name),
+        });
+        if (result.type === 'unsupported') {
+          showToast({ message: result.hint, type: 'error' });
+          return;
+        }
+      }
+    }
+
     setText('');
     const el = textareaRef.current;
     if (el) el.style.height = 'auto';
@@ -160,6 +260,7 @@ export function ChatInput() {
         content,
         thinking,
         approvalMode,
+        effort,
         model: isUnresolvable ? undefined : (effectiveModel ?? undefined),
         providerId: isUnresolvable ? undefined : (effectiveProviderId ?? undefined),
       },
@@ -196,7 +297,55 @@ export function ChatInput() {
     useChatStore.getState().setSessionFlags(sessionId, { thinking: !thinking });
   };
 
+  const setEffort = (next: EffortLevel | null) => {
+    if (!sessionId) return;
+    useChatStore.getState().setSessionFlags(sessionId, { effort: next });
+  };
+
+  // Pick a command from the picker: rewrite the composer to `/name ` and place
+  // the caret at the end. The trailing space closes the picker (no longer
+  // matches the regex) and positions the user to type arguments.
+  const selectCommand = (cmd: CommandInfo) => {
+    setText(`/${cmd.name} `);
+    setPickerDismissed(false);
+    const el = textareaRef.current;
+    if (el) {
+      el.focus();
+      // Defer caret move until the controlled value has flushed to the DOM.
+      requestAnimationFrame(() => {
+        const len = el.value.length;
+        el.setSelectionRange(len, len);
+      });
+    }
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // When the picker is open it owns navigation/selection keys. Send is
+    // suppressed; Enter/Tab select, arrows move, Esc dismisses.
+    if (pickerOpen) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setActiveIndex((i) => (i + 1) % pickerItems.length);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setActiveIndex((i) => (i - 1 + pickerItems.length) % pickerItems.length);
+        return;
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        const cmd = pickerItems[activeIndex];
+        if (cmd) selectCommand(cmd);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setPickerDismissed(true);
+        return;
+      }
+    }
+
     if (e.key === 'Enter') {
       // Ctrl/Cmd+Enter always sends. Plain Enter sends only on fine-pointer
       // devices; on touch it falls through to insert a newline. Shift+Enter and
@@ -238,6 +387,15 @@ export function ChatInput() {
           isTurnInProgress ? 'border-primary/30' : 'border-border'
         }`}
       >
+        {pickerOpen && (
+          <SlashCommandMenu
+            items={pickerItems}
+            activeIndex={activeIndex}
+            filter={pickerFilter}
+            onSelect={selectCommand}
+            onHover={setActiveIndex}
+          />
+        )}
         <textarea
           ref={textareaRef}
           value={text}
@@ -451,6 +609,21 @@ export function ChatInput() {
                   <Switch on={thinking} />
                 </span>
               </DropdownItem>
+
+              {/* Reasoning effort — applies from the next message. */}
+              <div className="flex items-center gap-2 px-2 pt-1.5 pb-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground select-none">
+                <Gauge className="h-3 w-3" />
+                Effort
+              </div>
+              {EFFORT_OPTIONS.map((opt) => (
+                <DropdownItem
+                  key={opt.label}
+                  onClick={() => setEffort(opt.value)}
+                  icon={<Check className={effort === opt.value ? '' : 'opacity-0'} />}
+                >
+                  <span>{opt.label}</span>
+                </DropdownItem>
+              ))}
             </DropdownMenu>
 
             {isTurnInProgress ? (

@@ -8,6 +8,7 @@ import type {
   ApprovalMode,
   ApproveToolPayload,
   CreateSessionPayload,
+  EffortLevel,
   ErrorPayload,
   ProjectAdoptedPayload,
   ReplayDonePayload,
@@ -21,7 +22,7 @@ import type {
   WSMessage,
   WSMessageType,
 } from 'shared/types';
-import { APPROVAL_MODES } from 'shared/types';
+import { APPROVAL_MODES, EFFORT_LEVELS } from 'shared/types';
 import { validateAuthSession } from '../auth/session-check';
 import { type DB, db, schema } from '../db';
 import { logDbError } from '../db/errors';
@@ -74,6 +75,13 @@ interface IncomingMessage {
 
 const VALID_APPROVAL: ReadonlySet<string> = new Set(['approve', 'approve_for_session', 'reject']);
 const VALID_APPROVAL_MODE: ReadonlySet<string> = new Set(APPROVAL_MODES);
+const VALID_EFFORT: ReadonlySet<string> = new Set(EFFORT_LEVELS);
+
+// Effort is invalid only when present and not a known level. `null` (reset to
+// provider default) and `undefined` (unchanged) are both allowed.
+function isInvalidEffort(effort: EffortLevel | null | undefined): boolean {
+  return effort !== undefined && effort !== null && !VALID_EFFORT.has(effort);
+}
 
 /**
  * Restore an idle session into memory. Loads the `sessions` row (authz: must
@@ -115,6 +123,7 @@ const defaultRestore: RestoreInjection = async (sessionId, mgr, dbh) => {
     providerId: row.providerId,
     thinking: row.thinking,
     approvalMode: row.approvalMode as ApprovalMode,
+    effort: (row.effort as EffortLevel | null) ?? null,
   });
   // Carry the persisted SDK session id so the lazy query can `resume`.
   active.sdkSessionId = row.sdkSessionId ?? null;
@@ -379,6 +388,10 @@ async function handleCreateSession(
     sendError(ws, 'bad_request');
     return;
   }
+  if (isInvalidEffort(payload.effort)) {
+    sendError(ws, 'bad_request');
+    return;
+  }
   const workDir = validateWorkDir(ws.data.userSlug, payload.workDir);
   if (workDir === null) {
     sendError(ws, 'bad_request');
@@ -395,9 +408,11 @@ async function handleCreateSession(
     return;
   }
 
-  // Thinking is on by default; approvalMode defaults to ask.
+  // Thinking is on by default; approvalMode defaults to ask; effort defaults to
+  // the provider default (null).
   const thinking = payload.thinking ?? true;
   const approvalMode: ApprovalMode = payload.approvalMode ?? 'ask';
+  const effort: EffortLevel | null = payload.effort ?? null;
 
   let providerId = typeof payload.providerId === 'string' ? payload.providerId : null;
   let model = payload.model ?? null;
@@ -425,6 +440,7 @@ async function handleCreateSession(
     providerId,
     thinking,
     approvalMode,
+    effort,
     status: 'active',
     title: null,
   });
@@ -437,6 +453,7 @@ async function handleCreateSession(
     providerId,
     thinking,
     approvalMode,
+    effort,
   });
   deps.manager.attachWS(active, ws);
 
@@ -463,7 +480,8 @@ async function handleSendMessage(
   }
   if (
     (payload.thinking !== undefined && typeof payload.thinking !== 'boolean') ||
-    (payload.approvalMode !== undefined && !VALID_APPROVAL_MODE.has(payload.approvalMode))
+    (payload.approvalMode !== undefined && !VALID_APPROVAL_MODE.has(payload.approvalMode)) ||
+    isInvalidEffort(payload.effort)
   ) {
     sendError(ws, 'bad_request', sessionId);
     return;
@@ -481,18 +499,32 @@ async function handleSendMessage(
     return;
   }
 
+  // Reject web-unsupported slash commands up front — no flag writes, no query spawn, no turn.
+  if (tryHandleSlashCommand(active, payload.content)) return;
+
   // Apply composer flags that ride along with the send. Only fields that
   // actually flip are written + persisted; a resend with unchanged flags is a
   // no-op. When a query is already live, push the change into it directly so the
   // running subprocess honors it without a respawn.
-  const flagChanges: { thinking?: boolean; approvalMode?: ApprovalMode } = {};
+  const flagChanges: {
+    thinking?: boolean;
+    approvalMode?: ApprovalMode;
+    effort?: EffortLevel | null;
+  } = {};
   if (payload.thinking !== undefined && payload.thinking !== active.thinking) {
     flagChanges.thinking = payload.thinking;
   }
   if (payload.approvalMode !== undefined && payload.approvalMode !== active.approvalMode) {
     flagChanges.approvalMode = payload.approvalMode;
   }
-  if (flagChanges.thinking !== undefined || flagChanges.approvalMode !== undefined) {
+  if (payload.effort !== undefined && payload.effort !== active.effort) {
+    flagChanges.effort = payload.effort;
+  }
+  if (
+    flagChanges.thinking !== undefined ||
+    flagChanges.approvalMode !== undefined ||
+    flagChanges.effort !== undefined
+  ) {
     if (flagChanges.thinking !== undefined) {
       active.thinking = flagChanges.thinking;
       // A live query honors thinking changes in place — null re-enables adaptive
@@ -504,6 +536,11 @@ async function handleSendMessage(
       active.approvalMode = flagChanges.approvalMode;
       // A live query keeps its own permission mode; nudge it in place.
       await active.query?.setPermissionMode(mapMode(flagChanges.approvalMode));
+    }
+    if (flagChanges.effort !== undefined) {
+      active.effort = flagChanges.effort;
+      // A live query applies the effort flag in place; passing null resets it.
+      await active.query?.applyFlagSettings({ effortLevel: flagChanges.effort });
     }
     await deps.db.update(schema.sessions).set(flagChanges).where(eq(schema.sessions.id, sessionId));
   }
@@ -568,9 +605,6 @@ async function handleSendMessage(
     }
     throw err;
   }
-
-  // Local slash commands are ephemeral — handled before the bridge, no turn.
-  if (await tryHandleSlashCommand(active, payload.content)) return;
 
   active.turnInProgress = true;
   broadcastEvent<TurnBeginPayload>(
