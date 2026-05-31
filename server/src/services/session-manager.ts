@@ -6,6 +6,7 @@ import type {
   ApprovalMode,
   ApprovalRequestPayload,
   ApprovalResponse,
+  ContextUsagePayload,
   EffortLevel,
   QuestionRequestPayload,
   StatusUpdatePayload,
@@ -76,6 +77,8 @@ export interface ActiveSession {
   lastActivity: number;
   /** Latest status seen this turn; flushed to sessions.totalTokens/Cost at turn end. */
   lastStatusUpdate: StatusUpdatePayload | null;
+  /** Last context-usage snapshot for the live query; null until first refresh. */
+  lastContextUsage: ContextUsagePayload | null;
   /** Maps tool_use.id → tool name; consumed when the matching tool_result fires. */
   toolNameByCallId: Map<string, string>;
   /**
@@ -136,6 +139,7 @@ export class SessionManager {
       lastSeq: 0,
       lastActivity: Date.now(),
       lastStatusUpdate: null,
+      lastContextUsage: null,
       toolNameByCallId: new Map(),
       backupMutex: Promise.resolve(),
       closing: false,
