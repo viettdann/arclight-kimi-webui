@@ -2,6 +2,7 @@
 import type {
   ApprovalMode,
   Block,
+  ContextUsagePayload,
   DisplayBlock,
   EffortLevel,
   QuestionItemDTO,
@@ -15,8 +16,14 @@ export interface ChatSessionState {
   blocks: Block[];
   /** Cumulative session token usage, mirrored from `status_update`/snapshot. */
   totalTokens: number | null;
-  /** Context-window usage from the latest `status_update`. */
-  contextUsage: number | null;
+  /** Rich context-window breakdown from the latest `context_usage` event / snapshot. */
+  contextUsage: ContextUsagePayload | null;
+  /**
+   * Bumped on each `turn_end` — a subscribable signal that context usage may have
+   * changed. The right sidebar watches this to re-request usage while open,
+   * instead of re-parsing raw WS frames.
+   */
+  contextEpoch: number;
   /** Cumulative session cost in USD, from `status_update`/snapshot. */
   totalCostUsd: number | null;
   title: string | null;
@@ -48,6 +55,7 @@ const createDefaultSessionState = (): ChatSessionState => ({
   blocks: [],
   totalTokens: null,
   contextUsage: null,
+  contextEpoch: 0,
   totalCostUsd: null,
   title: null,
   pendingPrompt: null,
@@ -373,7 +381,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         [sessionId]: {
           blocks: payload.blocks,
           totalTokens: payload.totalTokens,
-          contextUsage: null,
+          contextUsage: payload.contextUsage,
+          contextEpoch: 0,
           totalCostUsd: payload.totalCostUsd ?? null,
           title: payload.title,
           pendingPrompt: payload.pendingPrompt,
@@ -407,6 +416,9 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           break;
         case 'turn_end':
           session.isTurnInProgress = false;
+          // Signal a context-usage change (covers normal turns and the turn that
+          // wraps a /compact). Subscribers re-request usage off this counter.
+          session.contextEpoch += 1;
           break;
         case 'error':
           session.isTurnInProgress = false;
@@ -415,11 +427,13 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           const p = payload as StatusUpdatePayload;
           if (p) {
             session.totalTokens = p.tokenUsage;
-            session.contextUsage = p.contextUsage;
             if (p.totalCostUsd !== undefined) session.totalCostUsd = p.totalCostUsd;
           }
           break;
         }
+        case 'context_usage':
+          session.contextUsage = payload as ContextUsagePayload;
+          break;
         case 'title_update':
           if (payload?.title) session.title = payload.title;
           break;
@@ -482,5 +496,29 @@ export function useSessionChat(sessionId: string | undefined): ChatSessionState 
   return useChatStore((state) => {
     if (!sessionId) return null;
     return state.sessions[sessionId] ?? null;
+  });
+}
+
+type TodoItems = Extract<DisplayBlock, { type: 'todo' }>['items'];
+
+/**
+ * Hook: scan the session's blocks from the end for the most recent `tool_result`
+ * whose `displayBlocks` carries a `{ type: 'todo' }` entry, and return its
+ * items. Returns `null` when no todo display block exists yet.
+ */
+export function useLatestTodos(sessionId: string | undefined): TodoItems | null {
+  return useChatStore((state) => {
+    if (!sessionId) return null;
+    const session = state.sessions[sessionId];
+    if (!session) return null;
+    for (let i = session.blocks.length - 1; i >= 0; i--) {
+      const b = session.blocks[i];
+      if (b?.kind !== 'tool_result') continue;
+      const todo = b.displayBlocks?.find(
+        (d): d is Extract<DisplayBlock, { type: 'todo' }> => d.type === 'todo',
+      );
+      if (todo) return todo.items;
+    }
+    return null;
   });
 }

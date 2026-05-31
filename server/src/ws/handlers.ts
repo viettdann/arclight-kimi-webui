@@ -31,6 +31,7 @@ import { auditLog as defaultAuditLog, logger } from '../lib/logger';
 import { slugifyProjectName } from '../lib/slug';
 import { broadcastEvent, sendDirect } from '../lib/ws-broadcast';
 import { tryHandleSlashCommand } from '../services/agent/commands';
+import { refreshContextUsage } from '../services/agent/context-usage';
 import { createMessageBridge } from '../services/agent/message-bridge';
 import { consumeQueryOutput } from '../services/agent/output-consumer';
 import { startQuery } from '../services/agent/query-runner';
@@ -283,6 +284,12 @@ export async function handleMessage(ws: WS, raw: string | Buffer): Promise<void>
         return;
       case 'interrupt_turn':
         await handleInterruptTurn(ws, sessionId);
+        return;
+      case 'request_context_usage':
+        await handleRequestContextUsage(ws, sessionId);
+        return;
+      case 'compact_session':
+        await handleCompactSession(ws, sessionId);
         return;
       case 'adopt_project':
         await handleAdoptProject(ws, parsed.payload as AdoptProjectPayload | undefined);
@@ -713,6 +720,66 @@ async function handleInterruptTurn(ws: WS, sessionId: string): Promise<void> {
   }
   // Settle any canUseTool promise that was waiting on the interrupted turn.
   deps.manager.drainPendingRequests(active);
+}
+
+/**
+ * Probe the live query's context usage and broadcast it. Brings a resumed-but-
+ * idle session into memory and lazily spawns the subprocess (the SDK control
+ * request needs a live query). A no-provider session yields `provider_unset`.
+ */
+async function handleRequestContextUsage(ws: WS, sessionId: string): Promise<void> {
+  if (!sessionId) {
+    sendError(ws, 'bad_request');
+    return;
+  }
+  const active = await deps.manager.getOrRestore(ws.data.userId, sessionId, (sid) =>
+    deps.restore(sid, deps.manager, deps.db),
+  );
+  if (!active) {
+    sendError(ws, 'not_found', sessionId);
+    return;
+  }
+  try {
+    await ensureQuery(active);
+  } catch (err) {
+    if (err instanceof ProviderUnavailableError) {
+      sendError(ws, 'provider_unset', sessionId, 'No provider selected');
+      return;
+    }
+    throw err;
+  }
+  await refreshContextUsage(active);
+}
+
+/**
+ * Trigger an SDK `/compact` on the session's live query. No-op while a turn is
+ * already running (the compaction itself drives a turn whose lifecycle the
+ * output consumer reports). No user echo / turn_begin is broadcast.
+ */
+async function handleCompactSession(ws: WS, sessionId: string): Promise<void> {
+  if (!sessionId) {
+    sendError(ws, 'bad_request');
+    return;
+  }
+  const active = await deps.manager.getOrRestore(ws.data.userId, sessionId, (sid) =>
+    deps.restore(sid, deps.manager, deps.db),
+  );
+  if (!active) {
+    sendError(ws, 'not_found', sessionId);
+    return;
+  }
+  if (active.turnInProgress) return;
+  try {
+    await ensureQuery(active);
+  } catch (err) {
+    if (err instanceof ProviderUnavailableError) {
+      sendError(ws, 'provider_unset', sessionId, 'No provider selected');
+      return;
+    }
+    throw err;
+  }
+  active.turnInProgress = true;
+  active.bridge?.push('/compact');
 }
 
 // ─────────────────────────── reconnect handlers ───────────────────────────

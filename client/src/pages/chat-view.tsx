@@ -1,11 +1,14 @@
-import { Loader2 } from 'lucide-react';
+import { Loader2, PanelRight } from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useRef } from 'react';
 import { useParams } from 'react-router';
 import { ChatInput } from '../components/chat-input';
 import { PendingApprovalDock } from '../components/pending-approval-dock';
+import { RightSidebar } from '../components/right-sidebar/right-sidebar';
 import { Transcript } from '../components/transcript';
+import { Button } from '../components/ui/button';
 import { WelcomeScreen } from '../components/welcome-screen';
 import { persistWidth, useOpenFileStore } from '../lib/open-file-store';
+import { useRightSidebarStore } from '../lib/right-sidebar-store';
 import { useSessionsStore } from '../lib/sessions-store';
 
 // CodeMirror + every language mode + react-markdown live behind this split
@@ -25,6 +28,8 @@ export function ChatView() {
   const activeProjectName = useSessionsStore(
     (s) => s.sessions.find((x) => x.id === sessionId)?.projectName ?? null,
   );
+
+  const toggleRightSidebar = useRightSidebarStore((s) => s.toggle);
 
   const openFile = useOpenFileStore((s) => s.openFile);
   const editorWidthPct = useOpenFileStore((s) => s.editorWidthPct);
@@ -108,9 +113,22 @@ export function ChatView() {
           editor (the one %-anchored side) and the 1px handle leave behind —
           anchoring both sides to % would overflow by the handle width and
           jump on drag start. */}
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="relative flex min-w-0 flex-1 flex-col">
         {sessionId ? (
           <>
+            {/* No desktop header in this layout — float the right-panel toggle
+                in the top-right corner of the chat column. */}
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              onClick={toggleRightSidebar}
+              aria-label="Toggle details panel"
+              title="Toggle details panel"
+              className="absolute right-2 top-2 z-10"
+            >
+              <PanelRight className="h-4 w-4" />
+            </Button>
             <Transcript />
             <div className="relative shrink-0">
               <PendingApprovalDock />
@@ -164,6 +182,10 @@ export function ChatView() {
           </div>
         </>
       )}
+
+      {/* Right sidebar (Todo + Context). Desktop: ~320px flex column to the
+          right of the editor; mobile: right overlay drawer. */}
+      <RightSidebar sessionId={sessionId} />
     </div>
   );
 }

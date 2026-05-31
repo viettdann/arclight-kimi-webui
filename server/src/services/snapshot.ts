@@ -54,6 +54,7 @@ export async function buildSnapshot(args: BuildSnapshotArgs): Promise<SnapshotPa
     approvalMode: sessRow.approvalMode as ApprovalMode,
     effort: (sessRow.effort as EffortLevel | null) ?? null,
     commands: getCatalog(sessRow.workDir) ?? [],
+    contextUsage: manager.peek(args.sessionId)?.lastContextUsage ?? null,
     live: {
       turnInProgress: manager.peek(args.sessionId)?.turnInProgress ?? false,
     },
@@ -77,6 +78,7 @@ export function emptySnapshot(): SnapshotPayload {
     approvalMode: 'ask',
     effort: null,
     commands: [],
+    contextUsage: null,
     live: {
       turnInProgress: false,
     },

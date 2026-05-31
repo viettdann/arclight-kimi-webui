@@ -40,6 +40,7 @@ export type WSMessageType =
   | 'project_adopted'
   | 'clone_progress'
   | 'commands_available'
+  | 'context_usage'
   | 'error'
   // client → server
   | 'subscribe'
@@ -49,7 +50,9 @@ export type WSMessageType =
   | 'approve_tool'
   | 'answer_question'
   | 'interrupt_turn'
-  | 'adopt_project';
+  | 'adopt_project'
+  | 'request_context_usage'
+  | 'compact_session';
 
 // ─────────────────────────── Domain types ───────────────────────────
 
@@ -216,6 +219,12 @@ export interface SnapshotPayload {
     /** True iff the server still has an in-flight turn for this session. */
     turnInProgress: boolean;
   };
+  /**
+   * In-memory cached context-window usage, so the snapshot paints the context
+   * panel instantly before the sidebar's open-request round-trips. Null when no
+   * usage has been fetched for this session yet.
+   */
+  contextUsage: ContextUsagePayload | null;
 }
 
 /** Dynamic command/skill catalog, broadcast when a live session reports `init`. */
@@ -291,9 +300,38 @@ export interface SubagentEventPayload {
 
 export interface StatusUpdatePayload {
   tokenUsage: number;
-  contextUsage: number;
   /** Cumulative session cost in USD, from the SDK `result` message. */
   totalCostUsd?: number;
+}
+
+/**
+ * Trimmed projection of the SDK `getContextUsage()` control response. The rich
+ * context-window breakdown is the single representation of context usage,
+ * delivered on the `context_usage` event and cached as the session's snapshot
+ * value. CLI theme `color` tokens are dropped; the client owns its palette.
+ */
+export interface ContextUsageCategory {
+  name: string;
+  tokens: number;
+}
+export interface ContextUsageSkill {
+  name: string;
+  source: string;
+  tokens: number;
+}
+export interface ContextUsageMemoryFile {
+  path: string;
+  type: string;
+  tokens: number;
+}
+export interface ContextUsagePayload {
+  percentage: number;
+  totalTokens: number;
+  maxTokens: number;
+  model: string;
+  categories: ContextUsageCategory[];
+  skills: ContextUsageSkill[];
+  memoryFiles: ContextUsageMemoryFile[];
 }
 
 export interface ApprovalRequestPayload {

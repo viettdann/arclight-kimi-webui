@@ -441,7 +441,6 @@ export async function consumeQueryOutput(active: ActiveSession): Promise<void> {
     const tokenUsage = sumUsage(msg.usage);
     const status: StatusUpdatePayload = {
       tokenUsage,
-      contextUsage: 0,
       totalCostUsd: msg.total_cost_usd,
     };
     active.lastStatusUpdate = status;
