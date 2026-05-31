@@ -19,7 +19,7 @@ import {
   toDTO,
   updateProvider,
 } from '../services/providers/store';
-import { testProvider } from '../services/providers/test';
+import { fetchModels, testProvider } from '../services/providers/test';
 import { withTestLimit } from '../services/providers/test-limiter';
 import { assertSafeBaseUrl } from '../services/providers/url-guard';
 
@@ -271,4 +271,57 @@ export async function handleTest(
 
   if (!limited.ok) return c.json({ ok: false, error: 'rate_limited' });
   return c.json(limited.value);
+}
+
+// ─────────────────────────── POST /models ───────────────────────────
+//
+// Probe the provider's `/v1/models` endpoint and return the discovered list.
+// Unlike /test this never pings a model, so it works before any model is
+// selected — the manual-model deadlock (can't test without a model, can't pick
+// a model the endpoint doesn't list) never arises.
+
+export async function handleFetchModels(
+  c: Context,
+  db: DB,
+  userId: string,
+  cfg: ProviderScopeConfig,
+): Promise<Response> {
+  const b = await parseJsonBody(c);
+  if (!b) return c.json({ error: 'invalid_body' }, 400);
+
+  const req = b as unknown as ProviderTestRequest;
+
+  if (!cfg.forceType && !isProviderType(req.type)) {
+    return c.json({ error: 'invalid_type' }, 400);
+  }
+  const type: ProviderType = cfg.forceType ?? req.type;
+
+  // Same per-user rate limit as /test: probing is an outbound network call.
+  const limited = await withTestLimit(userId, async () => {
+    let token: string | null = typeof req.token === 'string' ? req.token : null;
+    let baseUrl: string | null = req.baseUrl ?? null;
+
+    // Token omitted/empty + providerId → reuse the saved secret and its base URL.
+    if ((!token || token.length === 0) && req.providerId) {
+      const saved = await cfg.fetchExisting(db, req.providerId);
+      if (saved) {
+        token = saved.provider.token;
+        baseUrl = saved.provider.baseUrl;
+      }
+    } else if (type === 'api' && typeof baseUrl === 'string' && baseUrl.length > 0) {
+      const guard = await assertSafeBaseUrl(baseUrl);
+      if (!guard.ok) return { ok: false as const, error: 'invalid_base_url' };
+      baseUrl = guard.normalized;
+    }
+
+    if (!token) return { ok: false as const, error: 'missing_token' };
+
+    const models = await fetchModels({ type, baseUrl, token });
+    return { ok: true as const, models };
+  });
+
+  if (!limited.ok) return c.json({ error: 'rate_limited' }, 429);
+  const value = limited.value;
+  if (!value.ok) return c.json({ error: value.error }, 400);
+  return c.json({ models: value.models });
 }

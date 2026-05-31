@@ -2,6 +2,7 @@ import type {
   AvailableProvidersResponse,
   ProviderCreateRequest,
   ProviderDTO,
+  ProviderModelsResponse,
   ProvidersListResponse,
   ProviderTestRequest,
   ProviderTestResponse,
@@ -61,6 +62,18 @@ export async function testBuiltinProvider(
   return res.json();
 }
 
+export async function fetchBuiltinProviderModels(
+  body: ProviderTestRequest,
+): Promise<ProviderModelsResponse> {
+  const res = await authFetch(`${ADMIN_BASE}/models`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
+
 // ── Personal (me) ───────────────────────────────────────────────────────────
 
 const ME_BASE = '/api/me-providers';
@@ -103,6 +116,18 @@ export async function deleteMyProvider(id: string): Promise<void> {
 
 export async function testMyProvider(body: ProviderTestRequest): Promise<ProviderTestResponse> {
   const res = await authFetch(`${ME_BASE}/test`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
+
+export async function fetchMyProviderModels(
+  body: ProviderTestRequest,
+): Promise<ProviderModelsResponse> {
+  const res = await authFetch(`${ME_BASE}/models`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),

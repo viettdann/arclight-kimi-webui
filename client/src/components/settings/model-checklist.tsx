@@ -36,58 +36,60 @@ export function ModelChecklist({
 
   return (
     <div className="space-y-2">
-      <Label>Models</Label>
-      <div className="rounded-md border border-border divide-y divide-border max-h-48 overflow-y-auto">
-        {[...displayIds].map((modelId) => {
-          const avail = availById.get(modelId);
-          const sel = selById.get(modelId);
-          const checked = !!sel;
-          return (
-            <label
-              key={modelId}
-              className="flex items-center gap-3 px-3 py-1.5 cursor-pointer hover:bg-muted/40"
-            >
-              <input
-                type="checkbox"
-                checked={checked}
-                onChange={() =>
-                  onToggleSelected(
-                    modelId,
-                    avail?.displayName ?? null,
-                    avail?.contextWindow ?? null,
-                  )
-                }
-                className="h-3.5 w-3.5"
-              />
-              <span className="flex-1 text-sm font-mono">{avail?.displayName ?? modelId}</span>
-              {checked && (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    onToggleDefault(modelId);
-                  }}
-                  className={cn(
-                    'flex items-center gap-1 rounded px-1.5 py-0.5 text-xs transition-colors',
-                    sel?.isDefault
-                      ? 'bg-primary/10 text-primary font-medium'
-                      : 'text-muted-foreground hover:bg-muted',
-                  )}
-                  title="Set as default"
-                >
-                  {sel?.isDefault && <Check className="h-3 w-3" />}
-                  {sel?.isDefault ? 'Default' : 'Set default'}
-                </button>
-              )}
-            </label>
-          );
-        })}
+      <div className="flex items-center gap-2">
+        <Label>Models</Label>
         {displayIds.size === 0 && (
-          <p className="px-3 py-2 text-xs text-muted-foreground">
-            No models from test — add manually below.
-          </p>
+          <span className="text-xs text-muted-foreground">— none yet, add below</span>
         )}
       </div>
+      {displayIds.size > 0 && (
+        <div className="rounded-md border border-border divide-y divide-border max-h-48 overflow-y-auto">
+          {[...displayIds].map((modelId) => {
+            const avail = availById.get(modelId);
+            const sel = selById.get(modelId);
+            const checked = !!sel;
+            return (
+              <label
+                key={modelId}
+                className="flex items-center gap-3 px-3 py-1.5 cursor-pointer hover:bg-muted/40"
+              >
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={() =>
+                    onToggleSelected(
+                      modelId,
+                      avail?.displayName ?? null,
+                      avail?.contextWindow ?? null,
+                    )
+                  }
+                  className="h-3.5 w-3.5"
+                />
+                <span className="flex-1 text-sm font-mono">{avail?.displayName ?? modelId}</span>
+                {checked && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      onToggleDefault(modelId);
+                    }}
+                    className={cn(
+                      'flex items-center gap-1 rounded px-1.5 py-0.5 text-xs transition-colors',
+                      sel?.isDefault
+                        ? 'bg-primary/10 text-primary font-medium'
+                        : 'text-muted-foreground hover:bg-muted',
+                    )}
+                    title="Set as default"
+                  >
+                    {sel?.isDefault && <Check className="h-3 w-3" />}
+                    {sel?.isDefault ? 'Default' : 'Set default'}
+                  </button>
+                )}
+              </label>
+            );
+          })}
+        </div>
+      )}
       {/* Manual add row (always shown) */}
       <div className="flex gap-2">
         <Input

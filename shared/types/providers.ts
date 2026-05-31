@@ -36,6 +36,19 @@ export const LIGHT_MODEL = 'claude-haiku-4-5-20251001';
 export const ANTHROPIC_VERSION = '2023-06-01';
 export const OAUTH_BETA = 'oauth-2025-04-20';
 
+/**
+ * Auth header variants for a token, tried in order: an Anthropic key
+ * (`x-api-key`) then a proxy Bearer token. Pass `beta` for the oauth surface.
+ */
+export function anthropicAuthVariants(token: string, beta?: string): Record<string, string>[] {
+  const common: Record<string, string> = { 'anthropic-version': ANTHROPIC_VERSION };
+  if (beta) common['anthropic-beta'] = beta;
+  return [
+    { 'x-api-key': token, ...common },
+    { Authorization: `Bearer ${token}`, ...common },
+  ];
+}
+
 export interface ProviderModelDTO {
   id: string;
   modelId: string;
@@ -88,6 +101,11 @@ export interface ProviderTestResponse {
   ok: boolean;
   error?: string;
   availableModels?: { id: string; displayName: string | null; contextWindow: number | null }[];
+}
+
+/** Result of probing a provider's `/v1/models` endpoint (no ping). */
+export interface ProviderModelsResponse {
+  models: { id: string; displayName: string | null; contextWindow: number | null }[];
 }
 
 /** Create body. Admin (Built-in) forces type=api + sets visibility; Personal

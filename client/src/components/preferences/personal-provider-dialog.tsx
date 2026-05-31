@@ -16,9 +16,14 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { createMyProvider, testMyProvider, updateMyProvider } from '../../api/providers';
+import {
+  createMyProvider,
+  fetchMyProviderModels,
+  testMyProvider,
+  updateMyProvider,
+} from '../../api/providers';
 import { SecretField } from '../settings/secret-field';
-import { isCredentialDirty } from '../settings/use-provider-form';
+import { isCredentialDirty, probeReadiness } from '../settings/use-provider-form';
 
 export interface PersonalProviderDialogProps {
   open: boolean;
@@ -59,6 +64,10 @@ export function PersonalProviderDialog({
   const [modelEntries, setModelEntries] = useState<ModelEntry[]>([]);
   const [manualModelId, setManualModelId] = useState('');
 
+  // Fetch-models probe state (api type only)
+  const [fetchingModels, setFetchingModels] = useState(false);
+  const [fetchModelsError, setFetchModelsError] = useState<string | null>(null);
+
   // Save state
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -74,47 +83,48 @@ export function PersonalProviderDialog({
       setNamespace(provider.namespace);
       setBaseUrl(provider.baseUrl ?? '');
       setToken(null);
+      // Seed the saved models so an api provider shows its selection immediately,
+      // before any fetch.
+      setModelEntries(
+        provider.type === 'api'
+          ? provider.models.map((m) => ({
+              modelId: m.modelId,
+              displayName: m.displayName ?? m.modelId,
+              contextWindow: m.contextWindow,
+              selected: true,
+              isDefault: m.isDefault,
+            }))
+          : [],
+      );
     } else {
       setType('oauth');
       setNamespace('');
       setBaseUrl('');
       setToken(null);
+      setModelEntries([]);
     }
     setTestResult(null);
     setTestError(null);
     setTestedOk(false);
-    setModelEntries([]);
     setManualModelId('');
     setFormError(null);
     setSubmitting(false);
+    setFetchingModels(false);
+    setFetchModelsError(null);
   }, [open, provider]);
-
-  // When test result returns availableModels, seed model entries
-  // biome-ignore lint/correctness/useExhaustiveDependencies: testResult is the trigger
-  useEffect(() => {
-    if (!testResult?.ok || type !== 'api') return;
-    const available = testResult.availableModels ?? [];
-    if (available.length === 0) return;
-
-    // On edit, pre-select models already saved to the provider
-    const savedIds = new Set(provider?.models.map((m) => m.modelId) ?? []);
-    const defaultId = provider?.models.find((m) => m.isDefault)?.modelId ?? available[0]?.id;
-
-    setModelEntries(
-      available.map((m) => ({
-        modelId: m.id,
-        displayName: m.displayName ?? m.id,
-        contextWindow: m.contextWindow,
-        selected: savedIds.size > 0 ? savedIds.has(m.id) : true,
-        isDefault: m.id === defaultId,
-      })),
-    );
-  }, [testResult]);
 
   async function handleTest() {
     setTestError(null);
     setTestResult(null);
     setTestedOk(false);
+
+    // Ping with the chosen default (else first selected) model so a
+    // manually-entered model validates even without a listable /models endpoint.
+    const model =
+      modelEntries.find((m) => m.selected && m.isDefault)?.modelId ??
+      modelEntries.find((m) => m.selected)?.modelId ??
+      modelEntries[0]?.modelId ??
+      null;
 
     setTesting(true);
     try {
@@ -122,6 +132,7 @@ export function PersonalProviderDialog({
         type,
         baseUrl: type === 'api' ? baseUrl.trim() || null : null,
         token: token ?? null,
+        model: type === 'api' ? model : null,
         providerId: isEdit ? provider?.id : undefined,
       });
       setTestResult(result);
@@ -134,6 +145,51 @@ export function PersonalProviderDialog({
       setTestError(err instanceof Error ? err.message : 'Test failed');
     } finally {
       setTesting(false);
+    }
+  }
+
+  async function handleFetchModels() {
+    setFetchModelsError(null);
+    setFetchingModels(true);
+    try {
+      const { models } = await fetchMyProviderModels({
+        type,
+        baseUrl: type === 'api' ? baseUrl.trim() || null : null,
+        token: token ?? null,
+        providerId: isEdit ? provider?.id : undefined,
+      });
+      if (models.length === 0) {
+        setFetchModelsError('No models returned — add one manually below.');
+        return;
+      }
+      setModelEntries((prev) => {
+        const prevById = new Map(prev.map((m) => [m.modelId, m]));
+        // Fetched models become the option list, preserving prior selection;
+        // entries added manually that the endpoint omits are kept.
+        const merged: ModelEntry[] = models.map((m) => {
+          const existing = prevById.get(m.id);
+          return {
+            modelId: m.id,
+            displayName: m.displayName ?? m.id,
+            contextWindow: m.contextWindow,
+            selected: existing?.selected ?? !isEdit,
+            isDefault: existing?.isDefault ?? false,
+          };
+        });
+        for (const m of prev) {
+          if (!models.some((x) => x.id === m.modelId)) merged.push(m);
+        }
+        // Guarantee one default among the selected entries.
+        if (merged.some((m) => m.selected) && !merged.some((m) => m.selected && m.isDefault)) {
+          const firstSel = merged.find((m) => m.selected);
+          if (firstSel) firstSel.isDefault = true;
+        }
+        return merged;
+      });
+    } catch (err) {
+      setFetchModelsError(err instanceof Error ? err.message : 'Failed to fetch models');
+    } finally {
+      setFetchingModels(false);
     }
   }
 
@@ -222,8 +278,12 @@ export function PersonalProviderDialog({
     }
   }
 
-  const showModelSection = type === 'api' && testResult?.ok;
   const hasModels = modelEntries.length > 0;
+  const { canProbe, fetchReady } = probeReadiness(token, baseUrl, isEdit);
+  const selectedModelCount = modelEntries.filter((m) => m.selected).length;
+  // Fetch (api) needs base URL + key. Test additionally needs a selected model;
+  // oauth has neither base URL nor a model list, so the key alone enables it.
+  const testReady = type === 'api' ? fetchReady && selectedModelCount > 0 : canProbe;
 
   // Credentials are "dirty" when the token or base URL differs from the saved value.
   // OAuth providers have no base URL, so only the API path compares base URLs;
@@ -297,99 +357,136 @@ export function PersonalProviderDialog({
             </div>
           )}
 
-          {/* Token */}
-          <SecretField
-            id="pp-token"
-            label="Token"
-            masked={provider?.tokenMasked ?? ''}
-            isSet={isEdit}
-            value={token}
-            onChange={setToken}
-            placeholder={isEdit ? 'Leave blank to keep current' : 'API token'}
-          />
+          {/* Credentials. For API providers, Models sits beside the API key. */}
+          {type === 'api' ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-start">
+              <SecretField
+                id="pp-token"
+                label="API Key"
+                masked={provider?.tokenMasked ?? ''}
+                isSet={isEdit}
+                value={token}
+                onChange={setToken}
+                placeholder={isEdit ? 'Leave blank to keep current' : 'API key'}
+              />
+              <div className="flex flex-col gap-2 rounded-md border border-border bg-muted/30 px-4 py-3">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Models
+                </p>
+                {fetchModelsError && (
+                  <p className="text-xs italic text-muted-foreground">{fetchModelsError}</p>
+                )}
+                {hasModels ? (
+                  <ul className="space-y-1.5">
+                    {modelEntries.map((m, idx) => (
+                      <li key={m.modelId} className="flex items-center gap-3">
+                        <Checkbox
+                          id={`pp-model-${idx}`}
+                          checked={m.selected}
+                          onChange={() => toggleModelSelected(idx)}
+                        />
+                        <label
+                          htmlFor={`pp-model-${idx}`}
+                          className="flex-1 cursor-pointer text-sm"
+                        >
+                          <span className="font-medium">{m.displayName}</span>
+                          {m.displayName !== m.modelId && (
+                            <span className="ml-1.5 font-mono text-xs text-muted-foreground">
+                              {m.modelId}
+                            </span>
+                          )}
+                        </label>
+                        <button
+                          type="button"
+                          disabled={!m.selected}
+                          onClick={() => setDefaultModel(idx)}
+                          className={
+                            m.isDefault
+                              ? 'text-[10px] font-semibold uppercase tracking-wider rounded-full px-2 py-0.5 border border-primary bg-primary text-primary-foreground'
+                              : 'text-[10px] font-semibold uppercase tracking-wider rounded-full px-2 py-0.5 border border-border text-muted-foreground hover:border-primary hover:text-foreground disabled:opacity-40'
+                          }
+                        >
+                          {m.isDefault ? 'Default' : 'Set default'}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-xs italic text-muted-foreground">
+                    No models yet — fetch them or add one manually below.
+                  </p>
+                )}
 
-          {/* Test button + result */}
+                {/* Manual add row */}
+                <div className="flex gap-2 pt-1">
+                  <Input
+                    type="text"
+                    value={manualModelId}
+                    onChange={(e) => setManualModelId(e.target.value)}
+                    placeholder="model-id (e.g. gpt-4o)"
+                    className="h-7 text-xs"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        addManualModel();
+                      }
+                    }}
+                  />
+                  <Button type="button" variant="outline" size="sm" onClick={addManualModel}>
+                    Add
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <SecretField
+              id="pp-token"
+              label="Token"
+              masked={provider?.tokenMasked ?? ''}
+              isSet={isEdit}
+              value={token}
+              onChange={setToken}
+              placeholder={isEdit ? 'Leave blank to keep current' : 'OAuth token'}
+            />
+          )}
+
+          {/* Test + fetch-models actions */}
           <div className="flex items-center gap-2">
             <Button
               type="button"
               variant="outline"
               size="sm"
               onClick={handleTest}
-              disabled={testing}
+              disabled={testing || !testReady}
+              title={
+                testReady
+                  ? undefined
+                  : type === 'api'
+                    ? 'Fill base URL, API key, and select a model first'
+                    : 'Enter a token first'
+              }
             >
               {testing ? 'Testing…' : 'Test connection'}
             </Button>
+            {type === 'api' && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleFetchModels}
+                disabled={fetchingModels || !fetchReady}
+                title={
+                  fetchReady ? 'Probe the /models endpoint' : 'Fill base URL and API key first'
+                }
+              >
+                {fetchingModels ? 'Fetching…' : 'Fetch models'}
+              </Button>
+            )}
             {testResult?.ok && (
               <span className="text-xs text-green-600 dark:text-green-400">Connection OK</span>
             )}
           </div>
           {testError && <p className="text-sm text-destructive">{testError}</p>}
-
-          {/* Model selection for API type after successful test */}
-          {showModelSection && (
-            <div className="flex flex-col gap-2 rounded-md border border-border bg-muted/30 px-4 py-3">
-              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Models
-              </p>
-              {hasModels ? (
-                <ul className="space-y-1.5">
-                  {modelEntries.map((m, idx) => (
-                    <li key={m.modelId} className="flex items-center gap-3">
-                      <Checkbox
-                        id={`pp-model-${idx}`}
-                        checked={m.selected}
-                        onChange={() => toggleModelSelected(idx)}
-                      />
-                      <label htmlFor={`pp-model-${idx}`} className="flex-1 cursor-pointer text-sm">
-                        <span className="font-medium">{m.displayName}</span>
-                        {m.displayName !== m.modelId && (
-                          <span className="ml-1.5 font-mono text-xs text-muted-foreground">
-                            {m.modelId}
-                          </span>
-                        )}
-                      </label>
-                      <button
-                        type="button"
-                        disabled={!m.selected}
-                        onClick={() => setDefaultModel(idx)}
-                        className={
-                          m.isDefault
-                            ? 'text-[10px] font-semibold uppercase tracking-wider rounded-full px-2 py-0.5 border border-primary bg-primary text-primary-foreground'
-                            : 'text-[10px] font-semibold uppercase tracking-wider rounded-full px-2 py-0.5 border border-border text-muted-foreground hover:border-primary hover:text-foreground disabled:opacity-40'
-                        }
-                      >
-                        {m.isDefault ? 'Default' : 'Set default'}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-xs italic text-muted-foreground">
-                  No models returned. Add one manually below.
-                </p>
-              )}
-
-              {/* Manual add row */}
-              <div className="flex gap-2 pt-1">
-                <Input
-                  type="text"
-                  value={manualModelId}
-                  onChange={(e) => setManualModelId(e.target.value)}
-                  placeholder="model-id (e.g. gpt-4o)"
-                  className="h-7 text-xs"
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      addManualModel();
-                    }
-                  }}
-                />
-                <Button type="button" variant="outline" size="sm" onClick={addManualModel}>
-                  Add
-                </Button>
-              </div>
-            </div>
-          )}
 
           {formError && <p className="text-sm text-destructive">{formError}</p>}
 

@@ -61,12 +61,19 @@ mock.module('../../src/services/providers/store', () => ({
   toDTO: mockToDTO,
 }));
 
-// Also mock testProvider so POST / and POST /test don't actually hit the network
+// Also mock testProvider/fetchModels so POST /, POST /test and POST /models
+// don't actually hit the network.
 const mockTestProvider = mock(
   async (): Promise<ProviderTestResponse> => ({ ok: true, availableModels: [] }),
 );
+const mockFetchModels = mock(
+  async (): Promise<
+    { id: string; displayName: string | null; contextWindow: number | null }[]
+  > => [],
+);
 mock.module('../../src/services/providers/test', () => ({
   testProvider: mockTestProvider,
+  fetchModels: mockFetchModels,
 }));
 
 // ─────────────────────────── Test helpers ───────────────────────────
@@ -507,6 +514,67 @@ describe('provider base-URL SSRF guard (H2)', () => {
     const body = (await res.json()) as { ok: boolean; error?: string };
     expect(body.ok).toBe(false);
     expect(body.error).toBe('invalid_base_url');
+  });
+
+  it('admin POST /models reuses the SAVED base URL, ignoring a posted baseUrl', async () => {
+    const saved = makeProvider({
+      id: 'saved-m',
+      ownerUserId: null,
+      baseUrl: 'https://saved.example.com',
+      token: 'saved-token',
+    });
+    mockGetBuiltin.mockResolvedValueOnce({ provider: saved, models: [] });
+    mockFetchModels.mockResolvedValueOnce([
+      { id: 'm-1', displayName: 'Model One', contextWindow: 200000 },
+    ]);
+
+    const admin: MockUser = { id: 'admin-models-1', email: 'a@x.com', role: 'admin' };
+    const { app } = buildAdminApp('admin', admin);
+    const res = await app.request('/api/admin/providers/models', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        type: 'api',
+        providerId: 'saved-m',
+        baseUrl: 'https://attacker.example.com',
+      }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      models: { id: string; displayName: string | null; contextWindow: number | null }[];
+    };
+    expect(body.models).toEqual([{ id: 'm-1', displayName: 'Model One', contextWindow: 200000 }]);
+
+    const fetchArgs = mockFetchModels.mock.calls.at(-1) as unknown as unknown[];
+    const arg = fetchArgs[0] as { baseUrl: string | null; token: string };
+    expect(arg.baseUrl).toBe('https://saved.example.com');
+    expect(arg.token).toBe('saved-token');
+  });
+
+  it('admin POST /models with a private-IP baseUrl → 400 invalid_base_url', async () => {
+    const admin: MockUser = { id: 'admin-models-2', email: 'a@x.com', role: 'admin' };
+    const { app } = buildAdminApp('admin', admin);
+    const res = await app.request('/api/admin/providers/models', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ type: 'api', token: 'tok', baseUrl: 'http://10.0.0.5' }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe('invalid_base_url');
+  });
+
+  it('admin POST /models without a token → 400 missing_token', async () => {
+    const admin: MockUser = { id: 'admin-models-3', email: 'a@x.com', role: 'admin' };
+    const { app } = buildAdminApp('admin', admin);
+    const res = await app.request('/api/admin/providers/models', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ type: 'api' }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe('missing_token');
   });
 
   it('admin POST /test reuses the SAVED base URL, ignoring a posted baseUrl', async () => {

@@ -1,6 +1,6 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import {
-  ANTHROPIC_VERSION,
+  anthropicAuthVariants,
   LIGHT_MODEL,
   OAUTH_BETA,
   OAUTH_MODELS,
@@ -28,26 +28,10 @@ export async function fetchModels(draft: {
         : 'https://api.anthropic.com';
     const url = `${base}/v1/models?limit=1000`;
 
-    const commonHeaders: Record<string, string>[] = [
-      { 'x-api-key': draft.token, 'anthropic-version': ANTHROPIC_VERSION },
-      { Authorization: `Bearer ${draft.token}`, 'anthropic-version': ANTHROPIC_VERSION },
-    ];
-
-    const headerVariants: Record<string, string>[] =
+    const headerVariants =
       draft.type === 'oauth'
-        ? [
-            {
-              'x-api-key': draft.token,
-              'anthropic-version': ANTHROPIC_VERSION,
-              'anthropic-beta': OAUTH_BETA,
-            },
-            {
-              Authorization: `Bearer ${draft.token}`,
-              'anthropic-version': ANTHROPIC_VERSION,
-              'anthropic-beta': OAUTH_BETA,
-            },
-          ]
-        : commonHeaders;
+        ? anthropicAuthVariants(draft.token, OAUTH_BETA)
+        : anthropicAuthVariants(draft.token);
 
     for (const headers of headerVariants) {
       let res: Response;
@@ -86,6 +70,8 @@ export async function fetchModels(draft: {
         if (typeof entry !== 'object' || entry === null) continue;
         const e = entry as Record<string, unknown>;
         if (typeof e.id !== 'string') continue;
+        // Drop decommissioned models (e.g. ARK marks them `status: "Shutdown"`).
+        if (e.status === 'Shutdown') continue;
 
         const tokenLimits = e.token_limits as Record<string, unknown> | undefined;
         const contextWindow =
@@ -97,12 +83,25 @@ export async function fetchModels(draft: {
                 ? tokenLimits.context_window
                 : null;
 
-        models.push({
-          id: e.id,
-          displayName: typeof e.display_name === 'string' ? e.display_name : null,
-          contextWindow,
-        });
+        // Anthropic uses `display_name`; OpenAI-compatible listings (e.g. ARK)
+        // put the human label in `name`.
+        const displayName =
+          typeof e.display_name === 'string'
+            ? e.display_name
+            : typeof e.name === 'string'
+              ? e.name
+              : null;
+
+        models.push({ id: e.id, displayName, contextWindow });
       }
+      // Surface models with a known context window first; keep the rest (image,
+      // video, embedding, or metadata-less entries) below so nothing is lost.
+      // Sort is stable, so original order is preserved within each group.
+      models.sort((a, b) => {
+        const aKnown = a.contextWindow !== null ? 0 : 1;
+        const bKnown = b.contextWindow !== null ? 0 : 1;
+        return aKnown - bKnown;
+      });
       return models;
     }
 

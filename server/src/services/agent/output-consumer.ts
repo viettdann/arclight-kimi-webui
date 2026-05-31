@@ -30,7 +30,6 @@ import type { ActiveSession } from '../session-manager';
 import { sessionManager } from '../session-manager';
 import { refreshCatalog } from './commands-catalog';
 import { toDisplayBlocks } from './display-blocks';
-import { buildAgentEnv } from './env';
 import { generateTitle } from './title';
 import { appendTranscript, backupSubagents } from './transcript-store';
 
@@ -492,7 +491,6 @@ export async function consumeQueryOutput(active: ActiveSession): Promise<void> {
 
     const provider = await resolveProviderForUser(db, active.userId, active.providerId);
     if (!provider) return;
-    const env = buildAgentEnv(provider);
 
     // An api proxy may not expose the Anthropic light model id, so reuse the
     // session's resolved model there; oauth always has the light model.
@@ -500,7 +498,7 @@ export async function consumeQueryOutput(active: ActiveSession): Promise<void> {
 
     let title: string | null;
     try {
-      title = await generateTitle(firstUserMessage, env, titleModel);
+      title = await generateTitle(firstUserMessage, provider, titleModel);
     } catch (err) {
       log.warn({ err, sessionId: active.sessionId }, 'title generation threw');
       return;

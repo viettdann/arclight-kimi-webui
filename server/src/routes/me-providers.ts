@@ -5,6 +5,7 @@ import { getOwned, listOwnerRows, toDTO } from '../services/providers/store';
 import {
   handleCreate,
   handleDelete,
+  handleFetchModels,
   handleTest,
   handleUpdate,
   type ProviderScopeConfig,
@@ -69,6 +70,14 @@ export function createMeProvidersRouter(
     const user = c.var.user;
     if (!user) return c.json({ error: 'unauthorized' }, 401);
     return handleTest(c, db, user.id, scopeFor(user.id));
+  });
+
+  // ─────────────────────────── POST /models ───────────────────────────
+
+  router.post('/models', (c) => {
+    const user = c.var.user;
+    if (!user) return c.json({ error: 'unauthorized' }, 401);
+    return handleFetchModels(c, db, user.id, scopeFor(user.id));
   });
 
   return router;

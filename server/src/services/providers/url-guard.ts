@@ -144,8 +144,11 @@ function isBlockedAddress(addr: string): boolean {
 // ─────────────────────────── Public API ───────────────────────────
 
 /**
- * Validate a caller-supplied base URL against SSRF. Resolves to the normalized
- * `origin` on success so the host we validated is exactly the host we fetch.
+ * Validate a caller-supplied base URL against SSRF. Resolves to a normalized
+ * `origin + path` on success so the host we validated is exactly the host we
+ * fetch. The path is preserved (SSRF only concerns the host/IP) so path-based
+ * providers like `https://host/api/coding` are not silently truncated; query
+ * and hash are dropped and any trailing slash is trimmed to avoid `//v1`.
  */
 export async function assertSafeBaseUrl(raw: string): Promise<AssertSafeBaseUrlResult> {
   let url: URL;
@@ -163,13 +166,16 @@ export async function assertSafeBaseUrl(raw: string): Promise<AssertSafeBaseUrlR
   const host = url.hostname;
   if (host === '') return FAIL;
 
+  // Preserve the path (e.g. `/api/coding`); strip trailing slash, query, hash.
+  const normalized = `${url.origin}${url.pathname.replace(/\/+$/, '')}`;
+
   // Strip bracket notation that `URL` keeps for IPv6 literals (`[::1]`).
   const bareHost = host.startsWith('[') && host.endsWith(']') ? host.slice(1, -1) : host;
 
   // If the host is already an IP literal, classify it directly — no DNS needed.
   const literalKind = isIP(bareHost);
   if (literalKind !== 0) {
-    return isBlockedAddress(bareHost) ? FAIL : { ok: true, normalized: url.origin };
+    return isBlockedAddress(bareHost) ? FAIL : { ok: true, normalized };
   }
 
   // Otherwise resolve the hostname and reject if ANY returned address is unsafe.
@@ -183,5 +189,5 @@ export async function assertSafeBaseUrl(raw: string): Promise<AssertSafeBaseUrlR
     return FAIL;
   }
 
-  return { ok: true, normalized: url.origin };
+  return { ok: true, normalized };
 }

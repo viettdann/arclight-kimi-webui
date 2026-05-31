@@ -68,6 +68,10 @@ export async function startQuery(
   const q = query({
     prompt: opts.prompt,
     options: {
+      // Claude Code's full default system prompt; `settingSources: ['project']`
+      // layers the project CLAUDE.md on top. Without it the SDK starts from an
+      // empty system prompt (generic assistant persona).
+      systemPrompt: { type: 'preset', preset: 'claude_code' },
       settingSources: ['project'],
       model: active.model ?? undefined,
       cwd: active.workDir,

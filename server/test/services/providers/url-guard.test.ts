@@ -26,10 +26,22 @@ afterEach(() => {
 });
 
 describe('assertSafeBaseUrl', () => {
-  it('accepts a public https URL and returns the normalized origin', async () => {
+  it('accepts a public https URL, preserving path and trimming trailing slash', async () => {
     lookupResult = [{ address: '93.184.216.34', family: 4 }];
     const r = await assertSafeBaseUrl('https://api.example.com/v1/');
-    expect(r).toEqual({ ok: true, normalized: 'https://api.example.com' });
+    expect(r).toEqual({ ok: true, normalized: 'https://api.example.com/v1' });
+  });
+
+  it('preserves a multi-segment provider path', async () => {
+    lookupResult = [{ address: '93.184.216.34', family: 4 }];
+    const r = await assertSafeBaseUrl('https://api.example.com/api/coding');
+    expect(r).toEqual({ ok: true, normalized: 'https://api.example.com/api/coding' });
+  });
+
+  it('drops query and hash', async () => {
+    lookupResult = [{ address: '93.184.216.34', family: 4 }];
+    const r = await assertSafeBaseUrl('https://api.example.com/api/coding?x=1#frag');
+    expect(r).toEqual({ ok: true, normalized: 'https://api.example.com/api/coding' });
   });
 
   it('allows http scheme', async () => {
