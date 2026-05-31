@@ -25,7 +25,7 @@ export interface ChatSessionState {
   /** Per-session agent flags, mirrored from the snapshot (true server state). */
   thinking: boolean;
   approvalMode: ApprovalMode;
-  /** Reasoning effort applied from the next turn; `null` is the provider default. */
+  /** Reasoning effort, applied from the prompt it rides with onward; `null` is the provider default. */
   effort: EffortLevel | null;
 }
 
@@ -40,6 +40,8 @@ interface ChatStore {
     sessionId: string,
     flags: { thinking?: boolean; approvalMode?: ApprovalMode; effort?: EffortLevel | null },
   ) => void;
+  /** Drop a session's in-memory chat state when the session is deleted. */
+  removeSession: (sessionId: string) => void;
 }
 
 const createDefaultSessionState = (): ChatSessionState => ({
@@ -464,6 +466,14 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       if (flags.approvalMode !== undefined) session.approvalMode = flags.approvalMode;
       if (flags.effort !== undefined) session.effort = flags.effort;
       return { sessions: { ...state.sessions, [sessionId]: session } };
+    });
+  },
+
+  removeSession: (sessionId: string) => {
+    set((state) => {
+      if (!(sessionId in state.sessions)) return state;
+      const { [sessionId]: _removed, ...rest } = state.sessions;
+      return { sessions: rest };
     });
   },
 }));
