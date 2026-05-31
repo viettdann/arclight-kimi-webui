@@ -28,6 +28,7 @@ import { broadcastEvent } from '../../lib/ws-broadcast';
 import { resolveProviderForUser } from '../providers/resolve';
 import type { ActiveSession } from '../session-manager';
 import { sessionManager } from '../session-manager';
+import { refreshCatalog } from './commands-catalog';
 import { toDisplayBlocks } from './display-blocks';
 import { buildAgentEnv } from './env';
 import { generateTitle } from './title';
@@ -391,6 +392,14 @@ export async function consumeQueryOutput(active: ActiveSession): Promise<void> {
 
   function handleSystem(msg: SDKMessage & { type: 'system' }): void {
     switch (msg.subtype) {
+      case 'init': {
+        // Capture the session's dynamic command/skill catalog and refresh it
+        // (detached: the rich-metadata fetch + broadcast must not block the pump).
+        void refreshCatalog(active, msg.slash_commands, msg.skills, sessionManager).catch((err) => {
+          log.error({ err, sessionId: active.sessionId }, 'failed to refresh command catalog');
+        });
+        break;
+      }
       case 'compact_boundary': {
         broadcastEvent(active, 'compaction_begin', {}, sessionManager);
         broadcastEvent(active, 'compaction_end', {}, sessionManager);
@@ -421,7 +430,7 @@ export async function consumeQueryOutput(active: ActiveSession): Promise<void> {
         }
         break;
       }
-      // init / task_progress / task_updated / thinking_tokens / permission_denied /
+      // task_progress / task_updated / thinking_tokens / permission_denied /
       // status / api_retry / etc. → skipped (no client-facing surface in MVP).
       default:
         break;

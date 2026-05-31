@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm';
-import type { ApprovalMode, SnapshotPayload } from 'shared/types';
+import type { ApprovalMode, EffortLevel, SnapshotPayload } from 'shared/types';
 import { type DB, db, schema } from '../db';
+import { getCatalog } from './agent/commands-catalog';
 import { renderTranscript } from './agent/transcript-render';
 import { type SessionManager, sessionManager } from './session-manager';
 
@@ -51,6 +52,8 @@ export async function buildSnapshot(args: BuildSnapshotArgs): Promise<SnapshotPa
     pendingPrompt,
     thinking: sessRow.thinking,
     approvalMode: sessRow.approvalMode as ApprovalMode,
+    effort: (sessRow.effort as EffortLevel | null) ?? null,
+    commands: getCatalog(sessRow.workDir) ?? [],
     live: {
       turnInProgress: manager.peek(args.sessionId)?.turnInProgress ?? false,
     },
@@ -72,6 +75,8 @@ export function emptySnapshot(): SnapshotPayload {
     pendingPrompt: null,
     thinking: false,
     approvalMode: 'ask',
+    effort: null,
+    commands: [],
     live: {
       turnInProgress: false,
     },

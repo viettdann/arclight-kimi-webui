@@ -3,6 +3,7 @@ import type {
   ApprovalMode,
   Block,
   DisplayBlock,
+  EffortLevel,
   QuestionItemDTO,
   SnapshotPayload,
   StatusUpdatePayload,
@@ -24,6 +25,8 @@ export interface ChatSessionState {
   /** Per-session agent flags, mirrored from the snapshot (true server state). */
   thinking: boolean;
   approvalMode: ApprovalMode;
+  /** Reasoning effort applied from the next turn; `null` is the provider default. */
+  effort: EffortLevel | null;
 }
 
 interface ChatStore {
@@ -35,7 +38,7 @@ interface ChatStore {
   /** Optimistic local update of agent flags; server echoes the truth via snapshot. */
   setSessionFlags: (
     sessionId: string,
-    flags: { thinking?: boolean; approvalMode?: ApprovalMode },
+    flags: { thinking?: boolean; approvalMode?: ApprovalMode; effort?: EffortLevel | null },
   ) => void;
 }
 
@@ -49,6 +52,7 @@ const createDefaultSessionState = (): ChatSessionState => ({
   isTurnInProgress: false,
   thinking: true,
   approvalMode: 'ask',
+  effort: null,
 });
 
 const now = (): string => new Date().toISOString();
@@ -374,6 +378,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           isTurnInProgress: payload.live.turnInProgress,
           thinking: payload.thinking ?? true,
           approvalMode: payload.approvalMode ?? 'ask',
+          effort: payload.effort ?? null,
         },
       },
     }));
@@ -457,6 +462,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       const session: ChatSessionState = { ...existing };
       if (flags.thinking !== undefined) session.thinking = flags.thinking;
       if (flags.approvalMode !== undefined) session.approvalMode = flags.approvalMode;
+      if (flags.effort !== undefined) session.effort = flags.effort;
       return { sessions: { ...state.sessions, [sessionId]: session } };
     });
   },

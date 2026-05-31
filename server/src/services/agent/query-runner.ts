@@ -4,7 +4,7 @@ import {
   query,
   type SDKUserMessage,
 } from '@anthropic-ai/claude-agent-sdk';
-import type { ApprovalMode } from 'shared/types';
+import type { ApprovalMode, EffortLevel } from 'shared/types';
 import { db } from '../../db';
 import { logger } from '../../lib/logger';
 import { ProviderUnavailableError, resolveProviderForUser } from '../providers/resolve';
@@ -44,6 +44,14 @@ function thinkingOptions(thinking: boolean): Partial<Options> {
 }
 
 /**
+ * Map the session effort level to the SDK `effort` option. `null` omits it,
+ * leaving the provider/model default in place.
+ */
+function effortOptions(effort: EffortLevel | null): Partial<Options> {
+  return effort ? { effort } : {};
+}
+
+/**
  * Construct the live query for a turn and bind it (plus its abort controller)
  * to the session. Async because the subprocess env is resolved asynchronously.
  * The SDK resolves its own bundled `claude` binary from node_modules.
@@ -70,6 +78,7 @@ export async function startQuery(
       env,
       ...permissionOptions(active.approvalMode),
       ...thinkingOptions(active.thinking),
+      ...effortOptions(active.effort),
       ...(opts.resume ? { resume: opts.resume } : {}),
       stderr: (line: string) => logger.debug({ line }, 'claude stderr'),
     },

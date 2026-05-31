@@ -1,10 +1,12 @@
 import type { Query } from '@anthropic-ai/claude-agent-sdk';
 import type { ServerWebSocket } from 'bun';
+import type { CommandInfo } from 'shared/commands';
 import type {
   AnswerQuestionPayload,
   ApprovalMode,
   ApprovalRequestPayload,
   ApprovalResponse,
+  EffortLevel,
   QuestionRequestPayload,
   StatusUpdatePayload,
 } from 'shared/types';
@@ -59,6 +61,10 @@ export interface ActiveSession {
   providerId: string | null;
   thinking: boolean;
   approvalMode: ApprovalMode;
+  /** Reasoning effort, applied from the prompt it rides with onward; `null` is the provider default. */
+  effort: EffortLevel | null;
+  /** Dynamic command/skill catalog, populated on the first `system/init`. */
+  commands?: CommandInfo[];
   /** True while a query is consuming/emitting for this session. */
   turnInProgress: boolean;
   wsSet: Set<ServerWebSocket<WSData>>;
@@ -93,6 +99,7 @@ export interface RegisterArgs {
   providerId?: string | null;
   thinking?: boolean;
   approvalMode?: ApprovalMode;
+  effort?: EffortLevel | null;
 }
 
 export type RestoreFn = (sessionId: string) => Promise<ActiveSession>;
@@ -121,6 +128,7 @@ export class SessionManager {
       providerId: args.providerId ?? null,
       thinking: args.thinking ?? false,
       approvalMode: args.approvalMode ?? 'ask',
+      effort: args.effort ?? null,
       turnInProgress: false,
       wsSet: new Set(),
       pendingApprovals: new Map(),
