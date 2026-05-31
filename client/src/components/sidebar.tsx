@@ -152,6 +152,7 @@ function AuthSection({ onLoginClick, onClose }: { onLoginClick: () => void; onCl
 const REFRESH_TRIGGER_TYPES = new Set<WSMessageType>([
   'snapshot',
   'session_created',
+  'session_updated',
   'title_update',
   'project_adopted',
 ]);
@@ -161,6 +162,7 @@ const REFRESH_TRIGGER_TYPES = new Set<WSMessageType>([
 const REFRESH_RAW_HINTS = [
   '"snapshot"',
   '"session_created"',
+  '"session_updated"',
   '"title_update"',
   '"project_adopted"',
 ];

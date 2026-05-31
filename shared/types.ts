@@ -34,6 +34,7 @@ export type WSMessageType =
   | 'compaction_end'
   | 'turn_end'
   | 'session_created'
+  | 'session_updated'
   | 'title_update'
   | 'project_adopted'
   | 'clone_progress'
@@ -322,6 +323,13 @@ export interface TurnEndPayload {
  * session list. Carries no body — the envelope's `sessionId` is the signal.
  */
 export type SessionCreatedPayload = Record<string, never>;
+
+/**
+ * Broadcast when a session's persisted model/provider changes so connected
+ * clients refresh their session list. Carries no body — the envelope's
+ * `sessionId` is the signal.
+ */
+export type SessionUpdatedPayload = Record<string, never>;
 
 export interface TitleUpdatePayload {
   title: string;

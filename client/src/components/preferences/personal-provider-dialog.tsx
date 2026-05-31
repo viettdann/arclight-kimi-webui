@@ -18,6 +18,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { createMyProvider, testMyProvider, updateMyProvider } from '../../api/providers';
 import { SecretField } from '../settings/secret-field';
+import { isCredentialDirty } from '../settings/use-provider-form';
 
 export interface PersonalProviderDialogProps {
   open: boolean;
@@ -224,6 +225,16 @@ export function PersonalProviderDialog({
   const showModelSection = type === 'api' && testResult?.ok;
   const hasModels = modelEntries.length > 0;
 
+  // Credentials are "dirty" when the token or base URL differs from the saved value.
+  // OAuth providers have no base URL, so only the API path compares base URLs;
+  // passing the same value as `savedBaseUrl` neutralizes that term for OAuth.
+  const savedBaseUrl = provider?.baseUrl ?? '';
+  const credentialDirty = isCredentialDirty({
+    token,
+    baseUrl: type === 'api' ? baseUrl.trim() : savedBaseUrl,
+    savedBaseUrl,
+  });
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
@@ -386,7 +397,7 @@ export function PersonalProviderDialog({
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button type="submit" disabled={!testedOk || submitting}>
+            <Button type="submit" disabled={submitting || (credentialDirty && !testedOk)}>
               {submitting ? 'Saving…' : isEdit ? 'Save' : 'Add'}
             </Button>
           </DialogFooter>

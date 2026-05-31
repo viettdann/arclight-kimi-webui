@@ -1,8 +1,7 @@
 import { desc, eq } from 'drizzle-orm';
 import type { AvailableProvidersResponse } from 'shared/types/providers';
-import { OAUTH_DEFAULT_MODEL } from 'shared/types/providers';
 import type { DB } from '../../db';
-import type { ProviderRow } from '../../db/schema';
+import type { ProviderModelRow, ProviderRow } from '../../db/schema';
 import { user } from '../../db/schema/auth';
 import { sessions } from '../../db/schema/sessions';
 import { getProviderRow, listBuiltinRows, listOwnerRows, toDTO } from './store';
@@ -60,11 +59,17 @@ export async function listAvailableForUser(
   };
 }
 
+/** Selection rule shared by the personal and built-in fallbacks. */
+function pickDefaultModel(models: ProviderModelRow[]): string | null {
+  const chosen = models.find((m) => m.isDefault) ?? models[0];
+  return chosen?.modelId ?? null;
+}
+
 export async function defaultSelectionForUser(
   db: DB,
   userId: string,
 ): Promise<{ providerId: string; model: string } | null> {
-  // (1) Most-recent session with a provider + model
+  // (1) Most-recent session whose pinned (providerId, model) still resolves.
   const recentSessions = await db
     .select({ providerId: sessions.providerId, model: sessions.model })
     .from(sessions)
@@ -80,12 +85,22 @@ export async function defaultSelectionForUser(
     }
   }
 
-  // (2) Most-recent personal oauth provider
+  // (2) Personal providers (any type), newest first; first with >=1 model.
+  // oauth providers persist OAUTH_MODELS into provider_models on create, so the
+  // generic model-pick covers them just like api providers.
   const personalRows = await listOwnerRows(db, userId);
-  const oauthRow = personalRows.find((r) => r.provider.type === 'oauth');
-  if (oauthRow) {
-    return { providerId: oauthRow.provider.id, model: OAUTH_DEFAULT_MODEL };
+  for (const { provider, models } of personalRows) {
+    const model = pickDefaultModel(models);
+    if (model) return { providerId: provider.id, model };
   }
 
+  // (3) Public built-in providers, newest first; first with >=1 model.
+  const builtinRows = await listBuiltinRows(db, { publicOnly: true });
+  for (const { provider, models } of builtinRows) {
+    const model = pickDefaultModel(models);
+    if (model) return { providerId: provider.id, model };
+  }
+
+  // (4) Nothing usable.
   return null;
 }

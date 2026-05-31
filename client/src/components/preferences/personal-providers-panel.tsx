@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Section } from '@/components/ui/section';
 import { deleteMyProvider, listMyProviders } from '../../api/providers';
 import { showToast } from '../../components/toast-provider';
+import { refreshComposerCatalog } from '../../lib/providers-store';
 import { cn } from '../../lib/utils';
 import { PersonalProviderDialog } from './personal-provider-dialog';
 
@@ -48,12 +49,18 @@ export function PersonalProvidersPanel() {
     setDialogOpen(true);
   }
 
+  function handleSaved() {
+    void load();
+    refreshComposerCatalog();
+  }
+
   async function handleRemove(provider: ProviderDTO) {
     if (!window.confirm(`Remove provider "${provider.namespace}"?`)) return;
     try {
       await deleteMyProvider(provider.id);
       showToast({ message: 'Provider removed', type: 'info' });
       void load();
+      refreshComposerCatalog();
     } catch (err) {
       showToast({
         message: err instanceof Error ? err.message : 'Failed to remove provider',
@@ -124,7 +131,7 @@ export function PersonalProvidersPanel() {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         provider={editing}
-        onSaved={load}
+        onSaved={handleSaved}
       />
     </div>
   );

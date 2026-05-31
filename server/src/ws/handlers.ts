@@ -14,6 +14,7 @@ import type {
   ResumeSessionPayload,
   SendMessagePayload,
   SessionCreatedPayload,
+  SessionUpdatedPayload,
   SnapshotPayload,
   SubscribePayload,
   TurnBeginPayload,
@@ -34,7 +35,11 @@ import { consumeQueryOutput } from '../services/agent/output-consumer';
 import { startQuery } from '../services/agent/query-runner';
 import { restoreTranscript } from '../services/agent/transcript-store';
 import { adoptProjectForUser, ProjectNotFoundError } from '../services/projects';
-import { defaultSelectionForUser, ProviderUnavailableError } from '../services/providers/resolve';
+import {
+  defaultSelectionForUser,
+  ProviderUnavailableError,
+  resolveProviderForUser,
+} from '../services/providers/resolve';
 import {
   type ActiveSession,
   sessionManager as defaultManager,
@@ -396,6 +401,12 @@ async function handleCreateSession(
 
   let providerId = typeof payload.providerId === 'string' ? payload.providerId : null;
   let model = payload.model ?? null;
+  // Drop a supplied providerId the user isn't allowed to use; falling through to
+  // defaultSelectionForUser is preferable to persisting an unusable id.
+  if (providerId && !(await resolveProviderForUser(deps.db, ws.data.userId, providerId))) {
+    providerId = null;
+    model = null;
+  }
   if (!providerId) {
     const def = await defaultSelectionForUser(deps.db, ws.data.userId);
     if (def) {
@@ -497,6 +508,10 @@ async function handleSendMessage(
     await deps.db.update(schema.sessions).set(flagChanges).where(eq(schema.sessions.id, sessionId));
   }
 
+  // Tracks whether a model and/or provider change was persisted, so we emit a
+  // single session_updated to refresh other clients' session lists.
+  let sessionPersisted = false;
+
   // Per-session model switch. Only when the composer rides along a model that
   // differs from the active one. A live query honors it in place; without one we
   // still record the choice so the lazy spawn picks it up.
@@ -507,14 +522,23 @@ async function handleSendMessage(
       .update(schema.sessions)
       .set({ model: payload.model })
       .where(eq(schema.sessions.id, sessionId));
+    sessionPersisted = true;
   }
 
   if (payload.providerId !== undefined && payload.providerId !== active.providerId) {
+    // Authorize the requested provider BEFORE persisting it: a private built-in
+    // (non-admin) or another user's personal provider must not be pinned.
+    const resolved = await resolveProviderForUser(deps.db, ws.data.userId, payload.providerId);
+    if (!resolved) {
+      sendError(ws, 'provider_unset', sessionId, 'No provider selected');
+      return;
+    }
     active.providerId = payload.providerId;
     await deps.db
       .update(schema.sessions)
       .set({ providerId: payload.providerId })
       .where(eq(schema.sessions.id, sessionId));
+    sessionPersisted = true;
     // The subprocess env is fixed at spawn — dispose any live query so ensureQuery
     // respawns with the new provider's credentials/endpoint.
     if (active.query) {
@@ -529,6 +553,10 @@ async function handleSendMessage(
       active.abortController = null;
       active.bridge = null;
     }
+  }
+
+  if (sessionPersisted) {
+    broadcastEvent<SessionUpdatedPayload>(active, 'session_updated', {}, deps.manager);
   }
 
   try {

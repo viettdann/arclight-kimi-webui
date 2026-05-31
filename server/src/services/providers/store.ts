@@ -13,8 +13,30 @@ import {
   type ProviderRow,
   providerModels,
   providers,
+  sessions,
 } from '../../db/schema';
 import { maskApiKey } from '../git-credentials/mask';
+
+/**
+ * Owner scope for a mutating call. `{ ownerUserId }` restricts the WHERE clause
+ * to a single user's Personal provider; `{ builtin: true }` restricts it to
+ * Built-in rows (`owner_user_id IS NULL`). The scope is folded into the query
+ * so a caller that forgot a prior ownership check cannot mutate the wrong row.
+ */
+export type ProviderScopeFilter = { ownerUserId: string } | { builtin: true };
+
+function scopeWhere(scope: ProviderScopeFilter) {
+  return 'ownerUserId' in scope
+    ? eq(providers.ownerUserId, scope.ownerUserId)
+    : isNull(providers.ownerUserId);
+}
+
+/** Dedupe model inputs by `modelId`, last occurrence wins. */
+function dedupeModels(models: ProviderModelInput[]): ProviderModelInput[] {
+  const byId = new Map<string, ProviderModelInput>();
+  for (const m of models) byId.set(m.modelId, m);
+  return [...byId.values()];
+}
 
 export function toDTO(provider: ProviderRow, models: ProviderModelRow[]): ProviderDTO {
   const iso = (v: Date | string) => (v instanceof Date ? v.toISOString() : String(v));
@@ -160,12 +182,13 @@ export async function createProvider(
       .returning();
     const provider = inserted[0] as ProviderRow;
 
+    const modelInputs = dedupeModels(input.models);
     let models: ProviderModelRow[] = [];
-    if (input.models.length > 0) {
+    if (modelInputs.length > 0) {
       models = await tx
         .insert(providerModels)
         .values(
-          input.models.map((m) => ({
+          modelInputs.map((m) => ({
             providerId: provider.id,
             modelId: m.modelId,
             displayName: m.displayName ?? null,
@@ -192,9 +215,11 @@ export async function updateProvider(
   db: DB,
   id: string,
   patch: UpdateProviderPatch,
+  scope: ProviderScopeFilter,
 ): Promise<{ provider: ProviderRow; models: ProviderModelRow[] } | null> {
   return db.transaction(async (tx) => {
-    const existing = await tx.select().from(providers).where(eq(providers.id, id)).limit(1);
+    const idWhere = and(eq(providers.id, id), scopeWhere(scope));
+    const existing = await tx.select().from(providers).where(idWhere).limit(1);
     if (!existing[0]) return null;
 
     const set: Partial<ProviderRow> = {};
@@ -206,18 +231,19 @@ export async function updateProvider(
     let provider: ProviderRow = existing[0];
     if (Object.keys(set).length > 0) {
       set.updatedAt = new Date();
-      const updated = await tx.update(providers).set(set).where(eq(providers.id, id)).returning();
+      const updated = await tx.update(providers).set(set).where(idWhere).returning();
       provider = updated[0] as ProviderRow;
     }
 
     let models: ProviderModelRow[];
     if (patch.models !== undefined) {
+      const modelInputs = dedupeModels(patch.models);
       await tx.delete(providerModels).where(eq(providerModels.providerId, id));
-      if (patch.models.length > 0) {
+      if (modelInputs.length > 0) {
         models = await tx
           .insert(providerModels)
           .values(
-            patch.models.map((m) => ({
+            modelInputs.map((m) => ({
               providerId: id,
               modelId: m.modelId,
               displayName: m.displayName ?? null,
@@ -237,7 +263,20 @@ export async function updateProvider(
   });
 }
 
-export async function removeProvider(db: DB, id: string): Promise<boolean> {
-  const deleted = await db.delete(providers).where(eq(providers.id, id)).returning();
-  return deleted.length > 0;
+export async function removeProvider(
+  db: DB,
+  id: string,
+  scope: ProviderScopeFilter,
+): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    // Clear any half-pinned session model before the provider FK nulls
+    // `providerId`: a row keyed on this provider must not keep a stale model.
+    await tx.update(sessions).set({ model: null }).where(eq(sessions.providerId, id));
+
+    const deleted = await tx
+      .delete(providers)
+      .where(and(eq(providers.id, id), scopeWhere(scope)))
+      .returning();
+    return deleted.length > 0;
+  });
 }

@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { DropdownItem, DropdownMenu } from '@/components/ui/dropdown-menu';
 import { useChatStore } from '../lib/chat-store';
 import { useDraftStore } from '../lib/draft-store';
-import { labelFor, useProvidersStore } from '../lib/providers-store';
+import { isResolvable, labelFor, useProvidersStore } from '../lib/providers-store';
 import { useSessionsStore } from '../lib/sessions-store';
 import { sendWS } from '../lib/ws-send';
 import { ConfirmBypassDialog } from './confirm-bypass-dialog';
@@ -61,7 +61,7 @@ export function ChatInput() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Load available providers catalog on mount.
-  const { available, ensureLoaded } = useProvidersStore();
+  const { available, status, error, ensureLoaded, load } = useProvidersStore();
   // biome-ignore lint/correctness/useExhaustiveDependencies: one-shot on mount
   useEffect(() => {
     ensureLoaded();
@@ -82,8 +82,20 @@ export function ChatInput() {
   const effectiveProviderId = selectedProviderId ?? sessionProviderId;
   const effectiveModel = selectedModel ?? sessionModel;
 
-  // Human-readable label for the current selection.
-  const modelLabel = labelFor(available, effectiveProviderId, effectiveModel) ?? 'Select a model';
+  // A selection is "orphaned" when it points at a provider/model that no longer
+  // exists in the catalog (provider deleted or hidden). Only meaningful once the
+  // catalog is ready; while loading we don't yet know whether it resolves.
+  const hasSelection = Boolean(effectiveProviderId && effectiveModel);
+  const isUnresolvable =
+    status === 'ready' &&
+    hasSelection &&
+    !isResolvable(available, effectiveProviderId, effectiveModel);
+
+  // Human-readable label for the current selection. An orphaned selection shows
+  // a reselect prompt; otherwise the resolved label or the empty-state prompt.
+  const modelLabel = isUnresolvable
+    ? 'Unavailable — reselect'
+    : (labelFor(available, effectiveProviderId, effectiveModel) ?? 'Select a model');
 
   const session = useChatStore((s) => (sessionId ? s.sessions[sessionId] : null));
   const isTurnInProgress = session?.isTurnInProgress ?? false;
@@ -138,14 +150,18 @@ export function ChatInput() {
     // applies them just before spawning the turn and persists only real flips.
     // Both model and providerId are included when the user made an override pick;
     // omitting them leaves the session's current selection unchanged.
+    //
+    // When the current selection is orphaned (provider deleted/hidden) we omit
+    // both fields so the server falls back to its default rather than respawning
+    // against a provider that no longer exists.
     sendWS(
       'send_message',
       {
         content,
         thinking,
         approvalMode,
-        model: selectedModel ?? sessionModel ?? undefined,
-        providerId: selectedProviderId ?? sessionProviderId ?? undefined,
+        model: isUnresolvable ? undefined : (effectiveModel ?? undefined),
+        providerId: isUnresolvable ? undefined : (effectiveProviderId ?? undefined),
       },
       sessionId,
     );
@@ -330,10 +346,14 @@ export function ChatInput() {
                   type="button"
                   variant="ghost"
                   size="xs"
-                  className="text-muted-foreground cursor-pointer"
+                  className={`cursor-pointer ${isUnresolvable ? 'text-amber-500' : 'text-muted-foreground'}`}
                   disabled={!sessionId}
                   aria-label="Model"
-                  title="Model — applies from the next message"
+                  title={
+                    isUnresolvable
+                      ? 'The selected model is no longer available — pick another'
+                      : 'Model — applies from the next message'
+                  }
                 >
                   {thinking && <Brain className="h-3.5 w-3.5" />}
                   <span className="hidden sm:inline max-w-[16ch] truncate">{modelLabel}</span>
@@ -397,11 +417,30 @@ export function ChatInput() {
                 </>
               )}
 
-              {builtinProviders.length === 0 && personalProviders.length === 0 && (
+              {status === 'loading' && (
                 <div className="px-2 py-2 text-xs text-muted-foreground select-none">
-                  No providers configured
+                  Loading providers…
                 </div>
               )}
+
+              {status === 'error' && (
+                <DropdownItem onClick={() => void load()}>
+                  <span className="flex flex-col">
+                    <span className="text-amber-500">Failed to load — retry</span>
+                    {error && (
+                      <span className="text-xs text-muted-foreground truncate">{error}</span>
+                    )}
+                  </span>
+                </DropdownItem>
+              )}
+
+              {status === 'ready' &&
+                builtinProviders.length === 0 &&
+                personalProviders.length === 0 && (
+                  <div className="px-2 py-2 text-xs text-muted-foreground select-none">
+                    No providers configured
+                  </div>
+                )}
 
               <DropdownItem onClick={toggleThinking}>
                 <span className="flex w-full items-center justify-between gap-3">
