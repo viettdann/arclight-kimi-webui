@@ -38,6 +38,15 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
 }));
 
 /**
+ * Reload the available-providers catalog so the chat composer reflects a
+ * provider mutation (create/update/delete/visibility change) made elsewhere.
+ * Fire-and-forget — callers don't await the refresh.
+ */
+export function refreshComposerCatalog(): void {
+  void useProvidersStore.getState().load();
+}
+
+/**
  * Find a human-readable label for a (providerId, modelId) pair.
  * Returns `"namespace/displayName"` when the pair resolves; null otherwise.
  * Call with the store's `available` snapshot — does not subscribe.

@@ -21,6 +21,7 @@ import type {
   TurnEndStatus,
   WSMessageType,
 } from 'shared/types';
+import { LIGHT_MODEL } from 'shared/types/providers';
 import { db, schema } from '../../db';
 import { logger } from '../../lib/logger';
 import { broadcastEvent } from '../../lib/ws-broadcast';
@@ -485,9 +486,13 @@ export async function consumeQueryOutput(active: ActiveSession): Promise<void> {
     if (!provider) return;
     const env = buildAgentEnv(provider);
 
+    // An api proxy may not expose the Anthropic light model id, so reuse the
+    // session's resolved model there; oauth always has the light model.
+    const titleModel = provider.type === 'api' ? (active.model ?? LIGHT_MODEL) : LIGHT_MODEL;
+
     let title: string | null;
     try {
-      title = await generateTitle(firstUserMessage, env);
+      title = await generateTitle(firstUserMessage, env, titleModel);
     } catch (err) {
       log.warn({ err, sessionId: active.sessionId }, 'title generation threw');
       return;

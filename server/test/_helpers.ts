@@ -1,4 +1,5 @@
 import type { ServerWebSocket } from 'bun';
+import { getTableName, type Table } from 'drizzle-orm';
 import type { ErrorPayload, WSMessage } from 'shared/types';
 import type { DB } from '../src/db';
 import type { WSData } from '../src/ws/upgrade';
@@ -55,6 +56,11 @@ export interface FakeDb {
   selectQueue: unknown[][];
 }
 
+/** Resolve a Drizzle table's SQL name via the library's public accessor. */
+function tableName(table: object | undefined): string | undefined {
+  return table ? getTableName(table as Table) : undefined;
+}
+
 /**
  * Drizzle-shaped fake. Records every mutating call and returns empty result
  * sets by default. Tests prime `selectQueue` with rows for queries — each
@@ -62,12 +68,16 @@ export interface FakeDb {
  *
  * Supported chains:
  *   db.insert(t).values(v)                        → resolves void
- *   db.insert(t).values(v).returning({...})       → [{id}]
+ *   db.insert(t).values(v).returning({...})       → [{...v, id}]
  *   db.insert(t).values(v).onConflictDoUpdate(.)  → resolves void
  *   db.update(t).set(v).where(.)                  → resolves void
+ *   db.update(t).set(v).where(.).returning()      → [{...v, id}]
+ *   db.delete(t).where(.)                         → resolves void
+ *   db.delete(t).where(.).returning()             → [{id}]
  *   db.select().from(t).where(.).limit(n)         → selectQueue.shift() ?? []
  *   db.select().from(t).where(.).orderBy(.)       → selectQueue.shift() ?? []
  *   db.select().from(t).where(.).orderBy(.).limit(n) → same as above
+ *   db.transaction(cb)                            → cb(fake) (inner ops recorded)
  */
 export function makeFakeDb(): FakeDb {
   const calls: DbCall[] = [];
@@ -93,7 +103,7 @@ export function makeFakeDb(): FakeDb {
       values: (v: unknown) => {
         calls.push({
           op: 'insert',
-          table: (table as { _?: { name?: string } })?._?.name,
+          table: tableName(table),
           values: v,
         });
         const ret = Promise.resolve();
@@ -111,32 +121,51 @@ export function makeFakeDb(): FakeDb {
       },
     }),
     delete: (table: { _: { name?: string } } & object) => {
-      calls.push({ op: 'delete', table: (table as { _?: { name?: string } })?._?.name });
-      return { where: () => Promise.resolve() };
+      calls.push({ op: 'delete', table: tableName(table) });
+      // `.where(.)` resolves void, or `.where(.).returning()` yields the deleted
+      // rows (one synthetic row, so `.length > 0` reports a successful delete).
+      const afterWhere = Object.assign(Promise.resolve(), {
+        returning: () => Promise.resolve([{ id: 'deleted' }]),
+      });
+      return { where: () => afterWhere };
     },
     update: (table: { _: { name?: string } } & object) => ({
       set: (v: unknown) => {
         calls.push({
           op: 'update',
-          table: (table as { _?: { name?: string } })?._?.name,
+          table: tableName(table),
           values: v,
         });
-        return { where: () => Promise.resolve() };
+        // `.where(.)` resolves void, or `.where(.).returning()` yields the
+        // updated row (echo the set values plus a synthetic id).
+        const afterWhere = Object.assign(Promise.resolve(), {
+          returning: () =>
+            Promise.resolve([
+              {
+                ...(v as Record<string, unknown>),
+                id: (v as Record<string, unknown>).id ?? `fake-${calls.length}`,
+              },
+            ]),
+        });
+        return { where: () => afterWhere };
       },
     }),
     select: (..._args: unknown[]) => ({
       from: (table: { _: { name?: string } } & object) => {
-        calls.push({ op: 'select', table: (table as { _?: { name?: string } })?._?.name });
+        calls.push({ op: 'select', table: tableName(table) });
         return makeSelectChain();
       },
     }),
     selectDistinct: (..._args: unknown[]) => ({
       from: (table: { _: { name?: string } } & object) => {
-        calls.push({ op: 'select', table: (table as { _?: { name?: string } })?._?.name });
+        calls.push({ op: 'select', table: tableName(table) });
         return makeSelectChain();
       },
     }),
     execute: (_sql: unknown) => Promise.resolve([] as unknown[]),
+    // Run the callback with the fake itself as `tx`. Inner ops record into the
+    // same `calls`/`selectQueue`, so transaction call-shape is observable.
+    transaction: <T>(cb: (tx: unknown) => Promise<T>): Promise<T> => cb(fake),
   };
   return {
     db: fake as unknown as DB,

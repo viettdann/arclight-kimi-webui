@@ -101,7 +101,7 @@ function buildAdminApp(_role: 'admin' | 'user', user: MockUser) {
       await next();
     }),
   );
-  app.route('/api/providers', createProvidersRouter({ db: fake.db }));
+  app.route('/api/admin/providers', createProvidersRouter({ db: fake.db }));
   return { app, fake };
 }
 
@@ -116,7 +116,7 @@ function buildMeApp(user: MockUser) {
       await next();
     }),
   );
-  app.route('/api/me/providers', createMeProvidersRouter({ db: fake.db }));
+  app.route('/api/me-providers', createMeProvidersRouter({ db: fake.db }));
   return { app, fake };
 }
 
@@ -128,13 +128,13 @@ const REGULAR_USER: MockUser = { id: 'user-1', email: 'user@x.com', role: 'user'
 describe('createProvidersRouter — requireAdmin guard', () => {
   it('non-admin GET / → 403', async () => {
     const { app } = buildAdminApp('user', REGULAR_USER);
-    const res = await app.request('/api/providers', { method: 'GET' });
+    const res = await app.request('/api/admin/providers', { method: 'GET' });
     expect(res.status).toBe(403);
   });
 
   it('non-admin POST / → 403', async () => {
     const { app } = buildAdminApp('user', REGULAR_USER);
-    const res = await app.request('/api/providers', {
+    const res = await app.request('/api/admin/providers', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ namespace: 'ns', token: 'tok' }),
@@ -144,7 +144,7 @@ describe('createProvidersRouter — requireAdmin guard', () => {
 
   it('non-admin PATCH /:id → 403', async () => {
     const { app } = buildAdminApp('user', REGULAR_USER);
-    const res = await app.request('/api/providers/some-id', {
+    const res = await app.request('/api/admin/providers/some-id', {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ namespace: 'updated' }),
@@ -154,13 +154,13 @@ describe('createProvidersRouter — requireAdmin guard', () => {
 
   it('non-admin DELETE /:id → 403', async () => {
     const { app } = buildAdminApp('user', REGULAR_USER);
-    const res = await app.request('/api/providers/some-id', { method: 'DELETE' });
+    const res = await app.request('/api/admin/providers/some-id', { method: 'DELETE' });
     expect(res.status).toBe(403);
   });
 
   it('non-admin POST /test → 403', async () => {
     const { app } = buildAdminApp('user', REGULAR_USER);
-    const res = await app.request('/api/providers/test', {
+    const res = await app.request('/api/admin/providers/test', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ type: 'api', token: 'tok' }),
@@ -171,7 +171,7 @@ describe('createProvidersRouter — requireAdmin guard', () => {
   it('admin GET / → 200 (guard passes)', async () => {
     mockListBuiltinRows.mockResolvedValueOnce([]);
     const { app } = buildAdminApp('admin', ADMIN_USER);
-    const res = await app.request('/api/providers', { method: 'GET' });
+    const res = await app.request('/api/admin/providers', { method: 'GET' });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { providers: unknown[] };
     expect(Array.isArray(body.providers)).toBe(true);
@@ -183,7 +183,7 @@ describe('createProvidersRouter — requireAdmin guard', () => {
     mockRemoveProvider.mockResolvedValueOnce(true);
 
     const { app } = buildAdminApp('admin', ADMIN_USER);
-    const res = await app.request('/api/providers/del-id', { method: 'DELETE' });
+    const res = await app.request('/api/admin/providers/del-id', { method: 'DELETE' });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
   });
@@ -192,7 +192,7 @@ describe('createProvidersRouter — requireAdmin guard', () => {
     mockGetBuiltin.mockResolvedValueOnce(null);
 
     const { app } = buildAdminApp('admin', ADMIN_USER);
-    const res = await app.request('/api/providers/missing', { method: 'DELETE' });
+    const res = await app.request('/api/admin/providers/missing', { method: 'DELETE' });
     expect(res.status).toBe(404);
   });
 
@@ -207,8 +207,8 @@ describe('createProvidersRouter — requireAdmin guard', () => {
         await next();
       }),
     );
-    app.route('/api/providers', createProvidersRouter({ db: fake.db }));
-    const res = await app.request('/api/providers', { method: 'GET' });
+    app.route('/api/admin/providers', createProvidersRouter({ db: fake.db }));
+    const res = await app.request('/api/admin/providers', { method: 'GET' });
     expect(res.status).toBe(401);
   });
 });
@@ -227,15 +227,15 @@ describe('createMeProvidersRouter — requireAuth guard', () => {
         await next();
       }),
     );
-    app.route('/api/me/providers', createMeProvidersRouter({ db: fake.db }));
-    const res = await app.request('/api/me/providers', { method: 'GET' });
+    app.route('/api/me-providers', createMeProvidersRouter({ db: fake.db }));
+    const res = await app.request('/api/me-providers', { method: 'GET' });
     expect(res.status).toBe(401);
   });
 
   it('authenticated user GET / → 200', async () => {
     mockListOwnerRows.mockResolvedValueOnce([]);
     const { app } = buildMeApp(REGULAR_USER);
-    const res = await app.request('/api/me/providers', { method: 'GET' });
+    const res = await app.request('/api/me-providers', { method: 'GET' });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { providers: unknown[] };
     expect(Array.isArray(body.providers)).toBe(true);
@@ -253,7 +253,7 @@ describe('createMeProvidersRouter — ownership enforcement', () => {
     });
 
     const { app } = buildMeApp(REGULAR_USER); // user-1
-    const res = await app.request('/api/me/providers/other-prov', {
+    const res = await app.request('/api/me-providers/other-prov', {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ namespace: 'hacked' }),
@@ -269,7 +269,7 @@ describe('createMeProvidersRouter — ownership enforcement', () => {
     });
 
     const { app } = buildMeApp(REGULAR_USER); // user-1
-    const res = await app.request('/api/me/providers/other-prov', { method: 'DELETE' });
+    const res = await app.request('/api/me-providers/other-prov', { method: 'DELETE' });
     expect(res.status).toBe(404);
   });
 
@@ -281,7 +281,7 @@ describe('createMeProvidersRouter — ownership enforcement', () => {
     mockUpdateProvider.mockResolvedValueOnce({ provider: ownProv, models: [] });
 
     const { app } = buildMeApp(REGULAR_USER); // user-1
-    const res = await app.request('/api/me/providers/my-prov', {
+    const res = await app.request('/api/me-providers/my-prov', {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ namespace: 'new-name' }),
@@ -295,7 +295,7 @@ describe('createMeProvidersRouter — ownership enforcement', () => {
     mockRemoveProvider.mockResolvedValueOnce(true);
 
     const { app } = buildMeApp(REGULAR_USER);
-    const res = await app.request('/api/me/providers/my-prov', { method: 'DELETE' });
+    const res = await app.request('/api/me-providers/my-prov', { method: 'DELETE' });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
   });
@@ -306,7 +306,7 @@ describe('createMeProvidersRouter — ownership enforcement', () => {
     mockGetOwned.mockResolvedValueOnce(null);
 
     const { app } = buildMeApp(REGULAR_USER);
-    const res = await app.request('/api/me/providers/builtin-id', {
+    const res = await app.request('/api/me-providers/builtin-id', {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ namespace: 'hijack' }),
@@ -318,7 +318,7 @@ describe('createMeProvidersRouter — ownership enforcement', () => {
     mockGetOwned.mockResolvedValueOnce(null);
 
     const { app } = buildMeApp(REGULAR_USER);
-    const res = await app.request('/api/me/providers/builtin-id', { method: 'DELETE' });
+    const res = await app.request('/api/me-providers/builtin-id', { method: 'DELETE' });
     expect(res.status).toBe(404);
   });
 });
@@ -328,7 +328,7 @@ describe('createMeProvidersRouter — ownership enforcement', () => {
 describe('createProvidersRouter — admin input validation', () => {
   it('POST / missing namespace → 400', async () => {
     const { app } = buildAdminApp('admin', ADMIN_USER);
-    const res = await app.request('/api/providers', {
+    const res = await app.request('/api/admin/providers', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ token: 'tok' }), // missing namespace
@@ -340,7 +340,7 @@ describe('createProvidersRouter — admin input validation', () => {
 
   it('POST / missing token → 400', async () => {
     const { app } = buildAdminApp('admin', ADMIN_USER);
-    const res = await app.request('/api/providers', {
+    const res = await app.request('/api/admin/providers', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ namespace: 'ns' }), // missing token
@@ -354,7 +354,7 @@ describe('createProvidersRouter — admin input validation', () => {
 describe('createMeProvidersRouter — user input validation', () => {
   it('POST / missing type → 400 invalid_type', async () => {
     const { app } = buildMeApp(REGULAR_USER);
-    const res = await app.request('/api/me/providers', {
+    const res = await app.request('/api/me-providers', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ namespace: 'ns', token: 'tok' }), // missing type
@@ -366,7 +366,7 @@ describe('createMeProvidersRouter — user input validation', () => {
 
   it('POST / invalid type → 400 invalid_type', async () => {
     const { app } = buildMeApp(REGULAR_USER);
-    const res = await app.request('/api/me/providers', {
+    const res = await app.request('/api/me-providers', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ type: 'bad-type', namespace: 'ns', token: 'tok' }),
@@ -389,7 +389,7 @@ describe('createMeProvidersRouter — user input validation', () => {
     });
 
     const { app } = buildMeApp(REGULAR_USER);
-    const res = await app.request('/api/me/providers', {
+    const res = await app.request('/api/me-providers', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ type: 'oauth', namespace: 'My Claude', token: 'oauth-tok' }),
@@ -401,7 +401,7 @@ describe('createMeProvidersRouter — user input validation', () => {
     mockTestProvider.mockResolvedValueOnce({ ok: false, error: 'auth_error' });
 
     const { app } = buildMeApp(REGULAR_USER);
-    const res = await app.request('/api/me/providers', {
+    const res = await app.request('/api/me-providers', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ type: 'oauth', namespace: 'ns', token: 'bad-tok' }),
@@ -409,5 +409,134 @@ describe('createMeProvidersRouter — user input validation', () => {
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: string; detail?: string };
     expect(body.error).toBe('test_failed');
+  });
+});
+
+// ─────────────────────────── Built-in create/update behavior (T3) ───────────────────────────
+
+describe('createProvidersRouter — built-in create/update', () => {
+  it('POST / defaults visibility to "private" and returns 201', async () => {
+    mockTestProvider.mockResolvedValueOnce({ ok: true, availableModels: [] });
+    mockCreateProvider.mockResolvedValueOnce({
+      provider: makeProvider({ id: 'b-new', ownerUserId: null, visibility: 'private' }),
+      models: [],
+    });
+
+    const { app } = buildAdminApp('admin', ADMIN_USER);
+    const res = await app.request('/api/admin/providers', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ namespace: 'NS', token: 'tok' }), // no visibility supplied
+    });
+    expect(res.status).toBe(201);
+
+    // The store create call must carry the private default and a null owner (built-in).
+    const args = mockCreateProvider.mock.calls.at(-1) as unknown as unknown[];
+    const input = args[1] as { ownerUserId: string | null; type: string; visibility: unknown };
+    expect(input.visibility).toBe('private');
+    expect(input.ownerUserId).toBeNull();
+    expect(input.type).toBe('api');
+  });
+
+  it('POST / honors an explicit visibility="public"', async () => {
+    mockTestProvider.mockResolvedValueOnce({ ok: true, availableModels: [] });
+    mockCreateProvider.mockResolvedValueOnce({
+      provider: makeProvider({ id: 'b-pub', ownerUserId: null, visibility: 'public' }),
+      models: [],
+    });
+
+    const { app } = buildAdminApp('admin', ADMIN_USER);
+    const res = await app.request('/api/admin/providers', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ namespace: 'NS', token: 'tok', visibility: 'public' }),
+    });
+    expect(res.status).toBe(201);
+    const createArgs = mockCreateProvider.mock.calls.at(-1) as unknown as unknown[];
+    const input = createArgs[1] as { visibility: unknown };
+    expect(input.visibility).toBe('public');
+  });
+
+  it('PATCH /:id on an existing built-in → 200', async () => {
+    const prov = makeProvider({ id: 'b-edit', ownerUserId: null, visibility: 'private' });
+    mockGetBuiltin.mockResolvedValueOnce({ provider: prov, models: [] });
+    mockUpdateProvider.mockResolvedValueOnce({
+      provider: makeProvider({ id: 'b-edit', ownerUserId: null, namespace: 'Renamed' }),
+      models: [],
+    });
+
+    const { app } = buildAdminApp('admin', ADMIN_USER);
+    const res = await app.request('/api/admin/providers/b-edit', {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ namespace: 'Renamed', visibility: 'public' }), // no credential change → no re-test
+    });
+    expect(res.status).toBe(200);
+
+    // updateProvider must receive the built-in mutation scope.
+    const updateArgs = mockUpdateProvider.mock.calls.at(-1) as unknown as unknown[];
+    expect(updateArgs[3]).toEqual({ builtin: true });
+  });
+});
+
+// ─────────────────────────── H2 base-URL guard (T3) ───────────────────────────
+
+describe('provider base-URL SSRF guard (H2)', () => {
+  it('admin POST / with a private-IP baseUrl → 400 invalid_base_url', async () => {
+    const { app } = buildAdminApp('admin', ADMIN_USER);
+    const res = await app.request('/api/admin/providers', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ namespace: 'NS', token: 'tok', baseUrl: 'http://127.0.0.1:8080' }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe('invalid_base_url');
+  });
+
+  it('admin POST /test with a private-IP baseUrl → invalid_base_url', async () => {
+    // Distinct user id so the per-user /test cooldown never crosses test cases.
+    const admin: MockUser = { id: 'admin-guard-1', email: 'a@x.com', role: 'admin' };
+    const { app } = buildAdminApp('admin', admin);
+    const res = await app.request('/api/admin/providers/test', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ type: 'api', token: 'tok', baseUrl: 'http://10.0.0.5' }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ok: boolean; error?: string };
+    expect(body.ok).toBe(false);
+    expect(body.error).toBe('invalid_base_url');
+  });
+
+  it('admin POST /test reuses the SAVED base URL, ignoring a posted baseUrl', async () => {
+    // Saved built-in row carries a (validated-at-save) base URL.
+    const saved = makeProvider({
+      id: 'saved-1',
+      ownerUserId: null,
+      baseUrl: 'https://saved.example.com',
+      token: 'saved-token',
+    });
+    mockGetBuiltin.mockResolvedValueOnce({ provider: saved, models: [] });
+    mockTestProvider.mockResolvedValueOnce({ ok: true, availableModels: [] });
+
+    const admin: MockUser = { id: 'admin-reuse-1', email: 'a@x.com', role: 'admin' };
+    const { app } = buildAdminApp('admin', admin);
+    const res = await app.request('/api/admin/providers/test', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      // token omitted → saved row is loaded; posted baseUrl must be ignored.
+      body: JSON.stringify({
+        type: 'api',
+        providerId: 'saved-1',
+        baseUrl: 'https://attacker.example.com',
+      }),
+    });
+    expect(res.status).toBe(200);
+
+    const testArgs = mockTestProvider.mock.calls.at(-1) as unknown as unknown[];
+    const arg = testArgs[0] as { baseUrl: string | null; token: string };
+    expect(arg.baseUrl).toBe('https://saved.example.com');
+    expect(arg.token).toBe('saved-token');
   });
 });

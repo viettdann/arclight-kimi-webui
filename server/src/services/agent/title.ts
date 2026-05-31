@@ -1,5 +1,4 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import { LIGHT_MODEL } from 'shared/types/providers';
 import { logger } from '../../lib/logger';
 
 const log = logger.child({ module: 'agent/title' });
@@ -38,14 +37,16 @@ function cleanTitle(raw: string): string | null {
 
 /**
  * Generate a short AI title from a session's first user message using a cheap
- * Haiku model. Runs ephemerally — no transcript is written and no tools are
- * available. Returns the cleaned title, or `null` if generation fails, times
- * out, or yields an empty/invalid title. The caller persists the title; this
- * never touches the SDK's session store.
+ * model. Runs ephemerally — no transcript is written and no tools are
+ * available. The caller selects a provider-compatible `model` id (a custom api
+ * proxy may not expose the Anthropic light model). Returns the cleaned title,
+ * or `null` if generation fails, times out, or yields an empty/invalid title.
+ * The caller persists the title; this never touches the SDK's session store.
  */
 export async function generateTitle(
   firstUserMessage: string,
   env: Record<string, string>,
+  model: string,
 ): Promise<string | null> {
   const description =
     firstUserMessage.length > MAX_INPUT_CHARS
@@ -60,7 +61,7 @@ export async function generateTitle(
     const q = query({
       prompt,
       options: {
-        model: LIGHT_MODEL,
+        model,
         env,
         abortController,
         permissionMode: 'dontAsk',
