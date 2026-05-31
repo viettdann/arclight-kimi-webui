@@ -103,12 +103,18 @@ export function Transcript() {
     };
   }, [sessionId]);
 
-  // Auto-scroll to bottom during active turn updates
+  // Auto-scroll to bottom on new content. Scroll the container directly rather
+  // than `anchor.scrollIntoView()` — the latter bubbles to every scrollable
+  // ancestor, and on mobile the layout/visual-viewport gap (bottom address bar)
+  // makes it over-scroll the document, shoving the composer toward the middle.
+  // Guard on near-bottom so reading scrollback isn't yanked back down.
   useEffect(() => {
-    if (isTurnInProgress || blocks.length > 0) {
-      bottomAnchorRef.current?.scrollIntoView({
-        behavior: isTurnInProgress ? 'smooth' : 'auto',
-      });
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const nearBottom = distanceFromBottom < 120;
+    if (isTurnInProgress || nearBottom) {
+      el.scrollTo({ top: el.scrollHeight, behavior: isTurnInProgress ? 'smooth' : 'auto' });
     }
   }, [blocks.length, isTurnInProgress]);
 

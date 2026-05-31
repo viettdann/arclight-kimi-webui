@@ -398,7 +398,7 @@ export function ChatInput() {
   const personalProviders = available?.personal ?? [];
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-3 pb-4 md:px-4 md:pb-6 shrink-0">
+    <div className="mx-auto w-full max-w-3xl px-3 pb-4 md:px-4 md:pb-6 shrink-0 bg-transparent">
       <div
         className={`relative rounded-2xl border bg-card shadow-sm transition-all focus-within:ring-1 focus-within:ring-ring ${
           isTurnInProgress ? 'border-primary/30' : 'border-border'
@@ -442,7 +442,7 @@ export function ChatInput() {
                 title="Thinking & reasoning effort — applies from the next message"
               >
                 <Brain className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">
+                <span>
                   {thinking ? 'Thinking' : 'Thinking off'}
                   {thinking && effort ? ` · ${effortLabel(effort)}` : ''}
                 </span>
@@ -579,7 +579,7 @@ export function ChatInput() {
                       : 'Model — applies from the next message'
                   }
                 >
-                  <span className="hidden sm:inline max-w-[16ch] truncate">{modelLabel}</span>
+                  <span className="max-w-[16ch] truncate">{modelLabel}</span>
                   <ChevronDown className="h-3.5 w-3.5" />
                 </Button>
               }
