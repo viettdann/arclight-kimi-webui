@@ -725,7 +725,13 @@ async function handleInterruptTurn(ws: WS, sessionId: string): Promise<void> {
 /**
  * Probe the live query's context usage and broadcast it. Brings a resumed-but-
  * idle session into memory and lazily spawns the subprocess (the SDK control
- * request needs a live query). A no-provider session yields `provider_unset`.
+ * request needs a live query).
+ *
+ * This is a passive probe the client fires on its own (panel open, session
+ * switch, turn end) — never in response to a user action. A session with no
+ * resolvable provider yet (freshly created, nothing picked or sent) is the
+ * normal early state, not an error: skip silently so the panel keeps its
+ * "Context unavailable" placeholder instead of surfacing a SYSTEM_ERROR.
  */
 async function handleRequestContextUsage(ws: WS, sessionId: string): Promise<void> {
   if (!sessionId) {
@@ -743,7 +749,7 @@ async function handleRequestContextUsage(ws: WS, sessionId: string): Promise<voi
     await ensureQuery(active);
   } catch (err) {
     if (err instanceof ProviderUnavailableError) {
-      sendError(ws, 'provider_unset', sessionId, 'No provider selected');
+      logger.debug({ sessionId, code: 'context_usage_no_provider' }, 'context usage skipped');
       return;
     }
     throw err;
