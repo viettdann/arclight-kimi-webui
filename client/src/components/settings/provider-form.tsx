@@ -5,7 +5,7 @@ import { Label } from '@/components/ui/label';
 import { cn } from '../../lib/utils';
 import { ModelChecklist } from './model-checklist';
 import { SecretField } from './secret-field';
-import { isCredentialDirty, type ProviderFormState } from './use-provider-form';
+import { isCredentialDirty, type ProviderFormState, probeReadiness } from './use-provider-form';
 
 export interface ProviderFormProps {
   form: ProviderFormState;
@@ -13,6 +13,7 @@ export interface ProviderFormProps {
   onTest: () => void;
   onSave: () => void;
   onCancel: () => void;
+  onFetchModels: () => void;
   onToggleModelDefault: (modelId: string) => void;
   onToggleModelSelected: (
     modelId: string,
@@ -34,6 +35,7 @@ export function ProviderForm({
   onTest,
   onSave,
   onCancel,
+  onFetchModels,
   onToggleModelDefault,
   onToggleModelSelected,
   manualModelId,
@@ -44,13 +46,15 @@ export function ProviderForm({
   isEdit,
   existingProvider,
 }: ProviderFormProps) {
-  const availableFromTest = form.testResult?.availableModels ?? [];
-
   const credentialDirty = isCredentialDirty({
     token: form.token,
     baseUrl: form.baseUrl,
     savedBaseUrl: existingProvider?.baseUrl ?? '',
   });
+
+  // Fetch needs base URL + key; Test additionally needs a model to ping.
+  const { fetchReady } = probeReadiness(form.token, form.baseUrl, isEdit);
+  const testReady = fetchReady && form.models.length > 0;
 
   return (
     <div className="space-y-4">
@@ -75,15 +79,68 @@ export function ProviderForm({
         </div>
       </div>
 
-      <SecretField
-        id="pf-token"
-        label="Auth token"
-        masked={existingProvider?.tokenMasked ?? ''}
-        isSet={isEdit && !!existingProvider}
-        value={form.token}
-        onChange={(v) => patchForm({ token: v })}
-        placeholder="Enter API token"
-      />
+      {/* API Key and Models share one row. Models is always available — pick
+          from fetched options or add manually. */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-start">
+        <SecretField
+          id="pf-token"
+          label="API Key"
+          masked={existingProvider?.tokenMasked ?? ''}
+          isSet={isEdit && !!existingProvider}
+          value={form.token}
+          onChange={(v) => patchForm({ token: v })}
+          placeholder="Enter API key"
+        />
+        <div className="space-y-1.5">
+          <ModelChecklist
+            availableModels={form.availableModels}
+            selectedModels={form.models}
+            onToggleSelected={onToggleModelSelected}
+            onToggleDefault={onToggleModelDefault}
+            manualModelId={manualModelId}
+            onManualModelIdChange={onManualModelIdChange}
+            onAddManualModel={onAddManualModel}
+          />
+          {form.fetchModelsError && (
+            <p className="text-sm text-muted-foreground">{form.fetchModelsError}</p>
+          )}
+        </div>
+      </div>
+
+      {/* Test + fetch-models actions */}
+      <div className="flex items-center gap-3">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={form.testing || !testReady}
+          onClick={onTest}
+          title={testReady ? undefined : 'Fill base URL, API key, and select a model first'}
+        >
+          {form.testing ? 'Testing…' : 'Test connection'}
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={form.fetchingModels || !fetchReady}
+          onClick={onFetchModels}
+          title={fetchReady ? 'Probe the /models endpoint' : 'Fill base URL and API key first'}
+        >
+          {form.fetchingModels ? 'Fetching…' : 'Fetch models'}
+        </Button>
+        {form.testResult && (
+          <span
+            className={
+              form.testResult.ok
+                ? 'text-sm text-emerald-600 dark:text-emerald-400'
+                : 'text-sm text-destructive'
+            }
+          >
+            {form.testResult.ok ? 'OK' : (form.testResult.error ?? 'Connection failed')}
+          </span>
+        )}
+      </div>
 
       <div className="flex items-center gap-2">
         <Label className="shrink-0">Visibility</Label>
@@ -102,39 +159,6 @@ export function ProviderForm({
           {form.visibility === 'public' ? 'Public' : 'Private'}
         </button>
       </div>
-
-      {/* Test button */}
-      <div className="flex items-center gap-3">
-        <Button type="button" variant="outline" size="sm" disabled={form.testing} onClick={onTest}>
-          {form.testing ? 'Testing…' : 'Test connection'}
-        </Button>
-        {form.testResult && (
-          <span
-            className={
-              form.testResult.ok
-                ? 'text-sm text-emerald-600 dark:text-emerald-400'
-                : 'text-sm text-destructive'
-            }
-          >
-            {form.testResult.ok
-              ? `OK · ${availableFromTest.length > 0 ? `${availableFromTest.length} model${availableFromTest.length !== 1 ? 's' : ''} found` : 'no models returned'}`
-              : (form.testResult.error ?? 'Connection failed')}
-          </span>
-        )}
-      </div>
-
-      {/* Model selection — shown after a successful test OR if editing with existing models */}
-      {(form.tested || (isEdit && form.models.length > 0)) && (
-        <ModelChecklist
-          availableModels={availableFromTest}
-          selectedModels={form.models}
-          onToggleSelected={onToggleModelSelected}
-          onToggleDefault={onToggleModelDefault}
-          manualModelId={manualModelId}
-          onManualModelIdChange={onManualModelIdChange}
-          onAddManualModel={onAddManualModel}
-        />
-      )}
 
       {saveError && <p className="text-sm text-destructive">{saveError}</p>}
 

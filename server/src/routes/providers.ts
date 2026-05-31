@@ -6,6 +6,7 @@ import { getBuiltin, listBuiltinRows, toDTO } from '../services/providers/store'
 import {
   handleCreate,
   handleDelete,
+  handleFetchModels,
   handleTest,
   handleUpdate,
   type ProviderScopeConfig,
@@ -58,6 +59,14 @@ export function createProvidersRouter(
     const user = c.var.user;
     if (!user) return c.json({ error: 'unauthorized' }, 401);
     return handleTest(c, db, user.id, scope);
+  });
+
+  // ─────────────────────────── POST /models ───────────────────────────
+
+  router.post('/models', (c) => {
+    const user = c.var.user;
+    if (!user) return c.json({ error: 'unauthorized' }, 401);
+    return handleFetchModels(c, db, user.id, scope);
   });
 
   return router;

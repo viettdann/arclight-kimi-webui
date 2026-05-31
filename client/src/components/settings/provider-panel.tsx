@@ -6,6 +6,7 @@ import { Section } from '@/components/ui/section';
 import {
   createBuiltinProvider,
   deleteBuiltinProvider,
+  fetchBuiltinProviderModels,
   listBuiltinProviders,
   testBuiltinProvider,
   updateBuiltinProvider,
@@ -38,10 +39,14 @@ export function ProviderPanel() {
     manualModelId,
     setManualModelId,
     handleTest,
+    handleFetchModels,
     toggleModelDefault,
     toggleModelSelected,
     addManualModel,
-  } = useProviderForm({ testProvider: testBuiltinProvider });
+  } = useProviderForm({
+    testProvider: testBuiltinProvider,
+    fetchModels: fetchBuiltinProviderModels,
+  });
 
   async function load() {
     setLoading(true);
@@ -83,6 +88,11 @@ export function ProviderPanel() {
   function onTest() {
     const editingProvider = editing !== 'new' ? providers.find((p) => p.id === editing) : undefined;
     void handleTest(editingProvider?.id ?? null);
+  }
+
+  function onFetchModels() {
+    const editingProvider = editing !== 'new' ? providers.find((p) => p.id === editing) : undefined;
+    void handleFetchModels(editingProvider?.id ?? null);
   }
 
   async function handleSave() {
@@ -201,6 +211,7 @@ export function ProviderPanel() {
                     onTest={onTest}
                     onSave={handleSave}
                     onCancel={cancelEdit}
+                    onFetchModels={onFetchModels}
                     onToggleModelDefault={toggleModelDefault}
                     onToggleModelSelected={toggleModelSelected}
                     manualModelId={manualModelId}
@@ -270,6 +281,7 @@ export function ProviderPanel() {
               onTest={onTest}
               onSave={handleSave}
               onCancel={cancelEdit}
+              onFetchModels={onFetchModels}
               onToggleModelDefault={toggleModelDefault}
               onToggleModelSelected={toggleModelSelected}
               manualModelId={manualModelId}

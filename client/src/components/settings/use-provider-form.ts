@@ -2,10 +2,18 @@ import { useState } from 'react';
 import type {
   ProviderDTO,
   ProviderModelInput,
+  ProviderModelsResponse,
   ProviderTestRequest,
   ProviderTestResponse,
   Visibility,
 } from 'shared/types/providers';
+
+/** A model discovered by probing the provider's `/v1/models` endpoint. */
+export type AvailableModel = {
+  id: string;
+  displayName: string | null;
+  contextWindow: number | null;
+};
 
 /**
  * Form/test/model state for an `api`-type provider editor.
@@ -23,6 +31,12 @@ export interface ProviderFormState {
   visibility: Visibility;
   /** Models selected for this provider. */
   models: ProviderModelInput[];
+  /** Models discovered by the last Fetch Models probe (dropdown options). */
+  availableModels: AvailableModel[];
+  /** Whether a model-fetch probe is in flight. */
+  fetchingModels: boolean;
+  /** Error (or empty-result note) from the last model fetch, or null. */
+  fetchModelsError: string | null;
   /** Whether the current form session has a successful test result. */
   tested: boolean;
   testResult: ProviderTestResponse | null;
@@ -36,6 +50,9 @@ export function emptyForm(): ProviderFormState {
     token: null,
     visibility: 'private',
     models: [],
+    availableModels: [],
+    fetchingModels: false,
+    fetchModelsError: null,
     tested: false,
     testResult: null,
     testing: false,
@@ -60,6 +77,21 @@ export function isCredentialDirty(args: {
   return args.token !== null || args.baseUrl !== args.savedBaseUrl;
 }
 
+/**
+ * Whether credentials suffice to probe (Test / Fetch models). A freshly typed
+ * token or, on edit, the reused saved secret counts. `fetchReady` needs base
+ * URL + key; callers add their own model requirement on top for Test.
+ */
+export function probeReadiness(
+  token: string | null,
+  baseUrl: string,
+  isEdit: boolean,
+): { canProbe: boolean; hasBaseUrl: boolean; fetchReady: boolean } {
+  const canProbe = (typeof token === 'string' && token.length > 0) || isEdit;
+  const hasBaseUrl = baseUrl.trim().length > 0;
+  return { canProbe, hasBaseUrl, fetchReady: hasBaseUrl && canProbe };
+}
+
 export function formFromProvider(p: ProviderDTO): ProviderFormState {
   return {
     namespace: p.namespace,
@@ -72,6 +104,9 @@ export function formFromProvider(p: ProviderDTO): ProviderFormState {
       contextWindow: m.contextWindow,
       isDefault: m.isDefault,
     })),
+    availableModels: [],
+    fetchingModels: false,
+    fetchModelsError: null,
     tested: false,
     testResult: null,
     testing: false,
@@ -81,6 +116,8 @@ export function formFromProvider(p: ProviderDTO): ProviderFormState {
 export interface UseProviderFormOptions {
   /** Probe credentials against the appropriate scope's test endpoint. */
   testProvider: (body: ProviderTestRequest) => Promise<ProviderTestResponse>;
+  /** Probe the appropriate scope's `/models` endpoint for the model catalog. */
+  fetchModels: (body: ProviderTestRequest) => Promise<ProviderModelsResponse>;
 }
 
 export interface UseProviderForm {
@@ -91,6 +128,8 @@ export interface UseProviderForm {
   setManualModelId: (v: string) => void;
   /** Run the test endpoint; `providerId` backs an omitted token when editing. */
   handleTest: (providerId: string | null) => Promise<void>;
+  /** Probe `/models`; `providerId` backs an omitted token when editing. */
+  handleFetchModels: (providerId: string | null) => Promise<void>;
   toggleModelDefault: (modelId: string) => void;
   toggleModelSelected: (
     modelId: string,
@@ -100,9 +139,12 @@ export interface UseProviderForm {
   addManualModel: () => void;
 }
 
-export function useProviderForm({ testProvider }: UseProviderFormOptions): UseProviderForm {
+export function useProviderForm({
+  testProvider,
+  fetchModels,
+}: UseProviderFormOptions): UseProviderForm {
   const [form, setForm] = useState<ProviderFormState>(emptyForm);
-  // Manual model id input for when test returns no models.
+  // Manual model id input for when the fetch returns no models.
   const [manualModelId, setManualModelId] = useState('');
 
   function patchForm(patch: Partial<ProviderFormState>) {
@@ -116,9 +158,34 @@ export function useProviderForm({ testProvider }: UseProviderFormOptions): UsePr
   }
 
   async function handleTest(providerId: string | null) {
-    patchForm({ testing: true, testResult: null });
+    setForm((prev) => ({ ...prev, testing: true, testResult: null }));
+    // Ping with the chosen default (else first) model. Sending it lets a
+    // manually-entered model validate even when the provider has no listable
+    // `/models` endpoint, so credential validation never depends on a fetch.
+    const model = form.models.find((m) => m.isDefault)?.modelId ?? form.models[0]?.modelId ?? null;
     try {
       const res = await testProvider({
+        type: 'api',
+        baseUrl: form.baseUrl || null,
+        token: form.token, // null = reuse saved secret
+        model,
+        providerId,
+      });
+      setForm((prev) => ({ ...prev, testing: false, testResult: res, tested: res.ok }));
+    } catch (e) {
+      setForm((prev) => ({
+        ...prev,
+        testing: false,
+        testResult: { ok: false, error: e instanceof Error ? e.message : 'Test failed' },
+        tested: false,
+      }));
+    }
+  }
+
+  async function handleFetchModels(providerId: string | null) {
+    setForm((prev) => ({ ...prev, fetchingModels: true, fetchModelsError: null }));
+    try {
+      const { models } = await fetchModels({
         type: 'api',
         baseUrl: form.baseUrl || null,
         token: form.token, // null = reuse saved secret
@@ -126,26 +193,16 @@ export function useProviderForm({ testProvider }: UseProviderFormOptions): UsePr
       });
       setForm((prev) => ({
         ...prev,
-        testing: false,
-        testResult: res,
-        tested: res.ok,
-        // Auto-populate models from test result (replace existing draft).
-        models:
-          res.ok && res.availableModels && res.availableModels.length > 0
-            ? res.availableModels.map((m, i) => ({
-                modelId: m.id,
-                displayName: m.displayName,
-                contextWindow: m.contextWindow,
-                isDefault: i === 0,
-              }))
-            : prev.models,
+        fetchingModels: false,
+        availableModels: models,
+        fetchModelsError:
+          models.length === 0 ? 'No models returned — add one manually below.' : null,
       }));
     } catch (e) {
       setForm((prev) => ({
         ...prev,
-        testing: false,
-        testResult: { ok: false, error: e instanceof Error ? e.message : 'Test failed' },
-        tested: false,
+        fetchingModels: false,
+        fetchModelsError: e instanceof Error ? e.message : 'Failed to fetch models',
       }));
     }
   }
@@ -197,6 +254,7 @@ export function useProviderForm({ testProvider }: UseProviderFormOptions): UsePr
     manualModelId,
     setManualModelId,
     handleTest,
+    handleFetchModels,
     toggleModelDefault,
     toggleModelSelected,
     addManualModel,
