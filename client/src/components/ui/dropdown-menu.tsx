@@ -49,6 +49,8 @@ interface DropdownItemProps {
   icon?: ReactNode;
   /** Right-aligned content (a value label and/or a chevron). */
   trailing?: ReactNode;
+  /** Keep the menu open after a click (e.g. an in-menu toggle). Defaults to true. */
+  closeOnClick?: boolean;
   children: ReactNode;
 }
 
@@ -58,11 +60,13 @@ export function DropdownItem({
   destructive,
   icon,
   trailing,
+  closeOnClick = true,
   children,
 }: DropdownItemProps) {
   return (
     <Menu.Item
       disabled={disabled}
+      closeOnClick={closeOnClick}
       onClick={onClick}
       className={cn(
         'flex w-full cursor-default select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none',

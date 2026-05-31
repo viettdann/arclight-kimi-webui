@@ -9,7 +9,7 @@ import {
 } from 'shared/commands';
 import { type ApprovalMode, EFFORT_LEVELS, type EffortLevel } from 'shared/types';
 import { Button } from '@/components/ui/button';
-import { DropdownItem, DropdownMenu } from '@/components/ui/dropdown-menu';
+import { DropdownItem, DropdownMenu, DropdownSeparator } from '@/components/ui/dropdown-menu';
 import { useChatStore } from '../lib/chat-store';
 import { useCommandStore } from '../lib/command-store';
 import { useDraftStore } from '../lib/draft-store';
@@ -39,18 +39,22 @@ const ENTER_INSERTS_NEWLINE =
 // arguments.
 const SLASH_PICKER_RE = /^\/([\w-]*)$/;
 
+const effortLabel = (value: EffortLevel) => value.charAt(0).toUpperCase() + value.slice(1);
+
 // Effort selector options. `null` renders as "Default" (provider default); the
 // rest derive from EFFORT_LEVELS so the picker never drifts from the wire type.
 const EFFORT_OPTIONS: { value: EffortLevel | null; label: string }[] = [
   { value: null, label: 'Default' },
-  ...EFFORT_LEVELS.map((value) => ({
-    value,
-    label: value.charAt(0).toUpperCase() + value.slice(1),
-  })),
+  ...EFFORT_LEVELS.map((value) => ({ value, label: effortLabel(value) })),
 ];
 
 // Group order for the picker: Commands (builtin, then project) before Skills.
 const KIND_ORDER: Record<CommandInfo['kind'], number> = { builtin: 0, project: 1, skill: 2 };
+
+// Stable empty-array reference for the command selector. Returning a fresh `[]`
+// literal from a zustand selector makes every snapshot compare unequal, which
+// drives an infinite render loop ("getSnapshot should be cached").
+const NO_COMMANDS: CommandInfo[] = [];
 
 function Switch({ on }: { on: boolean }) {
   return (
@@ -124,6 +128,13 @@ export function ChatInput() {
     ? 'Unavailable — reselect'
     : (labelFor(available, effectiveProviderId, effectiveModel) ?? 'Select a model');
 
+  // Catalog loaded but both scopes are empty: nothing to send with, so block the
+  // composer until a provider exists.
+  const noModelsAvailable =
+    status === 'ready' &&
+    (available?.builtin.length ?? 0) === 0 &&
+    (available?.personal.length ?? 0) === 0;
+
   const session = useChatStore((s) => (sessionId ? s.sessions[sessionId] : null));
   const isTurnInProgress = session?.isTurnInProgress ?? false;
 
@@ -147,7 +158,7 @@ export function ChatInput() {
 
   // Dynamic catalog the live session reported (commands + skills).
   const dynamicCommands = useCommandStore((s) =>
-    sessionId ? (s.commandsBySession[sessionId] ?? []) : [],
+    sessionId ? (s.commandsBySession[sessionId] ?? NO_COMMANDS) : NO_COMMANDS,
   );
 
   // Merge built-ins with the dynamic catalog, deduped by name (builtin wins),
@@ -223,6 +234,10 @@ export function ChatInput() {
 
   const sendMessage = () => {
     if (!text.trim() || !sessionId || isTurnInProgress) return;
+    if (noModelsAvailable) {
+      showToast({ message: 'No model available — configure a provider first', type: 'error' });
+      return;
+    }
     const content = text.trim();
 
     // Classify slash-commands before sending. An unsupported command never
@@ -372,9 +387,11 @@ export function ChatInput() {
 
   const placeholderText = !sessionId
     ? 'Select or create a project to start...'
-    : isTurnInProgress
-      ? 'Agent is running — press Stop to halt'
-      : 'Ask anything...';
+    : noModelsAvailable
+      ? 'No models available — configure a provider to start'
+      : isTurnInProgress
+        ? 'Agent is running — press Stop to halt'
+        : 'Ask anything...';
 
   // Build flat model lists for dropdown.
   const builtinProviders = available?.builtin ?? [];
@@ -403,7 +420,7 @@ export function ChatInput() {
           onInput={handleInput}
           onKeyDown={handleKeyDown}
           placeholder={placeholderText}
-          disabled={!sessionId}
+          disabled={!sessionId || noModelsAvailable}
           aria-label="Chat input"
           rows={1}
           className="w-full resize-none bg-transparent px-4 pt-3.5 pb-2 text-sm outline-none placeholder:text-muted-foreground/60 disabled:cursor-not-allowed"
@@ -411,16 +428,65 @@ export function ChatInput() {
         />
 
         <div className="flex items-center justify-between px-3 pb-2.5">
-          {/* Thinking status badge — display only; toggle lives in the model menu. */}
-          <span
-            className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium select-none ${
-              thinking ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
-            }`}
-            title="Thinking status — change it in the model menu"
+          {/* Reasoning — Thinking toggle + reasoning effort, grouped together. */}
+          <DropdownMenu
+            align="start"
+            trigger={
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
+                className={`cursor-pointer ${thinking ? 'text-primary' : 'text-muted-foreground'}`}
+                disabled={!sessionId}
+                aria-label="Reasoning"
+                title="Thinking & reasoning effort — applies from the next message"
+              >
+                <Brain className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">
+                  {thinking ? 'Thinking' : 'Thinking off'}
+                  {thinking && effort ? ` · ${effortLabel(effort)}` : ''}
+                </span>
+                <ChevronDown className="h-3.5 w-3.5" />
+              </Button>
+            }
           >
-            <Brain className="h-3.5 w-3.5" />
-            {thinking ? 'Thinking on' : 'Thinking off'}
-          </span>
+            <div className="px-2 pt-1 pb-1.5 text-[11px] text-muted-foreground select-none">
+              Applies from the next message
+            </div>
+
+            <DropdownItem
+              onClick={toggleThinking}
+              closeOnClick={false}
+              trailing={<Switch on={thinking} />}
+            >
+              <span className="flex items-center gap-2">
+                <Brain className="h-3.5 w-3.5" />
+                Thinking
+              </span>
+            </DropdownItem>
+
+            <DropdownSeparator />
+
+            {/* Effort only applies under extended thinking; dim + disable when off. */}
+            <div
+              className={`flex items-center gap-2 px-2 pt-1 pb-0.5 text-[10px] font-semibold uppercase tracking-wider select-none ${
+                thinking ? 'text-muted-foreground' : 'text-muted-foreground/40'
+              }`}
+            >
+              <Gauge className="h-3 w-3" />
+              Effort
+            </div>
+            {EFFORT_OPTIONS.map((opt) => (
+              <DropdownItem
+                key={opt.label}
+                disabled={!thinking}
+                onClick={() => setEffort(opt.value)}
+                icon={<Check className={thinking && effort === opt.value ? '' : 'opacity-0'} />}
+              >
+                <span>{opt.label}</span>
+              </DropdownItem>
+            ))}
+          </DropdownMenu>
 
           <div className="flex items-center gap-2">
             <DropdownMenu
@@ -513,7 +579,6 @@ export function ChatInput() {
                       : 'Model — applies from the next message'
                   }
                 >
-                  {thinking && <Brain className="h-3.5 w-3.5" />}
                   <span className="hidden sm:inline max-w-[16ch] truncate">{modelLabel}</span>
                   <ChevronDown className="h-3.5 w-3.5" />
                 </Button>
@@ -599,31 +664,6 @@ export function ChatInput() {
                     No providers configured
                   </div>
                 )}
-
-              <DropdownItem onClick={toggleThinking}>
-                <span className="flex w-full items-center justify-between gap-3">
-                  <span className="flex items-center gap-2">
-                    <Brain className="h-3.5 w-3.5" />
-                    Thinking
-                  </span>
-                  <Switch on={thinking} />
-                </span>
-              </DropdownItem>
-
-              {/* Reasoning effort — applies from the next message. */}
-              <div className="flex items-center gap-2 px-2 pt-1.5 pb-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground select-none">
-                <Gauge className="h-3 w-3" />
-                Effort
-              </div>
-              {EFFORT_OPTIONS.map((opt) => (
-                <DropdownItem
-                  key={opt.label}
-                  onClick={() => setEffort(opt.value)}
-                  icon={<Check className={effort === opt.value ? '' : 'opacity-0'} />}
-                >
-                  <span>{opt.label}</span>
-                </DropdownItem>
-              ))}
             </DropdownMenu>
 
             {isTurnInProgress ? (
@@ -644,7 +684,7 @@ export function ChatInput() {
                 type="button"
                 size="icon-sm"
                 onClick={handlePrimaryAction}
-                disabled={!text.trim() || !sessionId}
+                disabled={!text.trim() || !sessionId || noModelsAvailable}
                 aria-label="Send message"
                 className="cursor-pointer"
               >

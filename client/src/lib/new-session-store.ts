@@ -35,9 +35,11 @@ const baseline = new Map<string, number>();
 // projectName → safety timer handle.
 const timers = new Map<string, ReturnType<typeof setTimeout>>();
 
-/** A session that was created but never used: no title, no tokens. */
+// A session created but never run: `lastActiveAt` starts equal to `createdAt`
+// and is bumped on every turn end. More reliable than checking title/tokens,
+// which stay falsy on providers that fail to title or omit usage.
 function isUnused(s: SessionListItem): boolean {
-  return s.title === null && s.totalTokens === 0;
+  return s.lastActiveAt === s.createdAt;
 }
 
 function existingUnused(projectName: string): SessionListItem | undefined {
