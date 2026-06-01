@@ -74,7 +74,7 @@ export function InstructionsPanel() {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       {status === 'error' && loadError && (
         <div className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-2.5 text-sm text-destructive">
           {loadError}
@@ -104,7 +104,7 @@ export function InstructionsPanel() {
           placeholder="e.g. Always respond in Vietnamese. Prefer terse answers."
           rows={16}
           spellCheck={false}
-          className="font-mono text-xs leading-relaxed resize-y min-h-[18rem]"
+          className="font-mono text-xs leading-[1.6] resize-y min-h-[18rem]"
         />
         <div className="flex items-center justify-between text-xs">
           <span className="text-muted-foreground">

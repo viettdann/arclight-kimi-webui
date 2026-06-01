@@ -35,7 +35,7 @@ export function ToolCallCard({ name, args, argsStreaming, isStreaming }: ToolCal
   const argsStr = getArgsString();
 
   return (
-    <div className="rounded-xl border border-border bg-muted/5 shadow-sm backdrop-blur-sm overflow-hidden animate-in fade-in duration-200">
+    <div className="rounded-xl border border-border bg-card-2 shadow-sm backdrop-blur-sm overflow-hidden animate-in fade-in duration-200">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-2 text-xs font-semibold text-foreground/80">
         <div className="flex items-center gap-2">

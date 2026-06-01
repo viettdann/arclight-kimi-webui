@@ -256,9 +256,8 @@ export function ProviderPanel() {
                 </Button>
                 <Button
                   type="button"
-                  variant="ghost"
+                  variant="destructive"
                   size="icon-sm"
-                  className="text-destructive hover:text-destructive"
                   onClick={() => void handleDelete(p.id)}
                   disabled={deletingId === p.id}
                   title="Remove provider"

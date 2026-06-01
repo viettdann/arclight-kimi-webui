@@ -43,7 +43,7 @@ export function WelcomeScreen() {
         {features.map((feature) => (
           <div
             key={feature.title}
-            className="flex min-h-[176px] flex-col rounded-2xl border border-border bg-card p-6 transition-colors hover:border-primary/30 hover:bg-accent/30 cursor-default"
+            className="flex min-h-[176px] flex-col rounded-2xl border border-border bg-card p-6 transition-colors hover:border-primary/30 hover:bg-accent cursor-default"
           >
             <img
               src={feature.image}

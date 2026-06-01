@@ -123,7 +123,7 @@ export function AccessControlPanel() {
   ];
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <SecHead
         title="Members & access"
         description="Who can sign in and use this workspace."
@@ -157,7 +157,7 @@ export function AccessControlPanel() {
             </span>
             <span
               className={cn(
-                'rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider border',
+                'rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] border',
                 effective
                   ? 'bg-success-wash border-success/40 text-success'
                   : 'bg-muted border-border text-muted-foreground',
@@ -172,7 +172,7 @@ export function AccessControlPanel() {
           <div
             role="radiogroup"
             aria-label="Enforcement mode"
-            className="inline-flex rounded-md border border-border bg-muted/40 p-0.5"
+            className="inline-flex rounded-md border border-border bg-muted p-0.5"
           >
             {choices.map((opt) => {
               const active = choice === opt.id;
@@ -240,7 +240,7 @@ export function AccessControlPanel() {
               {sortedEmails.map((e) => (
                 <li
                   key={e.email}
-                  className="flex items-center justify-between gap-3 px-3 py-2 hover:bg-muted/40 transition-colors"
+                  className="flex items-center justify-between gap-3 px-3 py-2 hover:bg-muted transition-colors"
                 >
                   <span className="font-mono text-sm truncate min-w-0">{e.email}</span>
                   <div className="flex items-center gap-3 shrink-0">
@@ -303,7 +303,7 @@ function IdentityRow({
       <span className="flex-1" />
       <span
         className={cn(
-          'inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider border',
+          'inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] border',
           role === 'admin'
             ? 'bg-primary-wash border-primary/40 text-primary-hover'
             : 'bg-muted border-border text-muted-foreground',
