@@ -3,13 +3,20 @@ import { basename, join } from 'node:path';
 import { eq, sql } from 'drizzle-orm';
 import { db } from '../../db/index';
 import { sessionTranscripts } from '../../db/schema/session-transcripts';
-import { env } from '../../env';
 import { logger } from '../../lib/logger';
+import { agentConfigDirFor } from './agent-paths';
 
 const log = logger.child({ module: 'agent/transcript-store' });
 
-/** `${CLAUDE_CONFIG_DIR}/projects` — where the `claude` binary writes JSONL. */
-const PROJECTS = join(env.CLAUDE_CONFIG_DIR, 'projects');
+/**
+ * `<per-user CLAUDE_CONFIG_DIR>/projects` for a given cwd — where the `claude`
+ * binary writes JSONL. The config dir is per-user (derived from the cwd's user
+ * slug via `agent-paths`), so the subprocess and these path helpers always agree
+ * on the same location for the same session (invariant: write-here == read-here).
+ */
+function projectsRoot(cwd: string): string {
+  return join(agentConfigDirFor(cwd), 'projects');
+}
 
 /**
  * Max length of an encoded cwd before the binary switches to a hashed-slice
@@ -31,22 +38,22 @@ export function encodeCwd(cwd: string): string {
 
 /** Absolute path of the main transcript JSONL for a session. */
 export function transcriptPath(cwd: string, sdkSessionId: string): string {
-  return join(PROJECTS, encodeCwd(cwd), `${sdkSessionId}.jsonl`);
+  return join(projectsRoot(cwd), encodeCwd(cwd), `${sdkSessionId}.jsonl`);
 }
 
 /** Absolute path of the subagent directory for a session. */
 export function subagentDir(cwd: string, sdkSessionId: string): string {
-  return join(PROJECTS, encodeCwd(cwd), sdkSessionId, 'subagents');
+  return join(projectsRoot(cwd), encodeCwd(cwd), sdkSessionId, 'subagents');
 }
 
 /**
  * Absolute path of the per-cwd project transcript dir the `claude` binary
- * writes into (`${CLAUDE_CONFIG_DIR}/projects/<enc(cwd)>`). Holds every
+ * writes into (`<per-user CLAUDE_CONFIG_DIR>/projects/<enc(cwd)>`). Holds every
  * session's `<sdkSessionId>.jsonl` plus its `<sdkSessionId>/subagents/` subtree
  * for that cwd. Used by project/session deletion to remove on-disk transcripts.
  */
 export function projectTranscriptDir(cwd: string): string {
-  return join(PROJECTS, encodeCwd(cwd));
+  return join(projectsRoot(cwd), encodeCwd(cwd));
 }
 
 /**
@@ -266,7 +273,10 @@ export async function restoreTranscript(sessionId: string): Promise<void> {
   });
   if (!row?.sdkSessionId || !row.content) return;
 
-  const dir = join(PROJECTS, encodeCwd(row.workspaceCwd));
+  // The only internal cwd source (from the DB row, not a parameter). Must use
+  // the same per-user projects root as the write path so restore lands where
+  // the next append reads — see invariant in `projectsRoot`.
+  const dir = join(projectsRoot(row.workspaceCwd), encodeCwd(row.workspaceCwd));
   await mkdir(dir, { recursive: true });
 
   const path = join(dir, `${row.sdkSessionId}.jsonl`);

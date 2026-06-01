@@ -9,8 +9,10 @@ import { db } from '../../db';
 import { logger } from '../../lib/logger';
 import { ProviderUnavailableError, resolveProviderForUser } from '../providers/resolve';
 import type { ActiveSession } from '../session-manager';
+import { agentConfigDirFor, agentHomeFor } from './agent-paths';
 import { buildCanUseTool } from './approval';
 import { buildAgentEnv } from './env';
+import { ensureClaudeOnboarding } from './onboarding';
 
 // Build and launch the live SDK `query` for one in-flight turn. The session's
 // approval mode maps to the SDK permission mode + the `canUseTool` callback;
@@ -63,7 +65,15 @@ export async function startQuery(
   const abortController = new AbortController();
   const provider = await resolveProviderForUser(db, active.userId, active.providerId);
   if (!provider) throw new ProviderUnavailableError('no provider selected');
-  const env = buildAgentEnv(provider);
+
+  // Per-user isolation: HOME + CLAUDE_CONFIG_DIR derive from the validated
+  // workDir (which embeds the user slug), never the host. Bootstrap the
+  // per-user config dir's onboarding flag once before the first turn so the
+  // headless binary doesn't block; idempotent on later turns.
+  const home = agentHomeFor(active.workDir);
+  const configDir = agentConfigDirFor(active.workDir);
+  await ensureClaudeOnboarding(configDir);
+  const env = buildAgentEnv(provider, { home, configDir });
 
   const q = query({
     prompt: opts.prompt,

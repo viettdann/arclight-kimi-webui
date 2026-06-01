@@ -7,6 +7,7 @@ import { type DB, schema } from '../db';
 import type { Env } from '../env';
 import { type auditLog as defaultAuditLog, logger } from '../lib/logger';
 import { resolveUserPath } from '../lib/path-guard';
+import { isUnderWorkspace } from './agent/agent-paths';
 import { projectTranscriptDir } from './agent/transcript-store';
 import { cloningProjectNamesForUser } from './git/clone-registry';
 import { inspectRepo } from './git/inspect';
@@ -261,8 +262,12 @@ export async function deleteProjectForUser({
 
   // 3a. Best-effort: remove the per-cwd transcript dirs the claude binary wrote.
   // Each dir is independent; remove them concurrently. Per-item try/catch keeps
-  // the batch best-effort (one failure never rejects the rest).
-  const workDirs = new Set<string>([localWorkDir, ...rows.map((r) => r.workDir)]);
+  // the batch best-effort (one failure never rejects the rest). Foreign/remote
+  // workDirs that live outside the workspace never had a local transcript dir
+  // (the binary only ran for in-workspace cwds), so skip them.
+  const workDirs = new Set<string>(
+    [localWorkDir, ...rows.map((r) => r.workDir)].filter((wd) => isUnderWorkspace(wd)),
+  );
   await Promise.all(
     [...workDirs].map(async (wd) => {
       const dir = projectTranscriptDir(wd);

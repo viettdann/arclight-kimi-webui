@@ -25,7 +25,9 @@ const envSchema = z.object({
   AZURE_AD_TENANT_ID: z.string().min(1),
 
   // Persistent-data paths. All three resolve to absolute paths post-parse;
-  // CLAUDE_CONFIG_DIR is a sibling of WORKSPACE_ROOT, never inside it.
+  // CLAUDE_CONFIG_DIR is a sibling of WORKSPACE_ROOT, never inside it. It is the
+  // ROOT for per-user agent state — the per-user `CLAUDE_CONFIG_DIR` the binary
+  // sees (`<root>/<userSlug>`) is appended in `agent-paths.ts`.
   DATA_DIR: z.string().optional(),
   WORKSPACE_ROOT: z.string().optional(),
   CLAUDE_CONFIG_DIR: z.string().optional(),
@@ -62,7 +64,7 @@ export function loadEnv(overrides: NodeJS.ProcessEnv = {}): Env {
   );
   const workspaceRoot = path.resolve(parsed.data.WORKSPACE_ROOT ?? path.join(dataDir, 'workspace'));
   const claudeConfigDir = path.resolve(
-    parsed.data.CLAUDE_CONFIG_DIR ?? path.join(dataDir, 'claude-config'),
+    parsed.data.CLAUDE_CONFIG_DIR ?? path.join(dataDir, 'agent-state'),
   );
 
   return {

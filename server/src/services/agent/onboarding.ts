@@ -1,4 +1,4 @@
-import { readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { env } from '../../env';
 import { logger } from '../../lib/logger';
@@ -13,6 +13,9 @@ import { logger } from '../../lib/logger';
  * headless runs proceed. Existing state written by the binary (userID, project
  * trust, migration flags) is preserved — we merge, never clobber. Idempotent:
  * once the flag is already set, this is a no-op.
+ *
+ * Per-user config dirs are created lazily (one per user slug), so the directory
+ * may not exist yet on a user's first turn — `mkdir -p` before writing.
  */
 export async function ensureClaudeOnboarding(
   configDir: string = env.CLAUDE_CONFIG_DIR,
@@ -28,6 +31,7 @@ export async function ensureClaudeOnboarding(
     config = {};
   }
 
+  await mkdir(configDir, { recursive: true });
   config.hasCompletedOnboarding = true;
   await writeFile(file, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
   logger.info({ file }, 'claude onboarding bootstrapped (hasCompletedOnboarding=true)');

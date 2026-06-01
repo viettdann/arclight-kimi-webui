@@ -1,13 +1,12 @@
-import { env } from '../../env';
-
 /**
  * Whitelist of env vars safe to forward to the SDK subprocess. `options.env`
- * REPLACES the subprocess's process.env entirely, so these baseline keys
- * (PATH/HOME/...) are mandatory for the `claude` binary to run.
+ * REPLACES the subprocess's process.env entirely, so these baseline keys (PATH/
+ * USER/...) are mandatory for the `claude` binary to run. `HOME` is NOT here —
+ * it is set per-user by `buildAgentEnv` so the agent never reads the host's
+ * `$HOME` (and thus never the host's `~/.claude/CLAUDE.md`).
  */
 export const SAFE_ENV_KEYS = [
   'PATH',
-  'HOME',
   'USER',
   'LANG',
   'LC_ALL',
@@ -40,19 +39,32 @@ export interface ProviderEnvInput {
   token: string;
 }
 
+/** Per-user (or ephemeral) home + config dir, resolved from the session cwd by
+ *  `agent-paths`. These isolate the agent's memory and state from the host. */
+export interface AgentPaths {
+  home: string;
+  configDir: string;
+}
+
 /**
  * Build the env map for the SDK subprocess from a provider row (or equivalent
- * input). Synchronous — no DB or config reads. Empty/undefined values are
- * stripped so the subprocess never receives a blank token.
+ * input) plus the resolved per-user paths. Synchronous — no DB or config reads.
+ * Empty/undefined values are stripped so the subprocess never receives a blank
+ * token.
  *
  * `options.env` replaces process.env entirely, so the safe baseline is always
- * included. ANTHROPIC_MODEL is intentionally omitted — it is passed via query
- * options at call sites.
+ * included. `HOME` and `CLAUDE_CONFIG_DIR` come from `paths` (never the host),
+ * isolating the agent's memory and state per user. ANTHROPIC_MODEL is
+ * intentionally omitted — it is passed via query options at call sites.
  */
-export function buildAgentEnv(provider: ProviderEnvInput): Record<string, string> {
+export function buildAgentEnv(
+  provider: ProviderEnvInput,
+  paths: AgentPaths,
+): Record<string, string> {
   const base: Record<string, string> = {
     ...pickSafeEnv(),
-    CLAUDE_CONFIG_DIR: env.CLAUDE_CONFIG_DIR,
+    HOME: paths.home,
+    CLAUDE_CONFIG_DIR: paths.configDir,
   };
 
   if (provider.type === 'api') {

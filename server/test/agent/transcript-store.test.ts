@@ -1,19 +1,24 @@
 import { describe, expect, it } from 'bun:test';
 import { join } from 'node:path';
 import { env } from '../../src/env';
+import { agentConfigDirFor } from '../../src/services/agent/agent-paths';
 import {
   aiTitleFromJsonl,
   encodeCwd,
   firstUserTextFromJsonl,
   MAX_ENCODED_LEN,
+  projectTranscriptDir,
   subagentDir,
   transcriptPath,
 } from '../../src/services/agent/transcript-store';
 
-// Derive the expected prefix from the (test-stubbed) env rather than hardcoding
-// an absolute path: setup.ts leaves CLAUDE_CONFIG_DIR unset, so it resolves to
-// `${DATA_DIR}/claude-config`. We assert the composed structure, not the host.
-const PROJECTS = join(env.CLAUDE_CONFIG_DIR, 'projects');
+// Paths are now per-user: `<AGENT_STATE_ROOT>/<userSlug>/projects/<enc(cwd)>`.
+// `agentConfigDirFor(cwd)` derives the per-user config dir from the cwd's first
+// segment under WORKSPACE_ROOT, so test cwds must live under it (setup.ts sets
+// WORKSPACE_ROOT=/tmp/mtc-webui-test). We assert the composed structure derived
+// from env, not the host.
+const WS = env.WORKSPACE_ROOT;
+const projectsRoot = (cwd: string) => join(agentConfigDirFor(cwd), 'projects');
 
 describe('encodeCwd', () => {
   it('preserves alphanumeric characters unchanged', () => {
@@ -66,33 +71,52 @@ describe('encodeCwd', () => {
 });
 
 describe('transcriptPath', () => {
-  it('composes PROJECTS/<enc>/<id>.jsonl', () => {
-    const cwd = '/data/workspace/user-slug/my-project';
+  it('composes <per-user projects>/<enc(cwd)>/<id>.jsonl', () => {
+    const cwd = join(WS, 'dan.le', 'my-project');
     const id = '11111111-2222-3333-4444-555555555555';
-    expect(transcriptPath(cwd, id)).toBe(
-      join(PROJECTS, '-data-workspace-user-slug-my-project', `${id}.jsonl`),
-    );
+    expect(transcriptPath(cwd, id)).toBe(join(projectsRoot(cwd), encodeCwd(cwd), `${id}.jsonl`));
   });
 
-  it('uses the encoded cwd as the project dir', () => {
-    const path = transcriptPath('/a/b', 'sess-1');
-    expect(path).toBe(join(PROJECTS, '-a-b', 'sess-1.jsonl'));
+  it('roots the projects dir under the per-user agent-state config dir', () => {
+    const cwd = join(WS, 'dan.le', 'my-project');
+    expect(transcriptPath(cwd, 'sess-1').startsWith(join(agentConfigDirFor(cwd), 'projects'))).toBe(
+      true,
+    );
   });
 });
 
 describe('subagentDir', () => {
-  it('composes PROJECTS/<enc>/<id>/subagents', () => {
-    const cwd = '/data/workspace/user-slug/my-project';
+  it('composes <per-user projects>/<enc(cwd)>/<id>/subagents', () => {
+    const cwd = join(WS, 'dan.le', 'my-project');
     const id = '11111111-2222-3333-4444-555555555555';
-    expect(subagentDir(cwd, id)).toBe(
-      join(PROJECTS, '-data-workspace-user-slug-my-project', id, 'subagents'),
-    );
+    expect(subagentDir(cwd, id)).toBe(join(projectsRoot(cwd), encodeCwd(cwd), id, 'subagents'));
   });
 
   it('nests under the same encoded project dir as the transcript', () => {
-    const cwd = '/a/b';
+    const cwd = join(WS, 'dan.le', 'proj');
     const id = 'sess-1';
-    expect(subagentDir(cwd, id)).toBe(join(PROJECTS, '-a-b', id, 'subagents'));
+    expect(subagentDir(cwd, id)).toBe(join(projectsRoot(cwd), encodeCwd(cwd), id, 'subagents'));
+  });
+});
+
+describe('per-user separation', () => {
+  it('routes two users to distinct project trees', () => {
+    const cwdA = join(WS, 'dan.le', 'proj');
+    const cwdB = join(WS, 'chau', 'proj');
+    const a = transcriptPath(cwdA, 'sess');
+    const b = transcriptPath(cwdB, 'sess');
+    expect(a).not.toBe(b);
+    expect(a.startsWith(agentConfigDirFor(cwdA))).toBe(true);
+    expect(b.startsWith(agentConfigDirFor(cwdB))).toBe(true);
+    // The two config dirs differ only by their trailing user-slug segment.
+    expect(agentConfigDirFor(cwdA)).not.toBe(agentConfigDirFor(cwdB));
+  });
+
+  it('projectTranscriptDir is under the cwd-owning user config dir', () => {
+    const cwd = join(WS, 'chau', 'repo');
+    expect(projectTranscriptDir(cwd)).toBe(
+      join(agentConfigDirFor(cwd), 'projects', encodeCwd(cwd)),
+    );
   });
 });
 
