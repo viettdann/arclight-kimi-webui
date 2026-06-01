@@ -56,7 +56,7 @@ export function GitCredentialsPanel() {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       {error && (
         <div className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-2.5 text-sm text-destructive">
           {error}
@@ -82,14 +82,14 @@ export function GitCredentialsPanel() {
           {credentials.map((cred) => (
             <li
               key={cred.id}
-              className="flex items-center justify-between gap-3 px-3 py-2.5 hover:bg-muted/40 transition-colors"
+              className="flex items-center justify-between gap-3 px-3 py-2.5 hover:bg-muted transition-colors"
             >
               <div className="flex min-w-0 flex-col gap-0.5">
                 <div className="flex items-center gap-2 min-w-0">
                   <span className="text-sm font-medium truncate">{cred.label}</span>
                   <span
                     className={cn(
-                      'shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider border',
+                      'shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] border',
                       'bg-muted border-border text-muted-foreground',
                     )}
                   >
@@ -113,10 +113,9 @@ export function GitCredentialsPanel() {
                 </Button>
                 <Button
                   type="button"
-                  variant="ghost"
+                  variant="destructive"
                   size="xs"
                   onClick={() => handleRemove(cred)}
-                  className="text-destructive hover:text-destructive"
                 >
                   Remove
                 </Button>

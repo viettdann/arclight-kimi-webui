@@ -19,7 +19,7 @@ function SecHead({ title, description, actions, className }: SecHeadProps) {
   return (
     <div className={cn('mb-6 flex items-start justify-between gap-4', className)}>
       <div className="min-w-0">
-        <h1 className="text-[26px] font-medium leading-tight tracking-tight text-foreground">
+        <h1 className="text-[28px] font-medium leading-tight tracking-tight text-foreground">
           {title}
         </h1>
         {description && (

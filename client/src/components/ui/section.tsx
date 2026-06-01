@@ -34,7 +34,7 @@ function Section({
         </div>
         {actions && <div className="shrink-0">{actions}</div>}
       </header>
-      <div className="space-y-5 px-5 py-4">{children}</div>
+      <div className="space-y-4 px-5 py-4">{children}</div>
     </section>
   );
 }

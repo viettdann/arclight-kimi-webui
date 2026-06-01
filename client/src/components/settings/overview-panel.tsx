@@ -137,13 +137,13 @@ function HealthCard({
   neutral?: boolean;
 }) {
   const tone = neutral
-    ? 'border-border bg-muted/30 text-foreground'
+    ? 'border-border bg-muted text-foreground'
     : ok
       ? 'border-success/40 bg-success-wash text-success'
       : 'border-destructive/40 bg-destructive/10 text-destructive';
   return (
     <div className={cn('rounded-md border px-3 py-2', tone)}>
-      <div className="text-xs font-semibold uppercase tracking-wider opacity-80">{label}</div>
+      <div className="text-xs font-semibold uppercase tracking-[0.08em] opacity-80">{label}</div>
       <div className="mt-1 text-sm break-all">{detail}</div>
     </div>
   );
@@ -159,8 +159,8 @@ function SystemRow({
   mono?: boolean;
 }) {
   return (
-    <div className="rounded-md border border-border bg-muted/30 px-3 py-2">
-      <dt className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+    <div className="rounded-md border border-border bg-muted px-3 py-2">
+      <dt className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
         {label}
       </dt>
       <dd

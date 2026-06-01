@@ -71,7 +71,7 @@ function Switch({ on }: { on: boolean }) {
       }`}
     >
       <span
-        className={`inline-block h-3 w-3 rounded-full bg-white shadow-sm transition-transform ${
+        className={`inline-block h-3 w-3 rounded-full bg-primary-foreground shadow-sm transition-transform ${
           on ? 'translate-x-3.5' : 'translate-x-0.5'
         }`}
       />
@@ -510,27 +510,28 @@ export function ChatInput() {
 
         <div className="flex items-center justify-between px-3 pb-2.5">
           {/* Reasoning — Thinking toggle + reasoning effort, grouped together. */}
-          <DropdownMenu
-            align="start"
-            trigger={
-              <Button
-                type="button"
-                variant="ghost"
-                size="xs"
-                className={`cursor-pointer ${thinking ? 'text-primary' : 'text-muted-foreground'}`}
-                disabled={!canCompose}
-                aria-label="Reasoning"
-                title="Thinking & reasoning effort — applies from the next message"
-              >
-                <Brain className="h-3.5 w-3.5" />
-                <span>
-                  {thinking ? 'Thinking' : 'Thinking off'}
-                  {thinking && effort ? ` · ${effortLabel(effort)}` : ''}
-                </span>
-                <ChevronDown className="h-3.5 w-3.5" />
-              </Button>
-            }
-          >
+          <span className="inline-flex items-center rounded-xl border border-border bg-card-2 px-1 transition-colors hover:bg-muted">
+            <DropdownMenu
+              align="start"
+              trigger={
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="xs"
+                  className={`cursor-pointer ${thinking ? 'text-primary' : 'text-muted-foreground'}`}
+                  disabled={!canCompose}
+                  aria-label="Reasoning"
+                  title="Thinking & reasoning effort — applies from the next message"
+                >
+                  <Brain className="h-3.5 w-3.5" />
+                  <span>
+                    {thinking ? 'Thinking' : 'Thinking off'}
+                    {thinking && effort ? ` · ${effortLabel(effort)}` : ''}
+                  </span>
+                  <ChevronDown className="h-3.5 w-3.5" />
+                </Button>
+              }
+            >
             <div className="px-2 pt-1 pb-1.5 text-[11px] text-muted-foreground select-none">
               Applies from the next message
             </div>
@@ -568,8 +569,10 @@ export function ChatInput() {
               </DropdownItem>
             ))}
           </DropdownMenu>
+          </span>
 
           <div className="flex items-center gap-2">
+            <span className="inline-flex items-center rounded-xl border border-border bg-card-2 px-1 transition-colors hover:bg-muted">
             <DropdownMenu
               align="end"
               trigger={
@@ -643,7 +646,9 @@ export function ChatInput() {
                 </span>
               </DropdownItem>
             </DropdownMenu>
+            </span>
 
+            <span className="inline-flex items-center rounded-xl border border-border bg-card-2 px-1 transition-colors hover:bg-muted">
             <DropdownMenu
               align="end"
               trigger={
@@ -748,6 +753,7 @@ export function ChatInput() {
                   </div>
                 )}
             </DropdownMenu>
+            </span>
 
             {isTurnInProgress ? (
               <Button

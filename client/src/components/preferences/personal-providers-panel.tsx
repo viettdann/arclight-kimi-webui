@@ -1,34 +1,82 @@
+import { KeyRound, Pencil, Plus, Server, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { ProviderDTO, ProviderType } from 'shared/types/providers';
 import { Button } from '@/components/ui/button';
 import { SecHead } from '@/components/ui/sec-head';
-import { deleteMyProvider, listMyProviders } from '../../api/providers';
+import {
+  createMyProvider,
+  deleteMyProvider,
+  fetchMyProviderModels,
+  listMyProviders,
+  testMyProvider,
+  updateMyProvider,
+} from '../../api/providers';
+import { ProviderForm } from '../../components/settings/provider-form';
+import {
+  emptyForm,
+  formFromProvider,
+  useProviderForm,
+} from '../../components/settings/use-provider-form';
 import { showToast } from '../../components/toast-provider';
 import { refreshComposerCatalog } from '../../lib/providers-store';
-import { cn } from '../../lib/utils';
-import { PersonalProviderDialog } from './personal-provider-dialog';
 
-const TYPE_LABELS: Record<ProviderType, string> = {
-  oauth: 'OAuth',
-  api: 'API',
-};
+/** Which form is open: adding a provider of a given type, or editing one by id. */
+type EditTarget = { kind: 'add'; type: ProviderType } | { kind: 'edit'; id: string } | null;
+
+const SECTIONS: {
+  type: ProviderType;
+  label: string;
+  description: string;
+  icon: typeof KeyRound;
+}[] = [
+  {
+    type: 'oauth',
+    label: 'OAuth',
+    description: 'Sign in with an OAuth token; models are fixed by the provider.',
+    icon: KeyRound,
+  },
+  {
+    type: 'api',
+    label: 'API key',
+    description: 'Bring your own API key and base URL, then pick the models to expose.',
+    icon: Server,
+  },
+];
 
 export function PersonalProvidersPanel() {
   const [providers, setProviders] = useState<ProviderDTO[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [editing, setEditing] = useState<ProviderDTO | null>(null);
+  const [editing, setEditing] = useState<EditTarget>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const {
+    form,
+    setForm,
+    patchForm,
+    manualModelId,
+    setManualModelId,
+    handleTest,
+    handleFetchModels,
+    toggleModelDefault,
+    toggleModelSelected,
+    addManualModel,
+  } = useProviderForm({
+    testProvider: testMyProvider,
+    fetchModels: fetchMyProviderModels,
+  });
 
   async function load() {
     setLoading(true);
-    setError(null);
+    setLoadError(null);
     try {
-      const res = await listMyProviders();
-      setProviders(res.providers);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load providers');
+      const { providers: list } = await listMyProviders();
+      setProviders(list);
+    } catch (e) {
+      setLoadError(e instanceof Error ? e.message : 'Failed to load providers');
     } finally {
       setLoading(false);
     }
@@ -39,170 +87,246 @@ export function PersonalProvidersPanel() {
     void load();
   }, []);
 
-  function openAdd() {
+  function startAdd(type: ProviderType) {
+    setEditing({ kind: 'add', type });
+    setForm(emptyForm(type));
+    setSaveError(null);
+    setManualModelId('');
+  }
+
+  function startEdit(p: ProviderDTO) {
+    setEditing({ kind: 'edit', id: p.id });
+    setForm(formFromProvider(p));
+    setSaveError(null);
+    setManualModelId('');
+  }
+
+  function cancelEdit() {
     setEditing(null);
-    setDialogOpen(true);
+    setSaveError(null);
   }
 
-  function openEdit(provider: ProviderDTO) {
-    setEditing(provider);
-    setDialogOpen(true);
+  const editingProvider =
+    editing?.kind === 'edit' ? providers.find((p) => p.id === editing.id) : undefined;
+
+  function onTest() {
+    void handleTest(editingProvider?.id ?? null);
   }
 
-  function handleSaved() {
-    void load();
-    refreshComposerCatalog();
+  function onFetchModels() {
+    void handleFetchModels(editingProvider?.id ?? null);
   }
 
-  async function handleRemove(provider: ProviderDTO) {
-    if (!window.confirm(`Remove provider "${provider.namespace}"?`)) return;
+  async function handleSave() {
+    if (!editing) return;
+    const namespace = form.namespace.trim();
+    if (!namespace) {
+      setSaveError('Namespace is required.');
+      return;
+    }
+    setSaving(true);
+    setSaveError(null);
     try {
-      await deleteMyProvider(provider.id);
-      showToast({ message: 'Provider removed', type: 'info' });
-      void load();
+      if (editing.kind === 'add') {
+        const type = editing.type;
+        const token = form.token ?? '';
+        if (!token) {
+          setSaveError('Token is required for a new provider.');
+          setSaving(false);
+          return;
+        }
+        if (type === 'api' && !form.baseUrl.trim()) {
+          setSaveError('Base URL is required for API providers.');
+          setSaving(false);
+          return;
+        }
+        await createMyProvider({
+          type,
+          namespace,
+          baseUrl: type === 'api' ? form.baseUrl.trim() || null : undefined,
+          token,
+          models: type === 'api' ? form.models : undefined,
+        });
+      } else {
+        const isApi = form.type === 'api';
+        await updateMyProvider(editing.id, {
+          namespace,
+          baseUrl: isApi ? form.baseUrl.trim() || null : undefined,
+          token: form.token, // null = keep existing
+          models: isApi ? form.models : undefined,
+        });
+      }
+      setEditing(null);
+      await load();
       refreshComposerCatalog();
-    } catch (err) {
-      showToast({
-        message: err instanceof Error ? err.message : 'Failed to remove provider',
-        type: 'error',
-      });
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : 'Save failed');
+    } finally {
+      setSaving(false);
     }
   }
 
-  if (loading) {
+  async function handleDelete(p: ProviderDTO) {
+    if (!window.confirm(`Remove provider "${p.namespace}"? This cannot be undone.`)) return;
+    setDeletingId(p.id);
+    try {
+      await deleteMyProvider(p.id);
+      setProviders((prev) => prev.filter((x) => x.id !== p.id));
+      if (editing?.kind === 'edit' && editing.id === p.id) setEditing(null);
+      showToast({ message: 'Provider removed', type: 'info' });
+      refreshComposerCatalog();
+    } catch (e) {
+      showToast({
+        message: e instanceof Error ? e.message : 'Failed to remove provider',
+        type: 'error',
+      });
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
+  function renderForm(isEdit: boolean, provider?: ProviderDTO) {
     return (
-      <div className="flex items-center justify-center py-16">
-        <div className="h-7 w-7 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-      </div>
+      <ProviderForm
+        form={form}
+        patchForm={patchForm}
+        onTest={onTest}
+        onSave={handleSave}
+        onCancel={cancelEdit}
+        onFetchModels={onFetchModels}
+        onToggleModelDefault={toggleModelDefault}
+        onToggleModelSelected={toggleModelSelected}
+        manualModelId={manualModelId}
+        onManualModelIdChange={setManualModelId}
+        onAddManualModel={addManualModel}
+        saving={saving}
+        saveError={saveError}
+        isEdit={isEdit}
+        existingProvider={provider}
+        showVisibility={false}
+      />
     );
   }
 
-  const oauthProviders = providers.filter((p) => p.type === 'oauth');
-  const apiProviders = providers.filter((p) => p.type === 'api');
+  if (loading) return <PanelSkeleton />;
 
   return (
-    <div className="space-y-5">
-      {error && (
-        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-2.5 text-sm text-destructive">
-          {error}
-        </div>
-      )}
-
+    <div className="space-y-6">
       <SecHead
         title="Personal providers"
-        description="Your own model providers (OAuth or API key). Visible only to you."
-        actions={
-          <Button type="button" variant="default" size="sm" onClick={openAdd}>
-            Add provider
-          </Button>
-        }
+        description="Your own model providers, visible only to you. Connect with an OAuth token or your own API key."
       />
 
-      {providers.length === 0 ? (
-        <p className="text-xs italic text-muted-foreground border border-dashed border-border rounded-md py-6 text-center">
-          No providers yet.
-        </p>
-      ) : (
-        <div className="space-y-4">
-          {oauthProviders.length > 0 && (
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-                OAuth
-              </p>
-              <ProviderList providers={oauthProviders} onEdit={openEdit} onRemove={handleRemove} />
-            </div>
-          )}
-          {apiProviders.length > 0 && (
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-                API key
-              </p>
-              <ProviderList providers={apiProviders} onEdit={openEdit} onRemove={handleRemove} />
-            </div>
-          )}
-        </div>
-      )}
+      {loadError && <p className="text-sm text-destructive">{loadError}</p>}
 
-      <PersonalProviderDialog
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-        provider={editing}
-        onSaved={handleSaved}
-      />
+      {SECTIONS.map((section) => {
+        const sectionProviders = providers.filter((p) => p.type === section.type);
+        const addingHere = editing?.kind === 'add' && editing.type === section.type;
+        const Icon = section.icon;
+        return (
+          <section key={section.type} className="space-y-3">
+            <div className="flex items-end justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <h3 className="text-sm font-semibold text-foreground">{section.label}</h3>
+                  <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                    {sectionProviders.length}
+                  </span>
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">{section.description}</p>
+              </div>
+              {!addingHere && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => startAdd(section.type)}
+                >
+                  <Plus className="mr-1 h-3.5 w-3.5" />
+                  Add {section.label}
+                </Button>
+              )}
+            </div>
+
+            <div className="space-y-3">
+              {sectionProviders.length === 0 && !addingHere && (
+                <p className="rounded-lg border border-dashed border-border py-6 text-center text-sm italic text-muted-foreground">
+                  No {section.label} providers yet.
+                </p>
+              )}
+
+              {sectionProviders.map((p) =>
+                editing?.kind === 'edit' && editing.id === p.id ? (
+                  <div key={p.id}>{renderForm(true, p)}</div>
+                ) : (
+                  <ProviderRow
+                    key={p.id}
+                    provider={p}
+                    deleting={deletingId === p.id}
+                    onEdit={() => startEdit(p)}
+                    onRemove={() => void handleDelete(p)}
+                  />
+                ),
+              )}
+
+              {addingHere && renderForm(false)}
+            </div>
+          </section>
+        );
+      })}
     </div>
   );
 }
 
-interface ProviderListProps {
-  providers: ProviderDTO[];
-  onEdit: (provider: ProviderDTO) => void;
-  onRemove: (provider: ProviderDTO) => void;
+interface ProviderRowProps {
+  provider: ProviderDTO;
+  deleting: boolean;
+  onEdit: () => void;
+  onRemove: () => void;
 }
 
-function ProviderList({ providers, onEdit, onRemove }: ProviderListProps) {
+function ProviderRow({ provider, deleting, onEdit, onRemove }: ProviderRowProps) {
   return (
-    <ul className="divide-y divide-border rounded-md border border-border overflow-hidden">
-      {providers.map((provider) => (
-        <li
-          key={provider.id}
-          className="flex items-center justify-between gap-3 px-3 py-2.5 hover:bg-muted/40 transition-colors"
+    <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-3.5 shadow-sm">
+      <div className="flex min-w-0 items-center gap-2.5">
+        <span className="truncate font-mono text-sm font-semibold text-foreground">
+          {provider.namespace}
+        </span>
+        {provider.type === 'api' && (
+          <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+            {provider.models.length} model{provider.models.length !== 1 ? 's' : ''}
+          </span>
+        )}
+        <span className="truncate font-mono text-xs text-muted-foreground">
+          {provider.tokenMasked}
+        </span>
+      </div>
+      <div className="flex shrink-0 items-center gap-1">
+        <Button type="button" variant="ghost" size="icon-sm" onClick={onEdit} title="Edit provider">
+          <Pencil className="h-4 w-4" />
+        </Button>
+        <Button
+          type="button"
+          variant="destructive"
+          size="icon-sm"
+          onClick={onRemove}
+          disabled={deleting}
+          title="Remove provider"
         >
-          <div className="flex min-w-0 flex-col gap-0.5">
-            <div className="flex items-center gap-2 min-w-0">
-              <span className="text-sm font-medium truncate">{provider.namespace}</span>
-              <span
-                className={cn(
-                  'shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider border',
-                  'bg-muted border-border text-muted-foreground',
-                )}
-              >
-                {TYPE_LABELS[provider.type]}
-              </span>
-              <span className="shrink-0 text-[10px] text-muted-foreground tabular-nums">
-                {provider.models.length} model{provider.models.length !== 1 ? 's' : ''}
-              </span>
-            </div>
-            <div className="text-xs text-muted-foreground min-w-0">
-              <span className="font-mono">{provider.tokenMasked}</span>
-            </div>
-          </div>
-          <div className="flex items-center gap-3 shrink-0">
-            <time
-              className="text-[11px] text-muted-foreground tabular-nums"
-              dateTime={provider.createdAt}
-              title={provider.createdAt}
-            >
-              {formatDate(provider.createdAt)}
-            </time>
-            <Button type="button" variant="ghost" size="xs" onClick={() => onEdit(provider)}>
-              Edit
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="xs"
-              onClick={() => onRemove(provider)}
-              className="text-destructive hover:text-destructive"
-            >
-              Remove
-            </Button>
-          </div>
-        </li>
-      ))}
-    </ul>
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      </div>
+    </div>
   );
 }
 
-function formatDate(iso: string): string {
-  try {
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return iso;
-    return d.toLocaleDateString(undefined, {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    });
-  } catch {
-    return iso;
-  }
+function PanelSkeleton() {
+  return (
+    <div className="rounded-lg border border-border bg-card p-6 space-y-4">
+      <div className="h-5 w-32 animate-pulse rounded bg-muted" />
+      <div className="h-8 w-full animate-pulse rounded bg-muted" />
+      <div className="h-8 w-full animate-pulse rounded bg-muted" />
+    </div>
+  );
 }

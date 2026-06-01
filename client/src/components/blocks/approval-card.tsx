@@ -38,7 +38,7 @@ export function ApprovalCard({ requestId, action, description, resolution }: App
         <button
           type="button"
           onClick={() => setIsExpanded(!isExpanded)}
-          className="w-full flex items-center justify-between gap-2 px-3 py-1.5 text-[11px] font-semibold text-muted-foreground hover:bg-muted/40 cursor-pointer select-none"
+          className="w-full flex items-center justify-between gap-2 px-3 py-1.5 text-[11px] font-semibold text-muted-foreground hover:bg-muted cursor-pointer select-none"
         >
           <div className="flex items-center gap-1.5 min-w-0 flex-1">
             {isApproved ? (

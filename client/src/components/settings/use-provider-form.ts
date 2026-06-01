@@ -5,6 +5,7 @@ import type {
   ProviderModelsResponse,
   ProviderTestRequest,
   ProviderTestResponse,
+  ProviderType,
   Visibility,
 } from 'shared/types/providers';
 
@@ -16,14 +17,20 @@ export type AvailableModel = {
 };
 
 /**
- * Form/test/model state for an `api`-type provider editor.
+ * Form/test/model state for a provider editor.
  *
  * Centralizes the credential fields, test-connection action, and model
- * checklist edits shared by the Built-in provider panel. The state shape
- * mirrors the persisted provider (`models: ProviderModelInput[]`): selecting a
- * model adds it to the list, deselecting removes it.
+ * checklist edits shared by the Built-in and Personal provider panels. The
+ * state shape mirrors the persisted provider (`models: ProviderModelInput[]`):
+ * selecting a model adds it to the list, deselecting removes it.
+ *
+ * `type` distinguishes the two credential shapes: `oauth` providers carry only a
+ * token (no base URL, no user-managed model list); `api` providers add a base
+ * URL and a model checklist. Built-in providers are always `api`.
  */
 export interface ProviderFormState {
+  /** `oauth` (token only) or `api` (base URL + models). Fixed once chosen. */
+  type: ProviderType;
   namespace: string;
   baseUrl: string;
   /** Plaintext token draft, or null when editing and the user hasn't replaced it yet. */
@@ -43,8 +50,9 @@ export interface ProviderFormState {
   testing: boolean;
 }
 
-export function emptyForm(): ProviderFormState {
+export function emptyForm(type: ProviderType = 'api'): ProviderFormState {
   return {
+    type,
     namespace: '',
     baseUrl: '',
     token: null,
@@ -94,6 +102,7 @@ export function probeReadiness(
 
 export function formFromProvider(p: ProviderDTO): ProviderFormState {
   return {
+    type: p.type,
     namespace: p.namespace,
     baseUrl: p.baseUrl ?? '',
     token: null, // null = keep existing secret
@@ -162,11 +171,15 @@ export function useProviderForm({
     // Ping with the chosen default (else first) model. Sending it lets a
     // manually-entered model validate even when the provider has no listable
     // `/models` endpoint, so credential validation never depends on a fetch.
-    const model = form.models.find((m) => m.isDefault)?.modelId ?? form.models[0]?.modelId ?? null;
+    // OAuth providers have no base URL or model list — the token alone is probed.
+    const isOauth = form.type === 'oauth';
+    const model = isOauth
+      ? null
+      : (form.models.find((m) => m.isDefault)?.modelId ?? form.models[0]?.modelId ?? null);
     try {
       const res = await testProvider({
-        type: 'api',
-        baseUrl: form.baseUrl || null,
+        type: form.type,
+        baseUrl: isOauth ? null : form.baseUrl || null,
         token: form.token, // null = reuse saved secret
         model,
         providerId,
@@ -186,8 +199,8 @@ export function useProviderForm({
     setForm((prev) => ({ ...prev, fetchingModels: true, fetchModelsError: null }));
     try {
       const { models } = await fetchModels({
-        type: 'api',
-        baseUrl: form.baseUrl || null,
+        type: form.type,
+        baseUrl: form.type === 'oauth' ? null : form.baseUrl || null,
         token: form.token, // null = reuse saved secret
         providerId,
       });

@@ -67,7 +67,7 @@ export function SettingsLayout({ title, navItems, contentHeader }: SettingsLayou
       <div className="mx-auto flex w-full min-h-0 max-w-[1180px] flex-1 overflow-hidden">
         {/* Desktop sidebar nav */}
         <aside className="hidden w-[230px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar px-3 py-4 md:flex">
-          <span className="px-2.5 pb-2.5 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+          <span className="px-2.5 pb-2.5 text-[11px] font-bold uppercase tracking-[0.08em] text-muted-foreground">
             {title}
           </span>
           <nav className="flex flex-col gap-0.5">
@@ -95,7 +95,7 @@ export function SettingsLayout({ title, navItems, contentHeader }: SettingsLayou
           {user && (
             <div className="mt-auto pt-4">
               <div className="flex flex-col gap-0.5 rounded-md border border-border bg-card px-3 py-2.5">
-                <span className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
+                <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-muted-foreground">
                   Your account
                 </span>
                 <span className="break-all font-mono text-xs text-foreground">{user.email}</span>

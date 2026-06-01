@@ -1,6 +1,7 @@
 import { Check } from 'lucide-react';
 import type { ProviderModelInput } from 'shared/types/providers';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '../../lib/utils';
@@ -51,10 +52,9 @@ export function ModelChecklist({
             return (
               <label
                 key={modelId}
-                className="flex items-center gap-3 px-3 py-1.5 cursor-pointer hover:bg-muted/40"
+                className="flex items-center gap-3 px-3 py-1.5 cursor-pointer hover:bg-muted"
               >
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={checked}
                   onChange={() =>
                     onToggleSelected(
@@ -63,7 +63,7 @@ export function ModelChecklist({
                       avail?.contextWindow ?? null,
                     )
                   }
-                  className="h-3.5 w-3.5"
+                  className="mt-0"
                 />
                 <span className="flex-1 text-sm font-mono">{avail?.displayName ?? modelId}</span>
                 {checked && (

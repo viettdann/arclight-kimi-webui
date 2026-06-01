@@ -46,7 +46,7 @@ export function KeyValueEditor({
         <div className="flex items-end justify-between gap-2">
           <div>
             {label && (
-              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
                 {label}
               </p>
             )}
