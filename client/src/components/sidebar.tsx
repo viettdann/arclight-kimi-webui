@@ -155,6 +155,7 @@ const REFRESH_TRIGGER_TYPES = new Set<WSMessageType>([
   'session_updated',
   'title_update',
   'project_adopted',
+  'turn_end',
 ]);
 // Cheap pre-filter so the streaming hot path (text_delta, thinking_delta, …)
 // avoids JSON.parse on every frame. We only parse when the raw frame contains
@@ -165,6 +166,7 @@ const REFRESH_RAW_HINTS = [
   '"session_updated"',
   '"title_update"',
   '"project_adopted"',
+  '"turn_end"',
 ];
 
 export function Sidebar({ isOpen, onClose, onLoginClick }: SidebarProps) {

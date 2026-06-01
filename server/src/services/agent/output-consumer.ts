@@ -21,17 +21,14 @@ import type {
   TurnEndStatus,
   WSMessageType,
 } from 'shared/types';
-import { LIGHT_MODEL } from 'shared/types/providers';
 import { db, schema } from '../../db';
 import { logger } from '../../lib/logger';
 import { broadcastEvent } from '../../lib/ws-broadcast';
-import { resolveProviderForUser } from '../providers/resolve';
 import type { ActiveSession } from '../session-manager';
 import { sessionManager } from '../session-manager';
 import { refreshCatalog } from './commands-catalog';
 import { toDisplayBlocks } from './display-blocks';
-import { generateTitle } from './title';
-import { appendTranscript, backupSubagents } from './transcript-store';
+import { aiTitleFromTranscript, appendTranscript, backupSubagents } from './transcript-store';
 
 const log = logger.child({ module: 'agent/output-consumer' });
 
@@ -115,24 +112,6 @@ function isUserAbort(err: unknown): boolean {
   return /abort(?:ed)?/i.test(message);
 }
 
-/** Extract plain text from an SDK user `MessageParam` content (string or
- *  content-block array). Returns '' when no text part is present. */
-function userMessageText(content: unknown): string {
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content)) return '';
-  return content
-    .filter((b): b is { type: 'text'; text: string } => {
-      return (
-        typeof b === 'object' &&
-        b !== null &&
-        (b as { type?: unknown }).type === 'text' &&
-        typeof (b as { text?: unknown }).text === 'string'
-      );
-    })
-    .map((b) => b.text)
-    .join('');
-}
-
 /**
  * Live streaming consumer for one session's SDK query. Runs for the LIFETIME of
  * the session — the streaming-input `query` stays open across turns, so this
@@ -163,8 +142,6 @@ export async function consumeQueryOutput(active: ActiveSession): Promise<void> {
   // Original tool input by tool_use.id, captured from the final assistant
   // message. Lets the matching tool_result build richer display blocks.
   const toolInputByCallId = new Map<string, unknown>();
-  // First main-scope user message text, kept best-effort for title generation.
-  let firstUserMessage: string | null = null;
   // Cumulative content-block index per scope, anchored to the current assistant
   // `message.id`. The SDK emits each content block as its OWN length-1 `assistant`
   // message; consecutive messages share one `message.id` and the true block index
@@ -356,17 +333,6 @@ export async function consumeQueryOutput(active: ActiveSession): Promise<void> {
     const parent = msg.parent_tool_use_id;
     const content = msg.message.content;
 
-    // Best-effort capture of the first main-scope, real user prompt for titling.
-    if (
-      parent === null &&
-      firstUserMessage === null &&
-      msg.isSynthetic !== true &&
-      msg.message.role === 'user'
-    ) {
-      const text = userMessageText(content);
-      if (text.trim()) firstUserMessage = text;
-    }
-
     if (!Array.isArray(content)) return;
     for (const block of content) {
       if (
@@ -471,11 +437,24 @@ export async function consumeQueryOutput(active: ActiveSession): Promise<void> {
       chainBackup(() => backupSubagents(active.sessionId, sdkSessionId, cwd));
     }
 
-    await maybeGenerateTitle();
+    // Title is read from the freshly backed-up transcript, so wait for the
+    // serialized backup chain to drain before looking for the ai-title entry.
+    await active.backupMutex;
+    await maybePersistTitle();
   }
 
-  /** Generate + persist a title once, after the first turn, when none exists. */
-  async function maybeGenerateTitle(): Promise<void> {
+  /**
+   * Mirror the SDK's AI title into our `sessions` row once per session, whenever
+   * it still has none. The `claude` binary generates the title itself and writes
+   * a `{"type":"ai-title",…}` entry into the transcript during a normal turn —
+   * no extra API call on our side. We just read the latest such entry (from the
+   * transcript already backed up this turn) and persist + broadcast it.
+   *
+   * Gated solely on `title IS NULL`, so a turn that ran before the binary had
+   * written the entry (or in a since-reloaded runtime) is retried on the next
+   * turn end.
+   */
+  async function maybePersistTitle(): Promise<void> {
     let row: { title: string | null } | undefined;
     try {
       row = await db.query.sessions.findFirst({
@@ -487,23 +466,9 @@ export async function consumeQueryOutput(active: ActiveSession): Promise<void> {
       return;
     }
     if (row?.title) return; // already titled
-    if (!firstUserMessage) return; // nothing to title from
 
-    const provider = await resolveProviderForUser(db, active.userId, active.providerId);
-    if (!provider) return;
-
-    // An api proxy may not expose the Anthropic light model id, so reuse the
-    // session's resolved model there; oauth always has the light model.
-    const titleModel = provider.type === 'api' ? (active.model ?? LIGHT_MODEL) : LIGHT_MODEL;
-
-    let title: string | null;
-    try {
-      title = await generateTitle(firstUserMessage, provider, titleModel);
-    } catch (err) {
-      log.warn({ err, sessionId: active.sessionId }, 'title generation threw');
-      return;
-    }
-    if (!title) return;
+    const title = await aiTitleFromTranscript(active.sessionId);
+    if (!title) return; // binary has not written an ai-title entry yet
 
     const clamped = title.slice(0, 255);
     try {
@@ -516,6 +481,7 @@ export async function consumeQueryOutput(active: ActiveSession): Promise<void> {
       return;
     }
     broadcastEvent(active, 'title_update', { title: clamped }, sessionManager);
+    log.info({ sessionId: active.sessionId, title: clamped }, 'AI title persisted from transcript');
   }
 
   log.info({ sessionId: active.sessionId }, 'output consumer started');

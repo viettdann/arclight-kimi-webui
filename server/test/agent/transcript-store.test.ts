@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import { join } from 'node:path';
 import { env } from '../../src/env';
 import {
+  aiTitleFromJsonl,
   encodeCwd,
   MAX_ENCODED_LEN,
   subagentDir,
@@ -91,5 +92,48 @@ describe('subagentDir', () => {
     const cwd = '/a/b';
     const id = 'sess-1';
     expect(subagentDir(cwd, id)).toBe(join(PROJECTS, '-a-b', id, 'subagents'));
+  });
+});
+
+describe('aiTitleFromJsonl', () => {
+  const titleLine = (aiTitle: unknown, extra: Record<string, unknown> = {}) =>
+    JSON.stringify({ type: 'ai-title', aiTitle, sessionId: 's1', ...extra });
+  const userLine = (content: string) =>
+    JSON.stringify({ type: 'user', message: { role: 'user', content } });
+
+  it('returns the aiTitle of a single ai-title entry', () => {
+    const jsonl = [
+      userLine('what is the cwd?'),
+      titleLine('Find current project directory'),
+    ].join('\n');
+    expect(aiTitleFromJsonl(jsonl)).toBe('Find current project directory');
+  });
+
+  it('returns the LAST ai-title when several are present (last-wins)', () => {
+    const jsonl = [
+      titleLine('First guess'),
+      userLine('more context'),
+      titleLine('Refined title'),
+    ].join('\n');
+    expect(aiTitleFromJsonl(jsonl)).toBe('Refined title');
+  });
+
+  it('trims surrounding whitespace', () => {
+    expect(aiTitleFromJsonl(titleLine('  Add OAuth login  '))).toBe('Add OAuth login');
+  });
+
+  it('skips non-string / empty aiTitle and tolerates malformed lines', () => {
+    const jsonl = [
+      'not json',
+      titleLine(42),
+      titleLine('   '),
+      titleLine('the real title'),
+    ].join('\n');
+    expect(aiTitleFromJsonl(jsonl)).toBe('the real title');
+  });
+
+  it('returns null when there is no ai-title entry', () => {
+    expect(aiTitleFromJsonl([userLine('hi'), 'garbage'].join('\n'))).toBeNull();
+    expect(aiTitleFromJsonl('')).toBeNull();
   });
 });
