@@ -31,7 +31,7 @@ import { sessionManager } from '../session-manager';
 import { refreshCatalog } from './commands-catalog';
 import { toDisplayBlocks } from './display-blocks';
 import { generateTitle } from './title';
-import { appendTranscript, backupSubagents, readTranscriptTitleInputs } from './transcript-store';
+import { backupSubagents, readTranscriptTitleInputs, syncTranscript } from './transcript-store';
 
 const log = logger.child({ module: 'agent/output-consumer' });
 
@@ -324,11 +324,19 @@ export async function consumeQueryOutput(active: ActiveSession): Promise<void> {
       }
     }
 
-    // Track the DB transcript within the live turn — main scope only.
-    if (parent === null && active.sdkSessionId) {
-      const sdkSessionId = active.sdkSessionId;
-      const cwd = active.workDir;
-      chainBackup(() => appendTranscript(active.sessionId, sdkSessionId, cwd));
+    // Main scope only: anchor the end-of-turn flush barrier and keep the DB
+    // snapshot fresh mid-turn. `cursor.index` is now the total content-block
+    // count seen for this message.id; the LAST assistant message of the turn
+    // leaves the anchor pointing at the tail the barrier must wait for.
+    if (parent === null) {
+      active.lastMainAssistantId = messageId;
+      active.lastMainAssistantBlocks = cursor.index;
+      if (active.sdkSessionId) {
+        const sdkSessionId = active.sdkSessionId;
+        const cwd = active.workDir;
+        // Mid-turn sync: no barrier — keep snapshot/F5 fresh between turns.
+        chainBackup(() => syncTranscript(active.sessionId, sdkSessionId, cwd));
+      }
     }
   }
 
@@ -432,11 +440,17 @@ export async function consumeQueryOutput(active: ActiveSession): Promise<void> {
     broadcastEvent(active, 'turn_end', turnEnd, sessionManager);
     active.turnInProgress = false;
 
-    // Post-turn transcript + subagent backup (fire-and-forget, serialized).
+    // Post-turn transcript + subagent backup (fire-and-forget, serialized). The
+    // transcript sync runs the flush barrier on the turn's last main assistant
+    // message, so it only commits once the tail thinking/text line is on disk.
     if (active.sdkSessionId) {
       const sdkSessionId = active.sdkSessionId;
       const cwd = active.workDir;
-      chainBackup(() => appendTranscript(active.sessionId, sdkSessionId, cwd));
+      const awaitMessageId = active.lastMainAssistantId;
+      const awaitBlocks = active.lastMainAssistantBlocks;
+      chainBackup(() =>
+        syncTranscript(active.sessionId, sdkSessionId, cwd, { awaitMessageId, awaitBlocks }),
+      );
       chainBackup(() => backupSubagents(active.sessionId, sdkSessionId, cwd));
     }
 
