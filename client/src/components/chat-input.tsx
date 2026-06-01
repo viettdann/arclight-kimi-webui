@@ -577,7 +577,7 @@ export function ChatInput() {
                   type="button"
                   variant="ghost"
                   size="xs"
-                  className={`cursor-pointer ${approvalMode === 'bypass' ? 'text-amber-500' : 'text-muted-foreground'}`}
+                  className={`cursor-pointer ${approvalMode === 'bypass' ? 'text-warning' : 'text-muted-foreground'}`}
                   disabled={!canCompose}
                   aria-label="Approval mode"
                   title="Approval mode — applies from the next message"
@@ -635,7 +635,7 @@ export function ChatInput() {
                 <span className="flex flex-col">
                   <span className="flex items-center gap-1.5">
                     Bypass · YOLO
-                    <Zap className="h-3 w-3 text-amber-500" />
+                    <Zap className="h-3 w-3 text-warning" />
                   </span>
                   <span className="text-xs text-muted-foreground">
                     Run every tool without asking
@@ -651,7 +651,7 @@ export function ChatInput() {
                   type="button"
                   variant="ghost"
                   size="xs"
-                  className={`cursor-pointer ${needsSelection ? 'text-amber-500' : 'text-muted-foreground'}`}
+                  className={`cursor-pointer ${needsSelection ? 'text-warning' : 'text-muted-foreground'}`}
                   disabled={!canCompose}
                   aria-label="Model"
                   title={
@@ -732,7 +732,7 @@ export function ChatInput() {
               {status === 'error' && (
                 <DropdownItem onClick={() => void load()}>
                   <span className="flex flex-col">
-                    <span className="text-amber-500">Failed to load — retry</span>
+                    <span className="text-warning">Failed to load — retry</span>
                     {error && (
                       <span className="text-xs text-muted-foreground truncate">{error}</span>
                     )}

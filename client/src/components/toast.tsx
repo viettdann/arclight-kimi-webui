@@ -39,7 +39,7 @@ export function Toast({ toast, onDismiss }: ToastProps) {
     <div
       className={`flex items-center gap-3 rounded-lg border px-4 py-3 shadow-lg ${
         toast.type === 'error'
-          ? 'border-red-200 bg-red-50 text-red-900'
+          ? 'border-destructive/30 bg-destructive-wash text-destructive'
           : 'border-border bg-card text-card-foreground'
       }`}
       style={{

@@ -24,6 +24,8 @@ function shortPath(path: string): string {
 // The four coarse buckets the detailed payload folds into. `key` doubles as the
 // expand toggle id; `color` drives both the segmented bar and the chip dot.
 type GroupKey = 'messages' | 'skills' | 'files' | 'system';
+// Data-viz palette for the segmented context bar — distinct hues per bucket,
+// intentionally not theme tokens.
 const GROUP_META: {
   key: GroupKey;
   label: string;
@@ -128,7 +130,7 @@ function GroupRowItem({ row }: { row: GroupRow }) {
   return (
     <li className="flex items-center justify-between gap-2 text-xs">
       <span className="flex min-w-0 items-center gap-2">
-        {Icon && <Icon className="h-3.5 w-3.5 shrink-0 text-sky-500" />}
+        {Icon && <Icon className="h-3.5 w-3.5 shrink-0 text-info" />}
         <span className="flex min-w-0 flex-col">
           <span className="truncate text-foreground">{row.label}</span>
           {row.sub && <span className="truncate text-[10px] text-muted-foreground">{row.sub}</span>}

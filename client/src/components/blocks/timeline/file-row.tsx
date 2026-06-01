@@ -46,8 +46,8 @@ export function FileRow({ path, diff }: FileRowProps) {
       <span className="text-foreground/85 font-mono">{name}</span>
       {stats && (stats.plus > 0 || stats.minus > 0) && (
         <span className="flex items-center gap-1.5 font-mono text-[11px] tabular-nums">
-          {stats.plus > 0 && <span className="text-emerald-500">+{stats.plus}</span>}
-          {stats.minus > 0 && <span className="text-red-500">-{stats.minus}</span>}
+          {stats.plus > 0 && <span className="text-success">+{stats.plus}</span>}
+          {stats.minus > 0 && <span className="text-destructive">-{stats.minus}</span>}
         </span>
       )}
     </div>

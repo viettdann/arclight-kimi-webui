@@ -127,7 +127,7 @@ export function ConfirmDeleteProjectDialog({
                     git: {stat.git.branch ?? 'detached HEAD'}
                   </div>
                   {stat.git.dirtyCount > 0 && (
-                    <div className="flex items-center gap-1.5 font-medium text-amber-500">
+                    <div className="flex items-center gap-1.5 font-medium text-warning">
                       <AlertTriangle className="size-3.5" />
                       {stat.git.dirtyCount} uncommitted change
                       {stat.git.dirtyCount === 1 ? '' : 's'}

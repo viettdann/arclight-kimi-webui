@@ -78,13 +78,13 @@ export function QuestionCard({ requestId, questions, resolved }: QuestionCardPro
 
   if (isSubmitted) {
     return (
-      <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 shadow-sm overflow-hidden backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="rounded-xl border border-success/30 bg-success-wash shadow-sm overflow-hidden backdrop-blur-sm animate-in fade-in duration-200">
         <div className="flex items-center justify-between gap-2 px-4 py-2 select-none border-b border-border/20">
           <div className="flex items-center gap-2 text-xs font-semibold">
-            <HelpCircle className="h-4.5 w-4.5 text-emerald-500" />
-            <span className="text-emerald-500">Response Submitted</span>
+            <HelpCircle className="h-4.5 w-4.5 text-success" />
+            <span className="text-success">Response Submitted</span>
           </div>
-          <div className="flex items-center gap-1.5 text-xs text-emerald-500 font-bold select-none font-sans">
+          <div className="flex items-center gap-1.5 text-xs text-success font-bold select-none font-sans">
             <Check className="h-3.5 w-3.5 stroke-[3]" />
             <span>Answers Recorded</span>
           </div>
@@ -102,7 +102,7 @@ export function QuestionCard({ requestId, questions, resolved }: QuestionCardPro
                 )}
                 <span className="font-semibold text-foreground/85">{qi.question}</span>
                 <span className="mx-1.5 text-muted-foreground/60">→</span>
-                <span className="font-medium text-emerald-600 dark:text-emerald-400">
+                <span className="font-medium text-success">
                   {ans || <em className="text-muted-foreground/70">no answer</em>}
                 </span>
               </li>

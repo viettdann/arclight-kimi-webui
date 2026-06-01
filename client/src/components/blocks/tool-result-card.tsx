@@ -44,19 +44,19 @@ export function ToolResultCard({
       <div className="flex items-center justify-between px-1 text-xs">
         <div className="flex items-center gap-1.5 font-medium select-none">
           {isError ? (
-            <AlertCircle className="h-4.5 w-4.5 text-red-500 fill-red-500/10" />
+            <AlertCircle className="h-4.5 w-4.5 text-destructive fill-destructive-wash" />
           ) : isInterrupted ? (
-            <AlertTriangle className="h-4.5 w-4.5 text-amber-500 fill-amber-500/10 animate-pulse" />
+            <AlertTriangle className="h-4.5 w-4.5 text-warning fill-warning-wash animate-pulse" />
           ) : (
-            <CheckCircle2 className="h-4.5 w-4.5 text-emerald-500 fill-emerald-500/10" />
+            <CheckCircle2 className="h-4.5 w-4.5 text-success fill-success-wash" />
           )}
           <span
             className={
               isError
-                ? 'text-red-500'
+                ? 'text-destructive'
                 : isInterrupted
-                  ? 'text-amber-500 font-bold'
-                  : 'text-emerald-500'
+                  ? 'text-warning font-bold'
+                  : 'text-success'
             }
           >
             {isError ? 'Error executing' : isInterrupted ? 'Interrupted' : 'Completed'}{' '}
@@ -89,7 +89,7 @@ export function ToolResultCard({
         <div
           className={`text-xs px-3.5 py-2.5 rounded-xl border ${
             isError
-              ? 'border-red-500/25 bg-red-500/5 text-red-600 dark:text-red-400'
+              ? 'border-destructive/30 bg-destructive-wash text-destructive'
               : 'border-border bg-muted/15 text-muted-foreground/90'
           }`}
         >

@@ -1,3 +1,4 @@
+import { Check, RefreshCw, Server, Zap } from 'lucide-react';
 import type { ProviderDTO } from 'shared/types/providers';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -57,8 +58,30 @@ export function ProviderForm({
   const testReady = fetchReady && form.models.length > 0;
 
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+    <div className="overflow-hidden rounded-lg border border-primary/40 bg-card shadow-sm">
+      {/* Header — clay-washed band identifying the provider being edited. */}
+      <header className="flex items-center justify-between gap-3 border-b border-primary/20 bg-primary-wash px-4 py-3">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <Server className="h-4 w-4 shrink-0 text-primary" />
+          <span className="truncate font-mono text-sm font-semibold text-foreground">
+            {form.namespace || (isEdit ? existingProvider?.namespace : 'New provider')}
+          </span>
+          <span className="text-xs font-medium text-primary">
+            {isEdit ? 'Editing' : 'New'}
+          </span>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="rounded-full bg-card/70 px-2 py-0.5 text-xs font-medium text-muted-foreground">
+            {form.models.length} model{form.models.length !== 1 ? 's' : ''}
+          </span>
+          <span className="rounded-full bg-card/70 px-2 py-0.5 text-xs font-medium text-muted-foreground">
+            {form.visibility === 'public' ? 'Public' : 'Private'}
+          </span>
+        </div>
+      </header>
+
+      {/* Body — two columns: identity/key on the left, endpoint/models right. */}
+      <div className="grid grid-cols-1 gap-x-6 gap-y-5 px-5 py-5 md:grid-cols-2">
         <div className="space-y-1.5">
           <Label htmlFor="pf-namespace">Namespace</Label>
           <Input
@@ -67,7 +90,11 @@ export function ProviderForm({
             placeholder="e.g. anthropic"
             onChange={(e) => patchForm({ namespace: e.target.value })}
           />
+          <p className="text-xs text-muted-foreground">
+            Prefix for model ids, e.g. <span className="font-mono">anthropic/claude-…</span>
+          </p>
         </div>
+
         <div className="space-y-1.5">
           <Label htmlFor="pf-base-url">Base URL</Label>
           <Input
@@ -76,21 +103,21 @@ export function ProviderForm({
             placeholder="https://api.anthropic.com"
             onChange={(e) => patchForm({ baseUrl: e.target.value })}
           />
+          <p className="text-xs text-muted-foreground">Override for proxies or self-hosted gateways.</p>
         </div>
-      </div>
 
-      {/* API Key and Models share one row. Models is always available — pick
-          from fetched options or add manually. */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-start">
-        <SecretField
-          id="pf-token"
-          label="API Key"
-          masked={existingProvider?.tokenMasked ?? ''}
-          isSet={isEdit && !!existingProvider}
-          value={form.token}
-          onChange={(v) => patchForm({ token: v })}
-          placeholder="Enter API key"
-        />
+        <div className="space-y-1.5">
+          <SecretField
+            id="pf-token"
+            label="API Key"
+            masked={existingProvider?.tokenMasked ?? ''}
+            isSet={isEdit && !!existingProvider}
+            value={form.token}
+            onChange={(v) => patchForm({ token: v })}
+            placeholder="Enter API key"
+          />
+        </div>
+
         <div className="space-y-1.5">
           <ModelChecklist
             availableModels={form.availableModels}
@@ -105,78 +132,99 @@ export function ProviderForm({
             <p className="text-sm text-muted-foreground">{form.fetchModelsError}</p>
           )}
         </div>
+
+        {/* Visibility — segmented toggle. */}
+        <div className="space-y-1.5">
+          <Label>Visibility</Label>
+          <div className="inline-flex rounded-md border border-border bg-muted p-0.5">
+            {(['public', 'private'] as const).map((v) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => patchForm({ visibility: v })}
+                className={cn(
+                  'rounded-[5px] px-4 py-1 text-sm font-medium capitalize transition-colors',
+                  form.visibility === v
+                    ? 'bg-card text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {v}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {form.visibility === 'public'
+              ? 'Public providers are usable by every member.'
+              : 'Private providers stay hidden from other members.'}
+          </p>
+        </div>
+
+        {/* Connection — test + fetch actions and their result. */}
+        <div className="space-y-1.5">
+          <Label>Connection</Label>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={form.testing || !testReady}
+              onClick={onTest}
+              title={testReady ? undefined : 'Fill base URL, API key, and select a model first'}
+            >
+              <Zap className="mr-1 h-3.5 w-3.5" />
+              {form.testing ? 'Testing…' : 'Test connection'}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={form.fetchingModels || !fetchReady}
+              onClick={onFetchModels}
+              title={fetchReady ? 'Probe the /models endpoint' : 'Fill base URL and API key first'}
+            >
+              <RefreshCw className="mr-1 h-3.5 w-3.5" />
+              {form.fetchingModels ? 'Fetching…' : 'Fetch models'}
+            </Button>
+            {form.testResult && (
+              <span
+                className={cn(
+                  'inline-flex items-center gap-1 text-sm',
+                  form.testResult.ok ? 'text-success' : 'text-destructive',
+                )}
+              >
+                {form.testResult.ok && <Check className="h-3.5 w-3.5" />}
+                {form.testResult.ok ? 'OK' : (form.testResult.error ?? 'Connection failed')}
+              </span>
+            )}
+          </div>
+        </div>
       </div>
 
-      {/* Test + fetch-models actions */}
-      <div className="flex items-center gap-3">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={form.testing || !testReady}
-          onClick={onTest}
-          title={testReady ? undefined : 'Fill base URL, API key, and select a model first'}
-        >
-          {form.testing ? 'Testing…' : 'Test connection'}
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={form.fetchingModels || !fetchReady}
-          onClick={onFetchModels}
-          title={fetchReady ? 'Probe the /models endpoint' : 'Fill base URL and API key first'}
-        >
-          {form.fetchingModels ? 'Fetching…' : 'Fetch models'}
-        </Button>
-        {form.testResult && (
-          <span
-            className={
-              form.testResult.ok
-                ? 'text-sm text-emerald-600 dark:text-emerald-400'
-                : 'text-sm text-destructive'
-            }
+      {saveError && <p className="px-5 pb-2 text-sm text-destructive">{saveError}</p>}
+
+      {/* Footer — pinned action bar, mirrors the dialog footer in the mock. */}
+      <footer className="flex items-center justify-between gap-3 border-t border-border bg-card-2 px-5 py-3">
+        <p className="text-xs text-muted-foreground">
+          Test connection before saving credential changes.
+        </p>
+        <div className="flex items-center gap-2">
+          <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            variant="default"
+            size="sm"
+            disabled={saving || (credentialDirty && !form.tested)}
+            onClick={onSave}
+            title={credentialDirty && !form.tested ? 'Run a successful test first' : undefined}
           >
-            {form.testResult.ok ? 'OK' : (form.testResult.error ?? 'Connection failed')}
-          </span>
-        )}
-      </div>
-
-      <div className="flex items-center gap-2">
-        <Label className="shrink-0">Visibility</Label>
-        <button
-          type="button"
-          onClick={() =>
-            patchForm({ visibility: form.visibility === 'public' ? 'private' : 'public' })
-          }
-          className={cn(
-            'rounded-full px-2.5 py-0.5 text-xs font-medium border transition-colors cursor-pointer',
-            form.visibility === 'public'
-              ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
-              : 'border-border bg-muted text-muted-foreground hover:bg-muted/70',
-          )}
-        >
-          {form.visibility === 'public' ? 'Public' : 'Private'}
-        </button>
-      </div>
-
-      {saveError && <p className="text-sm text-destructive">{saveError}</p>}
-
-      <div className="flex items-center justify-end gap-2">
-        <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
-          Cancel
-        </Button>
-        <Button
-          type="button"
-          variant="default"
-          size="sm"
-          disabled={saving || (credentialDirty && !form.tested)}
-          onClick={onSave}
-          title={credentialDirty && !form.tested ? 'Run a successful test first' : undefined}
-        >
-          {saving ? 'Saving…' : 'Save'}
-        </Button>
-      </div>
+            <Check className="mr-1 h-3.5 w-3.5" />
+            {saving ? 'Saving…' : 'Save'}
+          </Button>
+        </div>
+      </footer>
     </div>
   );
 }

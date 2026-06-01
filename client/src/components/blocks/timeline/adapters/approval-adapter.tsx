@@ -12,7 +12,7 @@ const RESOLUTION_LABEL: Record<Resolution, string> = {
 /** Compact "Awaiting approval" pill attached to the tool_call row heading. */
 export function PendingApprovalBadge() {
   return (
-    <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/5 px-1.5 py-0.5 text-[10px] font-medium leading-none text-amber-600">
+    <span className="inline-flex items-center gap-1 rounded-full border border-warning/30 bg-warning-wash px-1.5 py-0.5 text-[10px] font-medium leading-none text-warning">
       <ShieldAlert className="h-3 w-3" />
       <span>Awaiting approval</span>
     </span>
@@ -27,8 +27,8 @@ export function ApprovalBadge({ approval }: { approval: ApprovalRailBlock }) {
   const Icon = isApproved ? ShieldCheck : ShieldX;
   const label = RESOLUTION_LABEL[resolution];
   const colorCls = isApproved
-    ? 'text-emerald-600 border-emerald-500/30 bg-emerald-500/5'
-    : 'text-red-600 border-red-500/30 bg-red-500/5';
+    ? 'text-success border-success/30 bg-success-wash'
+    : 'text-destructive border-destructive/30 bg-destructive-wash';
 
   return (
     <span
@@ -50,7 +50,7 @@ export function ApprovalBadge({ approval }: { approval: ApprovalRailBlock }) {
  */
 export function approvalBlockToRow(b: ApprovalRailBlock): RailRowShape {
   return {
-    icon: <ShieldAlert className="h-3.5 w-3.5 text-amber-500" />,
+    icon: <ShieldAlert className="h-3.5 w-3.5 text-warning" />,
     verb: 'Awaiting approval',
     inline: <ApprovalActionLabel action={b.action} />,
     badge: <PendingApprovalBadge />,

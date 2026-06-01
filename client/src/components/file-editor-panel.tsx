@@ -196,7 +196,7 @@ function EditorBody({ path, name }: PanelInner) {
           {name}
         </span>
         {dirty && (
-          <span className="size-1.5 shrink-0 rounded-full bg-amber-500" title="Unsaved changes" />
+          <span className="size-1.5 shrink-0 rounded-full bg-warning" title="Unsaved changes" />
         )}
 
         {/* Right: download · wrap · save · close. */}

@@ -1,23 +1,15 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router';
 import type { OverviewResponse } from 'shared/types';
 import { Button } from '@/components/ui/button';
+import { SecHead } from '@/components/ui/sec-head';
 import { Section } from '@/components/ui/section';
 import { fetchOverview } from '../../api/overview';
-import { useProvidersStore } from '../../lib/providers-store';
 import { cn } from '../../lib/utils';
 
 export function OverviewPanel() {
-  const { available, ensureLoaded } = useProvidersStore();
-
   const [overview, setOverview] = useState<OverviewResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: one-shot on mount
-  useEffect(() => {
-    ensureLoaded();
-  }, []);
 
   async function load() {
     setLoading(true);
@@ -37,37 +29,9 @@ export function OverviewPanel() {
     void load();
   }, []);
 
-  // Derive provider summary from available catalog.
-  const builtinProviders = available?.builtin ?? [];
-  const personalProviders = available?.personal ?? [];
-  const builtinPublicCount = builtinProviders.filter((p) => p.visibility === 'public').length;
-  const totalModels =
-    builtinProviders.reduce((acc, p) => acc + p.models.length, 0) +
-    personalProviders.reduce((acc, p) => acc + p.models.length, 0);
-
   return (
     <div className="space-y-6">
-      <Section
-        title="Providers"
-        description="Summary of available providers and models."
-        actions={
-          <Link
-            to="/settings/claude/provider"
-            className="text-xs underline hover:no-underline text-muted-foreground"
-          >
-            Edit in Provider
-          </Link>
-        }
-      >
-        <dl className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
-          <SystemRow
-            label="Built-in providers"
-            value={`${builtinProviders.length} (${builtinPublicCount} public)`}
-          />
-          <SystemRow label="Personal providers" value={String(personalProviders.length)} />
-          <SystemRow label="Total models" value={String(totalModels)} />
-        </dl>
-      </Section>
+      <SecHead title="Overview" description="System status and runtime metrics." />
 
       <Section
         title="Runtime"
@@ -175,7 +139,7 @@ function HealthCard({
   const tone = neutral
     ? 'border-border bg-muted/30 text-foreground'
     : ok
-      ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200'
+      ? 'border-success/40 bg-success-wash text-success'
       : 'border-destructive/40 bg-destructive/10 text-destructive';
   return (
     <div className={cn('rounded-md border px-3 py-2', tone)}>

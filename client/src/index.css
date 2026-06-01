@@ -24,7 +24,14 @@
     --color-ring: var(--ring);
     --color-input: var(--input);
     --color-border: var(--border);
+    --color-border-strong: var(--border-strong);
     --color-destructive: var(--destructive);
+    --color-destructive-wash: var(--destructive-wash);
+    --color-success: var(--success);
+    --color-success-wash: var(--success-wash);
+    --color-warning: var(--warning);
+    --color-warning-wash: var(--warning-wash);
+    --color-info: var(--info);
     --color-accent-foreground: var(--accent-foreground);
     --color-accent: var(--accent);
     --color-muted-foreground: var(--muted-foreground);
@@ -33,9 +40,12 @@
     --color-secondary: var(--secondary);
     --color-primary-foreground: var(--primary-foreground);
     --color-primary: var(--primary);
+    --color-primary-hover: var(--primary-hover);
+    --color-primary-wash: var(--primary-wash);
     --color-popover-foreground: var(--popover-foreground);
     --color-popover: var(--popover);
     --color-card-foreground: var(--card-foreground);
+    --color-card-2: var(--card-2);
     --color-card: var(--card);
     --color-foreground: var(--foreground);
     --color-background: var(--background);
@@ -48,100 +58,63 @@
     --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-/* Gentle Lavender — soft periwinkle violet over a barely-tinted lilac white. */
+/* Claude Clay — paper-warm canvas, terracotta clay accent, charcoal ink. */
 :root {
-    --background: oklch(0.979 0.009 292.8); /* #F8F7FE page */
-    --foreground: oklch(0.296 0.029 296); /* #2E2A3A ink */
-    --card: oklch(1 0 0); /* #FFFFFF surface */
-    --card-foreground: oklch(0.296 0.029 296);
-    --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.296 0.029 296);
-    --primary: oklch(0.555 0.175 285.4); /* #6D5DD3 accent */
-    --primary-foreground: oklch(1 0 0);
-    --secondary: oklch(0.955 0.019 295.9); /* #F1EEFC accent-wash */
-    --secondary-foreground: oklch(0.254 0.036 295.8); /* #241F32 heading */
-    --muted: oklch(0.966 0.013 295.3); /* #F4F2FC code-surface */
-    --muted-foreground: oklch(0.464 0.046 296); /* #5B5470 ink-soft */
-    --accent: oklch(0.955 0.019 295.9); /* #F1EEFC accent-wash */
-    --accent-foreground: oklch(0.254 0.036 295.8);
-    --destructive: oklch(0.577 0.245 27.325);
-    --border: oklch(0.925 0.026 295.5); /* #E7E3F6 divider */
-    --input: oklch(0.925 0.026 295.5);
-    --ring: oklch(0.555 0.175 285.4); /* accent */
-    --chart-1: oklch(0.7 0.13 286);
-    --chart-2: oklch(0.6 0.16 287);
-    --chart-3: oklch(0.52 0.17 286);
-    --chart-4: oklch(0.44 0.15 287);
-    --chart-5: oklch(0.36 0.12 288);
-    --radius: 0.625rem;
-    --sidebar: oklch(0.987 0.005 297.7); /* #FBFAFE faint lilac */
-    --sidebar-foreground: oklch(0.296 0.029 296);
-    --sidebar-primary: oklch(0.555 0.175 285.4);
-    --sidebar-primary-foreground: oklch(1 0 0);
-    --sidebar-accent: oklch(0.955 0.019 295.9);
-    --sidebar-accent-foreground: oklch(0.254 0.036 295.8);
-    --sidebar-border: oklch(0.925 0.026 295.5);
-    --sidebar-ring: oklch(0.555 0.175 285.4);
+    --background: #F5F1EB; /* warm paper canvas */
+    --foreground: #2A2622; /* warm charcoal ink */
+    --card: #FFFFFF; /* raised surface */
+    --card-2: #FAF7F2; /* second-tier surface (composer, footers, code) */
+    --card-foreground: #2A2622;
+    --popover: #FFFFFF;
+    --popover-foreground: #2A2622;
+    --primary: #C96442; /* terracotta / clay */
+    --primary-hover: #B5573A;
+    --primary-foreground: #FBF7F2;
+    --primary-wash: #F3E4DC; /* faint clay wash for hovers/selected */
+    --secondary: #EFE9E0; /* muted warm fill */
+    --secondary-foreground: #2A2622;
+    --muted: #F0EBE3; /* code surface / subtle fill */
+    --muted-foreground: #6B6358; /* soft ink */
+    --accent: #EFE9E0;
+    --accent-foreground: #2A2622;
+    --success: #4F7A52;
+    --success-wash: #E4ECE0;
+    --warning: #B5862E;
+    --warning-wash: #F3E9D2;
+    --destructive: #B0413A;
+    --destructive-wash: #F2DEDB;
+    --info: #4B6FA8;
+    --border: #E5DDD0; /* warm hairline */
+    --border-strong: #D8CDBB;
+    --input: #E5DDD0;
+    --ring: #C96442;
+    --chart-1: #C96442;
+    --chart-2: #4F7A52;
+    --chart-3: #4B6FA8;
+    --chart-4: #B5862E;
+    --chart-5: #8A5A2B;
+    --radius: 0.5rem;
+    --sidebar: #EFEAE1; /* slightly deeper paper */
+    --sidebar-foreground: #2A2622;
+    --sidebar-primary: #C96442;
+    --sidebar-primary-foreground: #FBF7F2;
+    --sidebar-accent: #E7DFD3;
+    --sidebar-accent-foreground: #2A2622;
+    --sidebar-border: #E2DACD;
+    --sidebar-ring: #C96442;
     /* markdown surfaces */
-    --surface-edge: oklch(0.94 0.026 295.6); /* #ECE8FB card edge */
-    --accent-wash: oklch(0.955 0.019 295.9); /* #F1EEFC */
-    --quote-bg: oklch(0.961 0.018 296.6); /* #F3F0FD */
-    /* syntax tokens — cool jewel family, low saturation */
-    --code-ink: #322c45;
-    --tok-com: #9a93b4;
-    --tok-kw: #7a5fce;
-    --tok-fn: #4b6cc4;
-    --tok-var: #3f3a52;
-    --tok-type: #4f4ab8;
-    --tok-str: #2e8c8c;
-    --tok-num: #b5645e;
-}
-
-.dark {
-    --background: oklch(0.2 0.022 296.9);
-    --foreground: oklch(0.94 0.016 297.5);
-    --card: oklch(0.24 0.031 298.4);
-    --card-foreground: oklch(0.94 0.016 297.5);
-    --popover: oklch(0.24 0.031 298.4);
-    --popover-foreground: oklch(0.94 0.016 297.5);
-    --primary: oklch(0.695 0.144 289);
-    --primary-foreground: oklch(0.211 0.024 299.6);
-    --secondary: oklch(0.276 0.037 297.7);
-    --secondary-foreground: oklch(0.94 0.016 297.5);
-    --muted: oklch(0.276 0.037 297.7);
-    --muted-foreground: oklch(0.718 0.05 297.3);
-    --accent: oklch(0.292 0.046 296.3);
-    --accent-foreground: oklch(0.94 0.016 297.5);
-    --destructive: oklch(0.704 0.191 22.216);
-    --border: oklch(1 0 0 / 10%);
-    --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.695 0.144 289);
-    --chart-1: oklch(0.72 0.14 287);
-    --chart-2: oklch(0.66 0.15 289);
-    --chart-3: oklch(0.6 0.16 287);
-    --chart-4: oklch(0.52 0.15 288);
-    --chart-5: oklch(0.44 0.13 289);
-    --sidebar: oklch(0.221 0.027 297.2);
-    --sidebar-foreground: oklch(0.94 0.016 297.5);
-    --sidebar-primary: oklch(0.695 0.144 289);
-    --sidebar-primary-foreground: oklch(0.211 0.024 299.6);
-    --sidebar-accent: oklch(0.292 0.046 296.3);
-    --sidebar-accent-foreground: oklch(0.94 0.016 297.5);
-    --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.695 0.144 289);
-    /* markdown surfaces */
-    --surface-edge: oklch(0.292 0.046 296.3);
-    --accent-wash: oklch(0.292 0.046 296.3);
-    --quote-bg: oklch(0.254 0.036 295.8);
-    /* syntax tokens — brightened for dark surfaces */
-    --code-ink: #d8d2ea;
-    --tok-com: #8b83a8;
-    --tok-kw: #b7a6ff;
-    --tok-fn: #93b4ff;
-    --tok-var: #c9c3de;
-    --tok-type: #ada4f2;
-    --tok-str: #5fd0d0;
-    --tok-num: #e8918b;
+    --surface-edge: #E5DDD0;
+    --accent-wash: #EFE9E0;
+    --quote-bg: #F0EBE3;
+    /* syntax tokens — warm jewel family */
+    --code-ink: #3A332C;
+    --tok-com: #9A9081;
+    --tok-kw: #B5573A; /* keyword = clay */
+    --tok-fn: #4B6FA8;
+    --tok-var: #44403A;
+    --tok-type: #8A5A2B;
+    --tok-str: #4F7A52;
+    --tok-num: #A8584A;
 }
 
 @layer base {
@@ -158,10 +131,25 @@
 
 @layer utilities {
   .gradient-text {
-    background: linear-gradient(135deg, oklch(0.555 0.175 285.4), oklch(0.64 0.16 300));
+    background: linear-gradient(135deg, var(--primary), var(--primary-hover));
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
+  }
+
+  /* Settings/Preferences sidebar nav: active item gets a rounded clay accent
+     bar drawn as a pseudo-element (not a border-left) so it floats inside the
+     padded item without shifting content. Pair with bg-primary-wash on .active. */
+  .nav-accent { position: relative; }
+  .nav-accent.active::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 7px;
+    bottom: 7px;
+    width: 3px;
+    border-radius: 99px;
+    background: var(--primary);
   }
 }
 
