@@ -534,10 +534,13 @@ async function handleSendMessage(
   ) {
     if (flagChanges.thinking !== undefined) {
       active.thinking = flagChanges.thinking;
-      // A live query honors thinking changes in place — null re-enables adaptive
-      // thinking, 0 disables it — so the running subprocess applies it without a
-      // respawn.
-      await active.query?.setMaxThinkingTokens(flagChanges.thinking ? null : 0);
+      // `setMaxThinkingTokens` is deprecated and only Opus 4.6 maps 0→disabled —
+      // 3rd-party providers ignore it. `alwaysThinkingEnabled` is the cross-provider
+      // flag-settings key honored mid-session; null clears it to fall back to
+      // user/project settings.
+      await active.query?.applyFlagSettings({
+        alwaysThinkingEnabled: flagChanges.thinking ? null : false,
+      });
     }
     if (flagChanges.approvalMode !== undefined) {
       active.approvalMode = flagChanges.approvalMode;
