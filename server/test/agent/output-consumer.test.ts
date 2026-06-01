@@ -19,6 +19,10 @@ mock.module('../../src/lib/ws-broadcast', () => ({
 // `storedContent` and serves it back for any read. Title stays `manual` so
 // `maybePersistTitle` short-circuits — keeps these tests about the transcript.
 let storedContent: string | null = null;
+// Captures the latest `subagents` jsonb map written via `db.update().set(...)`
+// (backupSubagents). Other updates (usage/title) carry no `subagents` key and
+// are ignored, so this only reflects subagent backups.
+let storedSubagents: Record<string, string> | null = null;
 const dbFactory = () => ({
   db: {
     query: {
@@ -34,7 +38,14 @@ const dbFactory = () => ({
         },
       }),
     }),
-    update: () => ({ set: () => ({ where: async () => {} }) }),
+    update: () => ({
+      set: (vals: Record<string, unknown>) => {
+        if (vals && 'subagents' in vals) {
+          storedSubagents = vals.subagents as Record<string, string> | null;
+        }
+        return { where: async () => {} };
+      },
+    }),
   },
   schema: { sessions: {}, sessionTranscripts: {} },
 });
@@ -43,7 +54,7 @@ mock.module('../../src/db/index', dbFactory);
 
 const { consumeQueryOutput } = await import('../../src/services/agent/output-consumer');
 const { SessionManager } = await import('../../src/services/session-manager');
-const { transcriptPath } = await import('../../src/services/agent/transcript-store');
+const { transcriptPath, subagentDir } = await import('../../src/services/agent/transcript-store');
 const { renderTranscript } = await import('../../src/services/agent/transcript-render');
 const { env } = await import('../../src/env');
 
@@ -343,5 +354,71 @@ describe('consumeQueryOutput — transcript backup round-trip', () => {
       ),
     ).toBe(true);
     expect(normalizeRendered(rendered)).toEqual(normalizeLive(broadcasts));
+  });
+});
+
+describe('consumeQueryOutput — mid-turn subagent backup', () => {
+  const dirs: string[] = [];
+
+  afterEach(async () => {
+    await Promise.all(dirs.map((d) => rm(d, { recursive: true, force: true })));
+    dirs.length = 0;
+    storedContent = null;
+    storedSubagents = null;
+  });
+
+  it('flushes subagents to the DB on a subagent message — before any turn-end result', async () => {
+    // Repro of the F5-mid-turn bug: while a subagent streams, the main agent is
+    // parked on the Task tool, so no main assistant message (and thus no
+    // syncTranscript) fires, and the turn-end `result` has not arrived yet. The
+    // subagent JSONL is on disk but, pre-fix, was only backed up at turn end — a
+    // reload built its snapshot from a NULL `subagents` column and lost it all.
+    broadcasts.length = 0;
+    storedContent = null;
+    storedSubagents = null;
+
+    const sm = new SessionManager();
+    const cwd = join(WS, 'dan.le', 'sub-mid-turn');
+    const sdkSessionId = 'sdk-sub-1';
+    const active = sm.register({
+      sessionId: 's-sub-1',
+      userId: 'u1',
+      workDir: cwd,
+      approvalMode: 'ask',
+    });
+    active.sdkSessionId = sdkSessionId; // pre-set so capture is a no-op
+
+    // The subprocess has already written the subagent's transcript + meta on disk.
+    const dir = subagentDir(cwd, sdkSessionId);
+    dirs.push(dir);
+    await mkdir(dir, { recursive: true });
+    const agentJsonl = JSON.stringify({
+      type: 'assistant',
+      message: { id: 'msg_sub', content: [{ type: 'text', text: 'subagent searching' }] },
+    });
+    await writeFile(join(dir, 'agent-aaa.jsonl'), agentJsonl);
+    await writeFile(
+      join(dir, 'agent-aaa.meta.json'),
+      JSON.stringify({ agentType: 'Explore', description: 'find it', toolUseId: 'call_sub' }),
+    );
+
+    // A single subagent assistant message (parent_tool_use_id !== null) and NO
+    // `result` — i.e. the turn is still in flight when the user reloads.
+    active.query = makeQuery([
+      {
+        type: 'assistant',
+        parent_tool_use_id: 'call_sub',
+        message: { id: 'msg_sub', content: [{ type: 'text', text: 'subagent searching' }] },
+      },
+    ]);
+
+    await consumeQueryOutput(active);
+    await active.backupMutex; // drain the chained, fire-and-forget backup
+
+    // The subagent column is populated mid-turn — no turn-end result needed.
+    const saved = storedSubagents as Record<string, string> | null;
+    expect(saved).not.toBeNull();
+    expect(Object.keys(saved ?? {}).sort()).toEqual(['agent-aaa.jsonl', 'agent-aaa.meta.json']);
+    expect(saved?.['agent-aaa.jsonl']).toBe(agentJsonl);
   });
 });

@@ -41,6 +41,18 @@ interface AnyRecord {
   [key: string]: unknown;
 }
 
+/** Render-time options for {@link renderTranscript}. */
+export interface RenderOpts {
+  /**
+   * The turn is NOT live (snapshot of a finished/abandoned session — e.g. a
+   * server restart killed it mid-flight). Synthesize a `synthetic:'interrupted'`
+   * tool_result for every tool_call left without one, so the UI shows a halted
+   * marker instead of a perpetual spinner. Default false (live reconcile path),
+   * where a dangling tool_call IS genuinely still running.
+   */
+  terminal?: boolean;
+}
+
 function isRecord(v: unknown): v is AnyRecord {
   return typeof v === 'object' && v !== null;
 }
@@ -88,6 +100,7 @@ function isRenderableUserString(rec: AnyRecord, content: string): boolean {
 export function renderTranscript(
   content: string,
   subagents?: Record<string, string> | null,
+  opts: RenderOpts = {},
 ): Block[] {
   const lines = parseLines(content);
   const blocks: Block[] = [];
@@ -236,8 +249,47 @@ export function renderTranscript(
     }
   }
 
-  attachSubagents(blocks, subagents, agentIdToParent);
+  attachSubagents(blocks, subagents, agentIdToParent, opts);
+  if (opts.terminal) synthesizeInterruptedResults(blocks);
   return blocks;
+}
+
+/**
+ * Terminal-snapshot repair: a turn killed mid-flight (e.g. a server restart)
+ * leaves tool_calls with no matching tool_result on disk. The live UI infers
+ * "no result ⇒ still running" and spins forever. For each such dangling
+ * tool_call, splice a `synthetic:'interrupted'` tool_result immediately after it
+ * so the rail pairs them in the SAME segment (status → interrupted, a static
+ * halted marker) and a subagent bundle surfaces a "Subagent Halted" result.
+ * Mutates `blocks` in place. Idempotent: a tool_call that already has a result
+ * (real or synthetic) is left untouched.
+ */
+function synthesizeInterruptedResults(blocks: Block[]): void {
+  const haveResult = new Set<string>();
+  for (const b of blocks) {
+    if (b.kind === 'tool_result') haveResult.add(b.toolCallId);
+  }
+
+  const out: Block[] = [];
+  for (const b of blocks) {
+    out.push(b);
+    if (b.kind !== 'tool_call' || haveResult.has(b.toolCallId)) continue;
+    haveResult.add(b.toolCallId);
+    out.push({
+      kind: 'tool_result',
+      id: `interrupted:${b.toolCallId}`,
+      toolCallId: b.toolCallId,
+      toolName: b.name,
+      output: null,
+      message: 'Interrupted — the turn ended before this tool returned.',
+      displayBlocks: [],
+      isError: false,
+      synthetic: 'interrupted',
+      createdAt: b.createdAt,
+    });
+  }
+  blocks.length = 0;
+  blocks.push(...out);
 }
 
 /**
@@ -254,6 +306,7 @@ function attachSubagents(
   blocks: Block[],
   subagents: Record<string, string> | null | undefined,
   agentIdToParent: Map<string, string>,
+  opts: RenderOpts,
 ): void {
   if (!subagents) return;
 
@@ -276,7 +329,7 @@ function attachSubagents(
     // first, else the agentId↔tool_result linkage recovered while walking.
     const agentId = filename.replace(/^agent-/, '').replace(/\.meta\.json$/, '');
     const toolUseId = asString(meta.toolUseId) || agentIdToParent.get(agentId) || '';
-    const nestedBlocks = renderTranscript(agentJsonl, null);
+    const nestedBlocks = renderTranscript(agentJsonl, null, opts);
 
     const subagentBlock: Block = {
       kind: 'subagent',

@@ -116,6 +116,18 @@ function isUserAbort(err: unknown): boolean {
 }
 
 /**
+ * Minimum spacing (ms) between mid-turn subagent checkpoints. `backupSubagents`
+ * re-reads the (monotonically growing) subagent JSONL and rewrites the entire
+ * `subagents` column, so an unthrottled per-message backup is ~O(messages·size)
+ * IO while a subagent streams. Each backup reads the FULL current file, so a
+ * later one subsumes every message skipped since the last — and the turn-end
+ * flush captures the final state regardless — so this only caps how much
+ * streaming progress a crash/F5 can lose (≤ this interval), never a completed
+ * subagent.
+ */
+const SUBAGENT_BACKUP_THROTTLE_MS = 1000;
+
+/**
  * Live streaming consumer for one session's SDK query. Runs for the LIFETIME of
  * the session — the streaming-input `query` stays open across turns, so this
  * `for await` only ends when the bridge closes or the query is aborted. Every
@@ -152,6 +164,9 @@ export async function consumeQueryOutput(active: ActiveSession): Promise<void> {
   // and the reload renderer's `contentBlockIndex`. (The array-local index is
   // always 0 here, which would collide text onto the first block's id.)
   const assistantBlockCursor = new Map<string, { messageId: string; index: number }>();
+  // Wall-clock of the last mid-turn subagent backup that actually ran. Used to
+  // throttle checkpoints to ≥ SUBAGENT_BACKUP_THROTTLE_MS apart (see below).
+  let lastSubagentBackupAt = 0;
 
   function getIndexMap(scope: string): Map<number, string> {
     let m = toolUseIdByIndex.get(scope);
@@ -193,6 +208,37 @@ export async function consumeQueryOutput(active: ActiveSession): Promise<void> {
   function chainBackup(fn: () => Promise<void>): void {
     active.backupMutex = active.backupMutex.then(fn).catch((err) => {
       log.error({ err, sessionId: active.sessionId }, 'transcript backup failed');
+    });
+  }
+
+  /** Read the subagent JSONL from disk into the `subagents` column. No-op without an sdkSessionId. */
+  function backupSubagentsNow(): Promise<void> {
+    if (!active.sdkSessionId) return Promise.resolve();
+    return backupSubagents(active.sessionId, active.sdkSessionId, active.workDir);
+  }
+
+  /**
+   * Throttled mid-turn subagent backup. While a subagent streams, the main agent
+   * is blocked on the Task tool, so the main-scope `syncTranscript` never fires —
+   * and `backupSubagents` otherwise only ran at turn end, so a F5 mid-turn lost
+   * the entire subagent (its JSONL was on disk but never in the `subagents`
+   * column the snapshot renders from). Checkpoint it here, bounded two ways:
+   *  - the `subagentBackupQueued` latch coalesces a burst into at most one queued
+   *    backup beyond the one in flight (cleared when the backup starts, so the
+   *    next message re-arms a fresh checkpoint);
+   *  - a `SUBAGENT_BACKUP_THROTTLE_MS` time gate skips the run if one happened
+   *    too recently — re-checked inside the chained task so a backup deferred
+   *    behind slow IO still fires once the interval has elapsed.
+   */
+  function chainSubagentBackup(): void {
+    if (!active.sdkSessionId || active.subagentBackupQueued) return;
+    active.subagentBackupQueued = true;
+    chainBackup(async () => {
+      active.subagentBackupQueued = false;
+      const now = Date.now();
+      if (now - lastSubagentBackupAt < SUBAGENT_BACKUP_THROTTLE_MS) return;
+      lastSubagentBackupAt = now;
+      await backupSubagentsNow();
     });
   }
 
@@ -337,6 +383,13 @@ export async function consumeQueryOutput(active: ActiveSession): Promise<void> {
         // Mid-turn sync: no barrier — keep snapshot/F5 fresh between turns.
         chainBackup(() => syncTranscript(active.sessionId, sdkSessionId, cwd));
       }
+    } else {
+      // Subagent assistant message: the main transcript is unchanged (the main
+      // agent is parked on the Task tool), so the sync above never fires while a
+      // subagent streams. Checkpoint the subagent JSONL into the `subagents`
+      // column so a mid-turn F5 restores the subagent's progress instead of an
+      // empty Task card.
+      chainSubagentBackup();
     }
   }
 
@@ -403,6 +456,10 @@ export async function consumeQueryOutput(active: ActiveSession): Promise<void> {
             inner: { type: 'turn_end', payload: turnEnd },
           };
           broadcastEvent(active, 'subagent_event', payload, sessionManager);
+          // Subagent finished — flush its complete JSONL now (not debounced) so a
+          // F5 between this subagent ending and the main turn ending still
+          // restores the finished subagent in full.
+          chainBackup(backupSubagentsNow);
         }
         break;
       }
