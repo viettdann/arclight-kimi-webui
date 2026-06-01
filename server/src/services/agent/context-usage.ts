@@ -31,13 +31,25 @@ export async function refreshContextUsage(active: ActiveSession): Promise<void> 
     model: res.model,
     categories: res.categories
       .filter((c) => c.name !== 'Free space')
-      .map((c) => ({ name: c.name, tokens: c.tokens })),
+      .map((c) => ({ name: c.name, tokens: c.tokens, isDeferred: c.isDeferred })),
     skills: (res.skills?.skillFrontmatter ?? []).map((s) => ({
       name: s.name,
       source: s.source,
       tokens: s.tokens,
     })),
     memoryFiles: res.memoryFiles.map((m) => ({ path: m.path, type: m.type, tokens: m.tokens })),
+    mcpTools: (res.mcpTools ?? []).map((t) => ({
+      name: t.name,
+      serverName: t.serverName,
+      tokens: t.tokens,
+      isLoaded: t.isLoaded,
+    })),
+    deferredBuiltinTools: (res.deferredBuiltinTools ?? []).map((t) => ({
+      name: t.name,
+      tokens: t.tokens,
+      isLoaded: t.isLoaded,
+    })),
+    systemTools: (res.systemTools ?? []).map((t) => ({ name: t.name, tokens: t.tokens })),
   };
 
   active.lastContextUsage = payload;
