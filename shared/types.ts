@@ -523,6 +523,23 @@ export interface MeResponse {
   allowed: boolean;
 }
 
+/** Byte cap on the per-user global-instructions file. Shared so the client can
+ *  show the limit and the server can reject oversized writes with the same
+ *  number. */
+export const USER_PREFERENCES_MAX_BYTES = 16 * 1024;
+
+/** `GET /api/me/preferences` — the current user's global instructions, i.e. the
+ *  contents of their own `$HOME/.claude/CLAUDE.md`. `content` is `''` when the
+ *  file does not exist yet. Applies to every project the user runs. */
+export interface UserPreferencesResponse {
+  content: string;
+}
+
+/** `PUT /api/me/preferences` — replace the user's global instructions. */
+export interface UserPreferencesUpdateRequest {
+  content: string;
+}
+
 export interface AllowedEmailDTO {
   email: string;
   /** ISO timestamp. */
