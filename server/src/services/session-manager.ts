@@ -71,6 +71,13 @@ export interface ActiveSession {
   wsSet: Set<ServerWebSocket<WSData>>;
   pendingApprovals: Map<string, PendingApproval>;
   pendingQuestions: Map<string, PendingQuestion>;
+  /**
+   * Rule keys approved via "approve for session". Built by `buildRuleKey` from
+   * the tool name + its input (per-target, not per-tool): approving `Read foo`
+   * stores `Read:foo`, so `Read bar` still asks. In-memory only — cleared when
+   * the session is unregistered, which is exactly "for this session".
+   */
+  sessionAllowRules: Set<string>;
   /** Last assigned outbound seq. Monotonic per session. */
   lastSeq: number;
   /** Unix epoch ms of last outbound activity. */
@@ -136,6 +143,7 @@ export class SessionManager {
       wsSet: new Set(),
       pendingApprovals: new Map(),
       pendingQuestions: new Map(),
+      sessionAllowRules: new Set(),
       lastSeq: 0,
       lastActivity: Date.now(),
       lastStatusUpdate: null,
