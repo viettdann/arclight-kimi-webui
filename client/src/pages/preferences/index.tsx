@@ -18,6 +18,11 @@ const NAV_ITEMS: NavItem[] = [
     label: 'Providers',
     description: 'Your model providers (OAuth or API)',
   },
+  {
+    to: 'instructions',
+    label: 'Global instructions',
+    description: 'Personal memory for every project',
+  },
 ];
 
 export function PreferencesView() {

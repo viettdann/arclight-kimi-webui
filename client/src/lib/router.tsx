@@ -1,6 +1,7 @@
 import { createBrowserRouter, Navigate } from 'react-router';
 import { ErrorView } from '../components/error-view';
 import { GitCredentialsPanel } from '../components/preferences/git-credentials-panel';
+import { InstructionsPanel } from '../components/preferences/instructions-panel';
 import { PersonalProvidersPanel } from '../components/preferences/personal-providers-panel';
 import { RequireAdmin } from '../components/require-admin';
 import { RequireAuth } from '../components/require-auth';
@@ -74,6 +75,7 @@ export const router = createBrowserRouter([
               { index: true, element: <Navigate to="git-credentials" replace /> },
               { path: 'git-credentials', element: <GitCredentialsPanel /> },
               { path: 'providers', element: <PersonalProvidersPanel /> },
+              { path: 'instructions', element: <InstructionsPanel /> },
             ],
           },
         ],

@@ -83,10 +83,12 @@ app.get('/api/health', (c) => {
 // Allowlist gate on the data-plane prefixes. Registered before their routers
 // so it runs ahead of each router's own `requireAuth`. `/api/me` and
 // `/api/admin/access` stay ungated here (me must report status to pending
-// users; access is admin-only).
+// users; access is admin-only). `/api/me/preferences` is the exception within
+// `/api/me`: it writes into the user's workspace, so it gates like data-plane.
 app.use('/api/files/*', requireAllowed);
 app.use('/api/projects/*', requireAllowed);
 app.use('/api/sessions/*', requireAllowed);
+app.use('/api/me/preferences', requireAllowed);
 app.use('/api/git-credentials/*', requireAllowed);
 app.use('/api/me-providers/*', requireAllowed);
 app.use('/api/providers/*', requireAllowed);
