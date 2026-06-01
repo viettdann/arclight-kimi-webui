@@ -108,6 +108,12 @@ export function Transcript() {
   // ancestor, and on mobile the layout/visual-viewport gap (bottom address bar)
   // makes it over-scroll the document, shoving the composer toward the middle.
   // Guard on near-bottom so reading scrollback isn't yanked back down.
+  //
+  // `blocks.length` is the intended trigger, not a read value: each new
+  // streamed block must re-run the effect so it re-measures `scrollHeight` and
+  // follows the bottom. Biome flags it as "unnecessary" because the body never
+  // reads it directly — removing it would break auto-scroll, so suppress.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: blocks.length is a deliberate re-run trigger; the effect reads the derived scrollHeight, not the length itself.
   useEffect(() => {
     const el = scrollContainerRef.current;
     if (!el) return;

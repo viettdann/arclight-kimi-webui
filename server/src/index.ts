@@ -18,6 +18,7 @@ import projectsRoutes from './routes/projects';
 import { createProvidersRouter } from './routes/providers';
 import { createProvidersAvailableRouter } from './routes/providers-available';
 import { createSessionsRouter } from './routes/sessions';
+import { ephemeralPaths } from './services/agent/agent-paths';
 import { ensureClaudeOnboarding } from './services/agent/onboarding';
 import { MAX_ENCODED_LEN } from './services/agent/transcript-store';
 import { reconcileOnStartup } from './services/reconcile';
@@ -35,16 +36,16 @@ const MAX_USER_SLUG_LEN = 64;
 
 // ─────────────────────────── Startup ───────────────────────────
 
-// Ensure the two persistent-data roots exist. CLAUDE_CONFIG_DIR is where the
-// `claude` binary writes transcripts; WORKSPACE_ROOT is where per-user project
-// dirs live.
+// Ensure the two persistent-data roots exist. CLAUDE_CONFIG_DIR is the ROOT for
+// per-user agent state (per-user subdirs created lazily on first turn);
+// WORKSPACE_ROOT is where per-user project dirs live.
 await mkdir(env.CLAUDE_CONFIG_DIR, { recursive: true });
 await mkdir(env.WORKSPACE_ROOT, { recursive: true });
 
-// Pre-create `$CLAUDE_CONFIG_DIR/.claude.json` with hasCompletedOnboarding so a
-// headless `claude` subprocess never blocks on the first-run onboarding prompt.
-// Runs after the dir exists; merges into any state the binary already wrote.
-await ensureClaudeOnboarding();
+// Bootstrap onboarding only for the shared `_ephemeral` config dir (used by
+// provider ping + title generation, which carry no user state). Per-user config
+// dirs are bootstrapped lazily in `startQuery` on each user's first turn.
+await ensureClaudeOnboarding(ephemeralPaths().configDir);
 
 // Encoder self-test (fail-fast). `encodeCwd` only implements the binary's 1:1
 // branch (length ≤ MAX_ENCODED_LEN); the hashed-slice fallback would break

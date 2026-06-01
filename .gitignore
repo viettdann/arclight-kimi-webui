@@ -33,5 +33,6 @@ workspace/*
 .kimi/
 .runtime/
 claude-config/
+agent-state/
 
 reference/

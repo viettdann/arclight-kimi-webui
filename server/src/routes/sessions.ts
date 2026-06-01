@@ -8,6 +8,7 @@ import { type AuthVariables, requireAuth } from '../auth/middleware';
 import { type DB, db as defaultDb, schema } from '../db';
 import { env as defaultEnv, type Env } from '../env';
 import { auditLog as defaultAuditLog, logger } from '../lib/logger';
+import { isUnderWorkspace } from '../services/agent/agent-paths';
 import {
   firstUserTextFromJsonl,
   projectTranscriptDir,
@@ -145,10 +146,12 @@ export function createSessionsRouter(deps: SessionsRouterDeps): Hono<{ Variables
       await teardownActiveSession(active, { manager, db });
     }
 
-    if (row.sdkSessionId) {
+    if (row.sdkSessionId && isUnderWorkspace(row.workDir)) {
       // Remove this session's on-disk transcript: the `<sdkSessionId>.jsonl`
       // file and the `<sdkSessionId>/` subtree (subagent transcripts). Both sit
       // under the shared per-cwd project dir, so sibling sessions are untouched.
+      // Foreign/remote workDirs outside the workspace never had a local
+      // transcript dir, so there is nothing to remove for them.
       const jsonl = transcriptPath(row.workDir, row.sdkSessionId);
       const subtree = path.join(projectTranscriptDir(row.workDir), row.sdkSessionId);
       try {

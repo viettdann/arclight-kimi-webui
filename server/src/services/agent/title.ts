@@ -1,6 +1,7 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { anthropicAuthVariants } from 'shared/types/providers';
 import { logger } from '../../lib/logger';
+import { ephemeralPaths } from './agent-paths';
 import { buildAgentEnv } from './env';
 
 const log = logger.child({ module: 'agent/title' });
@@ -123,7 +124,7 @@ async function titleViaAgent(
   userText: string,
   abortController: AbortController,
 ): Promise<string | null> {
-  const env = buildAgentEnv(provider);
+  const env = buildAgentEnv(provider, ephemeralPaths());
   const q = query({
     prompt: `${TITLE_PROMPT}\n---\n${userText}`,
     options: {

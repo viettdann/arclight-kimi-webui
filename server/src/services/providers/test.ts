@@ -8,6 +8,7 @@ import {
   type ProviderType,
 } from 'shared/types/providers';
 import { logger } from '../../lib/logger';
+import { ephemeralPaths } from '../agent/agent-paths';
 import { buildAgentEnv } from '../agent/env';
 
 const FETCH_TIMEOUT_MS = 30_000;
@@ -120,11 +121,14 @@ export async function pingProvider(
   const timer = setTimeout(() => controller.abort(), PING_TIMEOUT_MS);
 
   try {
-    const env = buildAgentEnv({
-      type: draft.type,
-      baseUrl: draft.baseUrl ?? null,
-      token: draft.token,
-    });
+    const env = buildAgentEnv(
+      {
+        type: draft.type,
+        baseUrl: draft.baseUrl ?? null,
+        token: draft.token,
+      },
+      ephemeralPaths(),
+    );
 
     const stream = query({
       prompt: 'Reply with OK.',
