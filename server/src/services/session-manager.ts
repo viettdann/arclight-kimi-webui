@@ -104,6 +104,13 @@ export interface ActiveSession {
    */
   backupMutex: Promise<void>;
   /**
+   * Debounce latch for mid-turn subagent backups. Set while a subagent backup
+   * is queued/in-flight so a burst of streamed subagent messages coalesces into
+   * at most one pending backup beyond the running one. Cleared when that backup
+   * starts. In-memory only — a fresh session starts with no backup queued.
+   */
+  subagentBackupQueued: boolean;
+  /**
    * @internal Synchronous "close in progress" flag. Read/written ONLY through
    * `SessionManager.tryBeginClose`. Pure event-loop semantics — no atomics.
    */
@@ -161,6 +168,7 @@ export class SessionManager {
       lastMainAssistantId: null,
       lastMainAssistantBlocks: 0,
       backupMutex: Promise.resolve(),
+      subagentBackupQueued: false,
       closing: false,
     };
     this.sessions.set(args.sessionId, active);

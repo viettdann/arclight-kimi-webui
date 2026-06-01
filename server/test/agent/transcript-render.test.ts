@@ -388,4 +388,84 @@ describe('renderTranscript', () => {
     expect(users).toHaveLength(1);
     expect(users[0]!.content).toBe('a real prompt');
   });
+
+  it('terminal: synthesizes an interrupted result for a dangling tool_call; live leaves it', () => {
+    const jsonl = assistantLine('msg_T', {
+      type: 'tool_use',
+      id: 'toolu_run',
+      name: 'Bash',
+      input: { command: 'sleep 999' },
+    });
+
+    // Live path (default): no result fabricated — the tool is genuinely running.
+    expect(byKind(renderTranscript(jsonl), 'tool_result')).toHaveLength(0);
+
+    // Terminal path: a synthetic interrupted result is paired to the call.
+    const blocks = renderTranscript(jsonl, null, { terminal: true });
+    const results = byKind(blocks, 'tool_result');
+    expect(results).toHaveLength(1);
+    const r = results[0]!;
+    expect(r.toolCallId).toBe('toolu_run');
+    expect(r.id).toBe('interrupted:toolu_run');
+    expect(r.synthetic).toBe('interrupted');
+    expect(r.isError).toBe(false);
+    // Inserted immediately after its tool_call so the rail pairs them in-segment.
+    const callIdx = blocks.findIndex((b) => b.kind === 'tool_call' && b.toolCallId === 'toolu_run');
+    expect(blocks[callIdx + 1]).toBe(r);
+  });
+
+  it('terminal: leaves a tool_call that already has a real result untouched', () => {
+    const jsonl = [
+      assistantLine('msg_T', {
+        type: 'tool_use',
+        id: 'toolu_x',
+        name: 'Read',
+        input: { file_path: '/a' },
+      }),
+      toolResultLine('uuid-x', 'toolu_x', 'file contents'),
+    ].join('\n');
+    const results = byKind(renderTranscript(jsonl, null, { terminal: true }), 'tool_result');
+    expect(results).toHaveLength(1);
+    expect(results[0]!.synthetic).toBeUndefined();
+  });
+
+  it('terminal: halts a subagent — interrupted result for the Task and its dangling inner tool', () => {
+    // Turn killed mid-subagent: the Task never returned (no result line) and the
+    // subagent itself was cut while running a Grep (no inner result line).
+    const main = assistantLine('msg_M', {
+      type: 'tool_use',
+      id: 'toolu_task',
+      name: 'Agent',
+      input: { description: 'explore', subagent_type: 'Explore' },
+    });
+
+    const agentJsonl = [
+      assistantLine('msg_SA', { type: 'text', text: 'searching' }, { isSidechain: true }),
+      assistantLine(
+        'msg_SA',
+        { type: 'tool_use', id: 'toolu_grep', name: 'Grep', input: { pattern: 'foo' } },
+        { isSidechain: true },
+      ),
+    ].join('\n');
+
+    const subagents = {
+      'agent-aZZ.jsonl': agentJsonl,
+      'agent-aZZ.meta.json': JSON.stringify({
+        agentType: 'Explore',
+        description: 'explore',
+        toolUseId: 'toolu_task',
+      }),
+    };
+
+    const blocks = renderTranscript(main, subagents, { terminal: true });
+
+    // Top-level Task got a synthetic interrupted result.
+    const taskResult = byKind(blocks, 'tool_result').find((b) => b.toolCallId === 'toolu_task');
+    expect(taskResult?.synthetic).toBe('interrupted');
+
+    // The subagent's dangling inner Grep also got one (recursive synthesis).
+    const sa = byKind(blocks, 'subagent')[0]!;
+    const innerResult = byKind(sa.blocks, 'tool_result').find((b) => b.toolCallId === 'toolu_grep');
+    expect(innerResult?.synthetic).toBe('interrupted');
+  });
 });

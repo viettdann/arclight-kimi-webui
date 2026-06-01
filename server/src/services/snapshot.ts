@@ -35,8 +35,15 @@ export async function buildSnapshot(args: BuildSnapshotArgs): Promise<SnapshotPa
     .where(eq(schema.sessionTranscripts.sessionId, args.sessionId))
     .limit(1);
 
+  // A session absent from the manager (e.g. killed by a restart) is not running
+  // a turn, so its dangling tool_calls were interrupted, not still executing.
+  const activeSession = manager.peek(args.sessionId);
+  const turnInProgress = activeSession?.turnInProgress ?? false;
+
   const blocks = transcript
-    ? renderTranscript(transcript.content, normalizeSubagents(transcript.subagents))
+    ? renderTranscript(transcript.content, normalizeSubagents(transcript.subagents), {
+        terminal: !turnInProgress,
+      })
     : [];
 
   const pendingPrompt =
@@ -54,9 +61,9 @@ export async function buildSnapshot(args: BuildSnapshotArgs): Promise<SnapshotPa
     approvalMode: sessRow.approvalMode as ApprovalMode,
     effort: (sessRow.effort as EffortLevel | null) ?? null,
     commands: getCatalog(sessRow.workDir) ?? [],
-    contextUsage: manager.peek(args.sessionId)?.lastContextUsage ?? null,
+    contextUsage: activeSession?.lastContextUsage ?? null,
     live: {
-      turnInProgress: manager.peek(args.sessionId)?.turnInProgress ?? false,
+      turnInProgress,
     },
   };
 }
