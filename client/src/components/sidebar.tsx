@@ -192,6 +192,13 @@ export function Sidebar({ isOpen, onClose, onLoginClick }: SidebarProps) {
   // If the user navigates away (no active project), the files panel hides.
   const showFiles = filesOpen && activeProjectName !== null;
 
+  // Auto-open the active session's project once when it becomes active. Idempotent
+  // `expand` leaves a later manual fold alone — it only re-fires when the active
+  // project itself changes (open another session / start a new task elsewhere).
+  useEffect(() => {
+    if (activeProjectName) useProjectsStore.getState().expand(activeProjectName);
+  }, [activeProjectName]);
+
   // Initial load when authenticated.
   useEffect(() => {
     if (status !== 'authenticated') return;

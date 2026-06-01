@@ -173,11 +173,33 @@ export function ProjectRow({ project, sessions, isActive }: ProjectRowProps) {
       </div>
       {expanded && (
         <div className="mt-0.5 ml-4 flex flex-col gap-0.5 border-l border-sidebar-border pb-0.5 pl-1">
-          {sessions.length === 0 ? (
-            <p className="px-3 py-1 text-xs text-muted-foreground">No sessions yet</p>
-          ) : (
-            sessions.map((s) => <SessionRow key={s.id} session={s} />)
+          {/* Explicit, full-width entry point so starting a session never depends
+              on discovering the hover-only `+` in the project header — the chief
+              pain point on touch. Local projects only; foreign ones must be
+              restored first (handled by the header's restore action). */}
+          {!isForeign && (
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={handleNewTask}
+              disabled={creating}
+              className="w-full justify-start gap-1.5 px-3 py-1.5 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground"
+            >
+              {creating ? (
+                <Loader2 className="size-3.5 shrink-0 animate-spin" />
+              ) : (
+                <Plus className="size-3.5 shrink-0" />
+              )}
+              <span className="truncate">{creating ? 'Starting…' : 'New session'}</span>
+            </Button>
           )}
+          {sessions.length === 0
+            ? // Local projects already show the "New session" row as their empty
+              // state, so the redundant placeholder is only useful for foreign ones.
+              isForeign && (
+                <p className="px-3 py-1 text-xs text-muted-foreground">No sessions yet</p>
+              )
+            : sessions.map((s) => <SessionRow key={s.id} session={s} />)}
         </div>
       )}
       <Dialog
