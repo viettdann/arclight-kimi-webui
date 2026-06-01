@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { type DB, db as defaultDb, schema } from '../db';
 import { logger } from '../lib/logger';
-import { appendTranscript, backupSubagents } from './agent/transcript-store';
+import { backupSubagents, syncTranscript } from './agent/transcript-store';
 import type { ActiveSession, SessionManager } from './session-manager';
 
 // Single source of truth for tearing an in-memory session down. Both the REST
@@ -74,7 +74,10 @@ export async function teardownActiveSession(
   // SDK session ever materialized — there is nothing on disk to back up.
   if (active.sdkSessionId) {
     try {
-      await appendTranscript(active.sessionId, active.sdkSessionId, active.workDir);
+      await syncTranscript(active.sessionId, active.sdkSessionId, active.workDir, {
+        awaitMessageId: active.lastMainAssistantId,
+        awaitBlocks: active.lastMainAssistantBlocks,
+      });
       await backupSubagents(active.sessionId, active.sdkSessionId, active.workDir);
     } catch (err) {
       logger.error(

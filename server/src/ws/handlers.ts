@@ -354,6 +354,10 @@ async function beginFirstTurn(ws: WS, active: ActiveSession, content: string): P
   }
 
   active.turnInProgress = true;
+  // Reset the end-of-turn flush-barrier anchor; the consumer re-captures it from
+  // this turn's assistant messages.
+  active.lastMainAssistantId = null;
+  active.lastMainAssistantBlocks = 0;
   broadcastEvent<TurnBeginPayload>(
     active,
     'turn_begin',

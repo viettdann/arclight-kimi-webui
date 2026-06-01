@@ -1,6 +1,7 @@
 import { mkdir, readdir } from 'node:fs/promises';
 import { basename, join } from 'node:path';
-import { eq, sql } from 'drizzle-orm';
+import { setTimeout as sleep } from 'node:timers/promises';
+import { eq } from 'drizzle-orm';
 import { db } from '../../db/index';
 import { sessionTranscripts } from '../../db/schema/session-transcripts';
 import { logger } from '../../lib/logger';
@@ -57,47 +58,113 @@ export function projectTranscriptDir(cwd: string): string {
 }
 
 /**
- * Incrementally back up new JSONL bytes the binary appended since the last
- * call. Reads the DB `byteOffset`, slices the on-disk file from that offset to
- * EOF, and appends the delta via `content = content || $delta`. If the file
- * shrank below the recorded offset (truncate/fork), resets and re-backs up from
- * byte 0. Upserts the row when it doesn't exist yet. No-op if the file is
- * missing or holds no new bytes. Serialization is the caller's responsibility
- * (`ActiveSession.backupMutex`); each call is atomic on its own.
+ * Count the content-block lines an assistant `message.id` has on disk. Claude
+ * Code splits each content block onto its OWN JSONL line, all sharing the same
+ * `message.id`, so the block count for an id is the sum of `message.content.length`
+ * over every well-formed `type:'assistant'` line whose `message.id` matches.
+ *
+ * Parse-match (not substring): a half-written tail line is invalid JSON and is
+ * skipped, so it never advances the count. That is exactly the barrier we want —
+ * only a complete line counts, so the committed content is always valid JSONL.
  */
-export async function appendTranscript(
+function countAssistantBlocks(content: string, messageId: string): number {
+  let count = 0;
+  for (const line of content.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    let obj: unknown;
+    try {
+      obj = JSON.parse(trimmed);
+    } catch {
+      continue;
+    }
+    if (typeof obj !== 'object' || obj === null) continue;
+    const o = obj as { type?: unknown; message?: { id?: unknown; content?: unknown } };
+    if (o.type !== 'assistant' || o.message?.id !== messageId) continue;
+    const c = o.message?.content;
+    count += Array.isArray(c) ? c.length : 0;
+  }
+  return count;
+}
+
+/** Optional flush-barrier + poll tuning for {@link syncTranscript}. */
+export interface SyncTranscriptOpts {
+  /**
+   * When set, hold the commit until the file carries `awaitBlocks` content-block
+   * lines for this assistant `message.id` — the end-of-turn flush barrier. Null
+   * (or absent) reads-and-writes immediately (mid-turn sync, or a turn that
+   * emitted no assistant message).
+   */
+  awaitMessageId?: string | null;
+  /** Target content-block count for `awaitMessageId` (see anchor in the design). */
+  awaitBlocks?: number;
+  /** Poll interval while the barrier is unmet. Default 25ms. */
+  pollIntervalMs?: number;
+  /** Max poll attempts before a best-effort write. Default 40 (≈ 1s at 25ms). */
+  maxPolls?: number;
+}
+
+/**
+ * Full-file resync of the main transcript into the DB. Reads the ENTIRE
+ * `<sdkSessionId>.jsonl` and OVERWRITES `session_transcripts.content` with it
+ * verbatim, so `DB.content` byte-equals the file — render-from-DB reproduces the
+ * exact live block set. Full-overwrite subsumes fork/truncate (new content fully
+ * replaces old, no stale tail) and is idempotent (same file → same content).
+ *
+ * Flush barrier: when `opts.awaitMessageId` is set, the read is retried until the
+ * file holds `opts.awaitBlocks` content-block lines for that assistant message.id
+ * (each Claude Code content block is its own JSONL line sharing one id). This
+ * pins the end-of-turn commit to CONTENT — the tail thinking/text line is on
+ * disk — instead of guessing the subprocess's flush timing. On barrier timeout it
+ * writes the best-effort current content and warns; it never throws.
+ *
+ * Serialize via `ActiveSession.backupMutex` so it cannot interleave with
+ * `backupSubagents` or teardown. No-op if the file is missing.
+ */
+export async function syncTranscript(
   sessionId: string,
   sdkSessionId: string,
   cwd: string,
+  opts: SyncTranscriptOpts = {},
 ): Promise<void> {
   const path = transcriptPath(cwd, sdkSessionId);
-  const file = Bun.file(path);
-  if (!(await file.exists())) {
-    log.debug({ sessionId, path }, 'transcript file not found — skipping append');
-    return;
+
+  const awaitMessageId = opts.awaitMessageId ?? null;
+  const awaitBlocks = opts.awaitBlocks ?? 0;
+  const pollIntervalMs = opts.pollIntervalMs ?? 25;
+  const maxPolls = opts.maxPolls ?? 40;
+
+  // Read directly and treat a missing file as a skip — avoids the extra
+  // `exists()` stat and the TOCTOU window between the two syscalls.
+  let content: string;
+  try {
+    content = await Bun.file(path).text();
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      log.debug({ sessionId, path }, 'transcript file not found — skipping sync');
+      return;
+    }
+    throw err;
   }
 
-  const size = file.size;
-  if (size === 0) return;
-
-  const existing = await db.query.sessionTranscripts.findFirst({
-    where: eq(sessionTranscripts.sessionId, sessionId),
-    columns: { byteOffset: true },
-  });
-
-  let offset = existing?.byteOffset ?? 0;
-
-  // File shorter than the recorded offset means it was truncated or replaced
-  // (e.g. fork/resume rewrote it). Re-read the whole file and overwrite.
-  if (size < offset) {
-    log.warn({ sessionId, size, offset }, 'transcript shorter than offset — full re-backup');
-    offset = 0;
+  if (awaitMessageId && awaitBlocks > 0) {
+    let have = countAssistantBlocks(content, awaitMessageId);
+    let polls = 0;
+    while (have < awaitBlocks && polls < maxPolls) {
+      await sleep(pollIntervalMs);
+      content = await Bun.file(path).text();
+      have = countAssistantBlocks(content, awaitMessageId);
+      polls += 1;
+    }
+    if (have < awaitBlocks) {
+      log.warn(
+        { sessionId, awaitMessageId, awaitBlocks, have },
+        'transcript flush barrier timed out — best-effort write',
+      );
+    }
   }
 
-  if (size === offset) return; // No new data.
-
-  const delta = await file.slice(offset, size).text();
-  const fullReset = offset === 0;
+  const byteOffset = Buffer.byteLength(content, 'utf-8');
 
   await db
     .insert(sessionTranscripts)
@@ -105,26 +172,21 @@ export async function appendTranscript(
       sessionId,
       sdkSessionId,
       workspaceCwd: cwd,
-      content: delta,
-      byteOffset: size,
+      content,
+      byteOffset,
     })
     .onConflictDoUpdate({
       target: sessionTranscripts.sessionId,
       set: {
-        // Reset (offset 0) overwrites; otherwise append the new bytes.
-        content: fullReset ? delta : sql`${sessionTranscripts.content} || ${delta}`,
-        byteOffset: size,
+        content,
+        byteOffset,
         sdkSessionId,
         workspaceCwd: cwd,
         updatedAt: new Date(),
       },
     });
 
-  if (fullReset) {
-    log.info({ sessionId, bytes: size }, 'transcript full backup');
-  } else {
-    log.debug({ sessionId, newBytes: size - offset }, 'transcript appended');
-  }
+  log.debug({ sessionId, bytes: byteOffset }, 'transcript synced');
 }
 
 /**
@@ -261,11 +323,10 @@ export async function readTranscriptTitleInputs(sessionId: string): Promise<Tran
  * filesystem so the binary can `resume` from them. Recreates the project dir,
  * writes the main JSONL, then writes each subagent entry into the subagent dir.
  *
- * After restore the DB `byteOffset` equals the restored content's byte length,
- * so the next `appendTranscript` reads only the NEW bytes the binary writes
- * past the restored tail. The DB content already records that exact tail, so no
- * extra write is needed to keep the offset consistent — we just ensure the
- * stored offset matches when it has drifted.
+ * After restore the DB `byteOffset` equals the restored content's byte length.
+ * The next `syncTranscript` reads the whole file and overwrites `content`, so the
+ * offset is purely the recorded file byte length, kept consistent here when it
+ * has drifted from the content.
  */
 export async function restoreTranscript(sessionId: string): Promise<void> {
   const row = await db.query.sessionTranscripts.findFirst({
