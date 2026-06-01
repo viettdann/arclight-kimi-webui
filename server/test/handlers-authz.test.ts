@@ -173,15 +173,30 @@ describe('handlers authz — bad payloads return bad_request', () => {
     expect(alice.lastError()?.payload.code).toBe('bad_message');
   });
 
-  it('create_session with non-absolute workDir → bad_request', async () => {
+  it('start_session with non-absolute workDir → bad_request', async () => {
     const alice = new FakeWS('alice');
-    await send(alice, { type: 'create_session', payload: { workDir: 'relative/path' } });
+    await send(alice, {
+      type: 'start_session',
+      payload: { workDir: 'relative/path', content: 'hi' },
+    });
     expect(alice.lastError()?.payload.code).toBe('bad_request');
   });
 
-  it('create_session with workDir outside user root → bad_request', async () => {
+  it('start_session with workDir outside user root → bad_request', async () => {
     const alice = new FakeWS('alice');
-    await send(alice, { type: 'create_session', payload: { workDir: '/etc/passwd' } });
+    await send(alice, {
+      type: 'start_session',
+      payload: { workDir: '/etc/passwd', content: 'hi' },
+    });
+    expect(alice.lastError()?.payload.code).toBe('bad_request');
+  });
+
+  it('start_session with empty content → bad_request', async () => {
+    const alice = new FakeWS('alice');
+    await send(alice, {
+      type: 'start_session',
+      payload: { workDir: '/etc/passwd', content: '' },
+    });
     expect(alice.lastError()?.payload.code).toBe('bad_request');
   });
 });

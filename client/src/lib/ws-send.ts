@@ -3,14 +3,16 @@ import { wsClient } from './ws-client';
 
 /**
  * Message types where a rapid duplicate frame creates a real side effect
- * (resumes a session, adopts a project). Double-clicks on the same control
- * fire these back-to-back, so we drop repeats within a short window.
- *
- * `create_session` is NOT here: a time window only stops an accidental
- * double-click, but the control is still spammable just slower than the
- * window. It uses an in-flight guard instead — see {@link ./new-session-store}.
+ * (creates a session row, resumes a session, adopts a project). Double-clicks
+ * or a fast double-send on the same control fire these back-to-back, so we drop
+ * repeats within a short window. `start_session` belongs here because it INSERTs
+ * a session row and runs the first turn — a duplicate would spawn a twin.
  */
-const GUARDED_TYPES: ReadonlySet<WSMessageType> = new Set(['resume_session', 'adopt_project']);
+const GUARDED_TYPES: ReadonlySet<WSMessageType> = new Set([
+  'start_session',
+  'resume_session',
+  'adopt_project',
+]);
 
 const GUARD_MS = 1500;
 const lastSent = new Map<string, number>();

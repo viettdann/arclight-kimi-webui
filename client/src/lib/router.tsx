@@ -14,6 +14,12 @@ import { ChatView } from '../pages/chat-view';
 import { PreferencesView } from '../pages/preferences';
 import { SettingsView } from '../pages/settings';
 
+// Draft-session route + the query param carrying its target workspace. Shared so
+// the route declaration, the navigate that opens a draft, and the composer that
+// reads it can't drift to different spellings.
+export const DRAFT_SESSION_PATH = '/session/new';
+export const DRAFT_WORKDIR_PARAM = 'workDir';
+
 export const router = createBrowserRouter([
   {
     path: '/',
@@ -23,6 +29,13 @@ export const router = createBrowserRouter([
     errorElement: <ErrorView />,
     children: [
       { index: true, element: <ChatView /> },
+      {
+        // Draft session: input only, no row yet. The first message fires
+        // `start_session`; the resulting snapshot redirects to the real id.
+        path: 'session/new',
+        element: <RequireAuth />,
+        children: [{ index: true, element: <ChatView /> }],
+      },
       {
         path: 'session/:id/*',
         element: <RequireAuth />,

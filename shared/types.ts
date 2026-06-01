@@ -44,7 +44,7 @@ export type WSMessageType =
   | 'error'
   // client → server
   | 'subscribe'
-  | 'create_session'
+  | 'start_session'
   | 'resume_session'
   | 'send_message'
   | 'approve_tool'
@@ -435,8 +435,15 @@ export interface SubscribePayload {
   lastSeq?: number;
 }
 
-export interface CreateSessionPayload {
+/**
+ * Atomically create a session and run its first turn. A session row exists only
+ * once its first message is sent — there is no separate empty-session create.
+ * The server INSERTs the row, registers it, then spawns the turn with `content`.
+ */
+export interface StartSessionPayload {
   workDir: string;
+  /** First user message; the turn the new session is created to run. */
+  content: string;
   model?: string;
   /** Provider that owns `model`. Identity of a selection is (providerId, model). */
   providerId?: string;
