@@ -1,6 +1,6 @@
 import { Brain, Check, ChevronDown, Gauge, Send, ShieldCheck, Square, Zap } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useParams } from 'react-router';
+import { useParams, useSearchParams } from 'react-router';
 import {
   BUILTIN_COMMANDS,
   type CommandInfo,
@@ -14,15 +14,17 @@ import { useChatStore } from '../lib/chat-store';
 import { useCommandStore } from '../lib/command-store';
 import { useDraftStore } from '../lib/draft-store';
 import { isResolvable, labelFor, useProvidersStore } from '../lib/providers-store';
+import { DRAFT_WORKDIR_PARAM } from '../lib/router';
+import { useSessionDefaultsStore } from '../lib/session-defaults-store';
 import { useSessionsStore } from '../lib/sessions-store';
 import { sendWS } from '../lib/ws-send';
 import { ConfirmBypassDialog } from './confirm-bypass-dialog';
 import { SlashCommandMenu } from './slash-command-menu';
 import { showToast } from './toast-provider';
 
-// Sessions where the user has acknowledged the bypass-permissions warning.
-// Switching to bypass confirms once per session (per app load); switching away
-// never prompts.
+// Composers where the user has acknowledged the bypass-permissions warning,
+// keyed by session id or (for a draft) workDir. Switching to bypass confirms
+// once per composer (per app load); switching away never prompts.
 const bypassAcknowledged = new Set<string>();
 
 // On coarse-pointer devices (phones/tablets) the soft keyboard's Enter is the
@@ -79,19 +81,30 @@ function Switch({ on }: { on: boolean }) {
 
 export function ChatInput() {
   const { id: sessionId } = useParams<{ id: string }>();
-  // Draft text lives in a per-session store (persisted to localStorage), not in
+  const [searchParams] = useSearchParams();
+  // Draft route: `/session/new?workDir=…` has no id but a workDir. Its composer
+  // sends `start_session` (create + first turn) rather than `send_message`.
+  const draftWorkDir = sessionId ? null : searchParams.get(DRAFT_WORKDIR_PARAM);
+  const isDraft = !sessionId && draftWorkDir != null;
+  // Composer is interactive when bound to a real session OR a draft.
+  const canCompose = Boolean(sessionId) || isDraft;
+  // Storage key for the persisted draft text: the session id once one exists,
+  // else a workDir-scoped key so a reload of the draft route restores the text.
+  const draftKey = sessionId ?? (draftWorkDir ? `new:${draftWorkDir}` : null);
+
+  // Draft text lives in a per-key store (persisted to localStorage), not in
   // local component state: switching sessions must show the target session's
   // draft (or empty), and a reload must not lose what was typed. `text`/`setText`
   // are thin adapters over the store so the rest of the component is unchanged.
-  const text = useDraftStore((s) => (sessionId ? (s.drafts[sessionId] ?? '') : ''));
+  const text = useDraftStore((s) => (draftKey ? (s.drafts[draftKey] ?? '') : ''));
   const setText = useCallback(
     (value: string | ((prev: string) => string)) => {
-      if (!sessionId) return;
-      const prev = useDraftStore.getState().drafts[sessionId] ?? '';
+      if (!draftKey) return;
+      const prev = useDraftStore.getState().drafts[draftKey] ?? '';
       const next = typeof value === 'function' ? value(prev) : value;
-      useDraftStore.getState().setDraft(sessionId, next);
+      useDraftStore.getState().setDraft(draftKey, next);
     },
-    [sessionId],
+    [draftKey],
   );
   const [bypassConfirmOpen, setBypassConfirmOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -152,17 +165,37 @@ export function ChatInput() {
   const session = useChatStore((s) => (sessionId ? s.sessions[sessionId] : null));
   const isTurnInProgress = session?.isTurnInProgress ?? false;
 
+  // Draft-mode composer flags. A draft has no chat-store session to mirror, so
+  // the toggles seed from the user's Session Defaults (approval/thinking) and
+  // the provider default for effort (null), held locally until `start_session`
+  // carries them along. Reset when leaving the draft for a real session. Seeds
+  // are read once via lazy initializers — a reactive subscription here would
+  // re-render the composer on any global defaults change for no benefit.
+  const [draftApprovalMode, setDraftApprovalMode] = useState<ApprovalMode>(
+    () => useSessionDefaultsStore.getState().approvalMode,
+  );
+  const [draftThinking, setDraftThinking] = useState<boolean>(
+    () => useSessionDefaultsStore.getState().thinking,
+  );
+  const [draftEffort, setDraftEffort] = useState<EffortLevel | null>(null);
+
   // Approval mode + thinking mirror the true state from the snapshot (survive
   // reload). Changing them → optimistic store update + WS send; applied from the
-  // next message onward (server respawns the CLI).
-  const approvalMode = useChatStore((s) =>
+  // next message onward (server respawns the CLI). In a draft they come from the
+  // local draft state instead.
+  const sessionApprovalMode = useChatStore((s) =>
     sessionId ? (s.sessions[sessionId]?.approvalMode ?? 'ask') : 'ask',
   );
-  const thinking = useChatStore((s) =>
+  const sessionThinking = useChatStore((s) =>
     sessionId ? (s.sessions[sessionId]?.thinking ?? false) : false,
   );
   // Reasoning effort mirrors the snapshot; `null` is the provider default.
-  const effort = useChatStore((s) => (sessionId ? (s.sessions[sessionId]?.effort ?? null) : null));
+  const sessionEffort = useChatStore((s) =>
+    sessionId ? (s.sessions[sessionId]?.effort ?? null) : null,
+  );
+  const approvalMode = isDraft ? draftApprovalMode : sessionApprovalMode;
+  const thinking = isDraft ? draftThinking : sessionThinking;
+  const effort = isDraft ? draftEffort : sessionEffort;
 
   // Slash-command picker state. `activeIndex` is the keyboard cursor into the
   // filtered `items`; `pickerDismissed` is set by Esc and reset when the text
@@ -218,13 +251,17 @@ export function ChatInput() {
     setActiveIndex(0);
   }, [slashOpen, pickerFilter]);
 
-  // Switching sessions drops the pending model override so each session shows its
-  // own model (or the default) rather than a leftover pick from a prior session.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: reset is keyed on sessionId only.
+  // Switching composer (session ↔ session, or draft ↔ session) drops the pending
+  // model override so each shows its own model (or the default) rather than a
+  // leftover pick. Draft flags reset to the user's Session Defaults too.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset is keyed on the composer (draftKey) only; default seeds are read once per reset.
   useEffect(() => {
     setSelectedProviderId(null);
     setSelectedModel(null);
-  }, [sessionId]);
+    setDraftApprovalMode(useSessionDefaultsStore.getState().approvalMode);
+    setDraftThinking(useSessionDefaultsStore.getState().thinking);
+    setDraftEffort(null);
+  }, [draftKey]);
 
   const handleInput = useCallback(() => {
     const el = textareaRef.current;
@@ -247,7 +284,7 @@ export function ChatInput() {
   };
 
   const sendMessage = () => {
-    if (!text.trim() || !sessionId || isTurnInProgress) return;
+    if (!text.trim() || !canCompose || isTurnInProgress) return;
     if (noModelsAvailable) {
       showToast({ message: 'No model available — configure a provider first', type: 'error' });
       return;
@@ -281,41 +318,54 @@ export function ChatInput() {
     const el = textareaRef.current;
     if (el) el.style.height = 'auto';
 
-    useChatStore.getState().addPendingUserBlock(sessionId, content);
     // Composer flags ride along with the send — no separate message. The server
     // applies them just before spawning the turn and persists only real flips.
-    // Both model and providerId are included when the user made an override pick;
-    // omitting them leaves the session's current selection unchanged.
-    //
-    // When the current selection is orphaned (provider deleted/hidden) we omit
-    // both fields so the server falls back to its default rather than respawning
-    // against a provider that no longer exists.
-    sendWS(
-      'send_message',
-      {
-        content,
-        thinking,
-        approvalMode,
-        effort,
-        model: isUnresolvable ? undefined : (effectiveModel ?? undefined),
-        providerId: isUnresolvable ? undefined : (effectiveProviderId ?? undefined),
-      },
-      sessionId,
-    );
+    // model and providerId are included when the user made an override pick;
+    // omitting them leaves the selection unchanged (session) or lets the server
+    // pick the user's default (draft). An orphaned selection omits both so the
+    // server falls back rather than respawning against a vanished provider. Built
+    // once and shared by both sends so a new flag is added in exactly one place.
+    const flags = {
+      content,
+      thinking,
+      approvalMode,
+      effort,
+      model: isUnresolvable ? undefined : (effectiveModel ?? undefined),
+      providerId: isUnresolvable ? undefined : (effectiveProviderId ?? undefined),
+    };
+
+    if (isDraft && draftWorkDir) {
+      // No row exists yet — create it and run this first turn atomically. The
+      // server's snapshot drives the redirect to `/session/:id`.
+      sendWS('start_session', { workDir: draftWorkDir, ...flags });
+      return;
+    }
+
+    if (!sessionId) return;
+    useChatStore.getState().addPendingUserBlock(sessionId, content);
+    sendWS('send_message', flags, sessionId);
   };
 
-  // Toggles only mutate local store state; the value is committed when the user
-  // sends (it can't take effect before the next prompt anyway).
+  // Toggles only mutate local state (draft) or the chat store (session); the
+  // value is committed when the user sends (it can't take effect before the
+  // next prompt anyway). The bypass-ack key is the session id or the draft's
+  // workDir so the confirm fires once per composer.
+  const bypassAckKey = sessionId ?? draftWorkDir ?? '';
+
   const applyApprovalMode = (mode: ApprovalMode) => {
+    if (isDraft) {
+      setDraftApprovalMode(mode);
+      return;
+    }
     if (!sessionId) return;
     useChatStore.getState().setSessionFlags(sessionId, { approvalMode: mode });
   };
 
-  // Switching to bypass is gated by a confirm dialog the first time per session.
+  // Switching to bypass is gated by a confirm dialog the first time per composer.
   // ask / safe apply immediately.
   const setApprovalMode = (mode: ApprovalMode) => {
-    if (!sessionId) return;
-    if (mode === 'bypass' && approvalMode !== 'bypass' && !bypassAcknowledged.has(sessionId)) {
+    if (!canCompose) return;
+    if (mode === 'bypass' && approvalMode !== 'bypass' && !bypassAcknowledged.has(bypassAckKey)) {
       setBypassConfirmOpen(true);
       return;
     }
@@ -323,17 +373,25 @@ export function ChatInput() {
   };
 
   const confirmBypass = () => {
-    if (sessionId) bypassAcknowledged.add(sessionId);
+    if (bypassAckKey) bypassAcknowledged.add(bypassAckKey);
     setBypassConfirmOpen(false);
     applyApprovalMode('bypass');
   };
 
   const toggleThinking = () => {
+    if (isDraft) {
+      setDraftThinking((on) => !on);
+      return;
+    }
     if (!sessionId) return;
     useChatStore.getState().setSessionFlags(sessionId, { thinking: !thinking });
   };
 
   const setEffort = (next: EffortLevel | null) => {
+    if (isDraft) {
+      setDraftEffort(next);
+      return;
+    }
     if (!sessionId) return;
     useChatStore.getState().setSessionFlags(sessionId, { effort: next });
   };
@@ -406,7 +464,7 @@ export function ChatInput() {
     sendMessage();
   };
 
-  const placeholderText = !sessionId
+  const placeholderText = !canCompose
     ? 'Select or create a project to start...'
     : noModelsAvailable
       ? 'No models available — configure a provider to start'
@@ -443,7 +501,7 @@ export function ChatInput() {
           onInput={handleInput}
           onKeyDown={handleKeyDown}
           placeholder={placeholderText}
-          disabled={!sessionId || noModelsAvailable}
+          disabled={!canCompose || noModelsAvailable}
           aria-label="Chat input"
           rows={1}
           className="w-full resize-none bg-transparent px-4 pt-3.5 pb-2 text-sm outline-none placeholder:text-muted-foreground/60 disabled:cursor-not-allowed"
@@ -460,7 +518,7 @@ export function ChatInput() {
                 variant="ghost"
                 size="xs"
                 className={`cursor-pointer ${thinking ? 'text-primary' : 'text-muted-foreground'}`}
-                disabled={!sessionId}
+                disabled={!canCompose}
                 aria-label="Reasoning"
                 title="Thinking & reasoning effort — applies from the next message"
               >
@@ -520,7 +578,7 @@ export function ChatInput() {
                   variant="ghost"
                   size="xs"
                   className={`cursor-pointer ${approvalMode === 'bypass' ? 'text-amber-500' : 'text-muted-foreground'}`}
-                  disabled={!sessionId}
+                  disabled={!canCompose}
                   aria-label="Approval mode"
                   title="Approval mode — applies from the next message"
                 >
@@ -594,7 +652,7 @@ export function ChatInput() {
                   variant="ghost"
                   size="xs"
                   className={`cursor-pointer ${needsSelection ? 'text-amber-500' : 'text-muted-foreground'}`}
-                  disabled={!sessionId}
+                  disabled={!canCompose}
                   aria-label="Model"
                   title={
                     isUnresolvable
@@ -697,7 +755,7 @@ export function ChatInput() {
                 size="icon-sm"
                 variant="destructive"
                 onClick={handlePrimaryAction}
-                disabled={!sessionId}
+                disabled={!canCompose}
                 aria-label="Stop turn"
                 title="Stop the running agent"
                 className="cursor-pointer"
@@ -709,7 +767,7 @@ export function ChatInput() {
                 type="button"
                 size="icon-sm"
                 onClick={handlePrimaryAction}
-                disabled={!text.trim() || !sessionId || noModelsAvailable || needsSelection}
+                disabled={!text.trim() || !canCompose || noModelsAvailable || needsSelection}
                 aria-label="Send message"
                 className="cursor-pointer"
               >

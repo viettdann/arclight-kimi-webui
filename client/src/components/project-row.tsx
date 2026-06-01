@@ -49,7 +49,6 @@ export function ProjectRow({ project, sessions, isActive }: ProjectRowProps) {
   const isForeign = project.origin === 'foreign';
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
-  const creating = useNewSessionStore((s) => s.pending[project.name] ?? false);
   const requestNewSession = useNewSessionStore((s) => s.request);
 
   const handleNewTask = (e: React.MouseEvent) => {
@@ -144,7 +143,6 @@ export function ProjectRow({ project, sessions, isActive }: ProjectRowProps) {
               variant="ghost"
               size="icon-xs"
               onClick={handleNewTask}
-              disabled={creating}
               aria-label={`New task in ${project.name}`}
               title={`New task in ${project.name}`}
               className="hover:bg-sidebar-accent"
@@ -182,15 +180,10 @@ export function ProjectRow({ project, sessions, isActive }: ProjectRowProps) {
               type="button"
               variant="ghost"
               onClick={handleNewTask}
-              disabled={creating}
               className="w-full justify-start gap-1.5 px-3 py-1.5 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground"
             >
-              {creating ? (
-                <Loader2 className="size-3.5 shrink-0 animate-spin" />
-              ) : (
-                <Plus className="size-3.5 shrink-0" />
-              )}
-              <span className="truncate">{creating ? 'Starting…' : 'New session'}</span>
+              <Plus className="size-3.5 shrink-0" />
+              <span className="truncate">New session</span>
             </Button>
           )}
           {sessions.length === 0

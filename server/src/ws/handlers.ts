@@ -7,7 +7,6 @@ import type {
   AnswerQuestionPayload,
   ApprovalMode,
   ApproveToolPayload,
-  CreateSessionPayload,
   EffortLevel,
   ErrorPayload,
   ProjectAdoptedPayload,
@@ -17,6 +16,7 @@ import type {
   SessionCreatedPayload,
   SessionUpdatedPayload,
   SnapshotPayload,
+  StartSessionPayload,
   SubscribePayload,
   TurnBeginPayload,
   WSMessage,
@@ -260,8 +260,8 @@ export async function handleMessage(ws: WS, raw: string | Buffer): Promise<void>
 
   try {
     switch (parsed.type as WSMessageType) {
-      case 'create_session':
-        await handleCreateSession(ws, parsed.payload as CreateSessionPayload | undefined);
+      case 'start_session':
+        await handleStartSession(ws, parsed.payload as StartSessionPayload | undefined);
         return;
       case 'subscribe':
         await handleSubscribe(ws, parsed.payload as SubscribePayload | undefined);
@@ -335,6 +335,35 @@ async function ensureQuery(active: ActiveSession): Promise<void> {
   });
 }
 
+/**
+ * Spawn the query (lazily) and begin a turn for `content`. The only expected
+ * failure is a missing provider, surfaced as `provider_unset` without tearing
+ * the session down. Returns `false` when that gate fired (caller should stop),
+ * `true` once the turn is underway. Shared by the create-and-run and
+ * send-message paths so the turn-begin semantics live in one place.
+ */
+async function beginFirstTurn(ws: WS, active: ActiveSession, content: string): Promise<boolean> {
+  try {
+    await ensureQuery(active);
+  } catch (err) {
+    if (err instanceof ProviderUnavailableError) {
+      sendError(ws, 'provider_unset', active.sessionId, 'No provider selected');
+      return false;
+    }
+    throw err;
+  }
+
+  active.turnInProgress = true;
+  broadcastEvent<TurnBeginPayload>(
+    active,
+    'turn_begin',
+    { userInput: content, id: randomUUID() },
+    deps.manager,
+  );
+  active.bridge?.push(content);
+  return true;
+}
+
 /** Build a `snapshot` envelope carrying the current lastSeq as the wire seq. */
 function snapshotEnvelope(
   active: ActiveSession,
@@ -375,11 +404,19 @@ async function sendSnapshot(ws: WS, active: ActiveSession): Promise<boolean> {
 
 // ─────────────────────────── handlers ───────────────────────────
 
-async function handleCreateSession(
-  ws: WS,
-  payload: CreateSessionPayload | undefined,
-): Promise<void> {
+/**
+ * Create a session and run its first turn in one atomic step. A row is INSERTed
+ * only here, on the first message — there is no separate empty-session create,
+ * so a session never exists without a turn behind it. After the row lands and
+ * the session registers, the snapshot drives the client to `/session/:id` and
+ * the first turn spawns the query.
+ */
+async function handleStartSession(ws: WS, payload: StartSessionPayload | undefined): Promise<void> {
   if (!payload || typeof payload !== 'object') {
+    sendError(ws, 'bad_request');
+    return;
+  }
+  if (typeof payload.content !== 'string' || payload.content.length === 0) {
     sendError(ws, 'bad_request');
     return;
   }
@@ -464,12 +501,15 @@ async function handleCreateSession(
   });
   deps.manager.attachWS(active, ws);
 
-  // The envelope's sessionId is the signal; the body is empty.
+  // The envelope's sessionId is the signal; the body is empty. Connected clients
+  // refresh their session/project lists off this.
   broadcastEvent<SessionCreatedPayload>(active, 'session_created', {}, deps.manager);
 
-  // Initial snapshot + replay_done to the requesting socket. No query yet — the
-  // subprocess is spawned lazily on the first send_message.
+  // Snapshot + replay_done to the requesting socket. The snapshot's sessionId is
+  // the real row id; the client navigates to `/session/:id` on receipt.
   await sendSnapshot(ws, active);
+
+  await beginFirstTurn(ws, active, payload.content);
 }
 
 async function handleSendMessage(
@@ -606,24 +646,7 @@ async function handleSendMessage(
     broadcastEvent<SessionUpdatedPayload>(active, 'session_updated', {}, deps.manager);
   }
 
-  try {
-    await ensureQuery(active);
-  } catch (err) {
-    if (err instanceof ProviderUnavailableError) {
-      sendError(ws, 'provider_unset', sessionId, 'No provider selected');
-      return;
-    }
-    throw err;
-  }
-
-  active.turnInProgress = true;
-  broadcastEvent<TurnBeginPayload>(
-    active,
-    'turn_begin',
-    { userInput: payload.content, id: randomUUID() },
-    deps.manager,
-  );
-  active.bridge?.push(payload.content);
+  await beginFirstTurn(ws, active, payload.content);
 }
 
 async function handleApproveTool(
