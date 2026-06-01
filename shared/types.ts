@@ -313,6 +313,8 @@ export interface StatusUpdatePayload {
 export interface ContextUsageCategory {
   name: string;
   tokens: number;
+  /** True when the category is shown but not loaded into the prompt (deferred behind tool search). */
+  isDeferred?: boolean;
 }
 export interface ContextUsageSkill {
   name: string;
@@ -324,6 +326,24 @@ export interface ContextUsageMemoryFile {
   type: string;
   tokens: number;
 }
+/** An MCP tool. `isLoaded === false` means it's deferred behind tool search. */
+export interface ContextUsageMcpTool {
+  name: string;
+  serverName: string;
+  tokens: number;
+  isLoaded?: boolean;
+}
+/** A built-in tool deferred behind tool search; `isLoaded` reflects current state. */
+export interface ContextUsageBuiltinTool {
+  name: string;
+  tokens: number;
+  isLoaded: boolean;
+}
+/** A system-tools entry that is always part of the prompt. */
+export interface ContextUsageSystemTool {
+  name: string;
+  tokens: number;
+}
 export interface ContextUsagePayload {
   percentage: number;
   totalTokens: number;
@@ -332,6 +352,9 @@ export interface ContextUsagePayload {
   categories: ContextUsageCategory[];
   skills: ContextUsageSkill[];
   memoryFiles: ContextUsageMemoryFile[];
+  mcpTools: ContextUsageMcpTool[];
+  deferredBuiltinTools: ContextUsageBuiltinTool[];
+  systemTools: ContextUsageSystemTool[];
 }
 
 export interface ApprovalRequestPayload {

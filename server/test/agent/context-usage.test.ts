@@ -23,6 +23,7 @@ function fixture() {
     categories: [
       { name: 'System prompt', tokens: 1200, color: '#111' },
       { name: 'Messages', tokens: 3400, color: '#222' },
+      { name: 'MCP tools', tokens: 500, color: '#444', isDeferred: true },
       { name: 'Free space', tokens: 95400, color: '#333' },
     ],
     totalTokens: 4600,
@@ -34,7 +35,12 @@ function fixture() {
       { path: '/w/CLAUDE.md', type: 'project', tokens: 300 },
       { path: '/home/u/.claude/CLAUDE.md', type: 'user', tokens: 150 },
     ],
-    mcpTools: [],
+    mcpTools: [
+      { name: 'firecrawl_search', serverName: 'firecrawl', tokens: 120, isLoaded: true },
+      { name: 'deepwiki_ask', serverName: 'deepwiki', tokens: 80, isLoaded: false },
+    ],
+    deferredBuiltinTools: [{ name: 'WebFetch', tokens: 60, isLoaded: false }],
+    systemTools: [{ name: 'Read', tokens: 40 }],
     skills: {
       totalSkills: 2,
       includedSkills: 1,
@@ -71,16 +77,23 @@ describe('refreshContextUsage', () => {
       totalTokens: 4600,
       maxTokens: 100000,
       model: 'kimi-k2',
-      // 'Free space' excluded.
+      // 'Free space' excluded; isDeferred carried through (undefined when absent).
       categories: [
-        { name: 'System prompt', tokens: 1200 },
-        { name: 'Messages', tokens: 3400 },
+        { name: 'System prompt', tokens: 1200, isDeferred: undefined },
+        { name: 'Messages', tokens: 3400, isDeferred: undefined },
+        { name: 'MCP tools', tokens: 500, isDeferred: true },
       ],
       skills: [{ name: 'brainstorming', source: 'plugin', tokens: 220 }],
       memoryFiles: [
         { path: '/w/CLAUDE.md', type: 'project', tokens: 300 },
         { path: '/home/u/.claude/CLAUDE.md', type: 'user', tokens: 150 },
       ],
+      mcpTools: [
+        { name: 'firecrawl_search', serverName: 'firecrawl', tokens: 120, isLoaded: true },
+        { name: 'deepwiki_ask', serverName: 'deepwiki', tokens: 80, isLoaded: false },
+      ],
+      deferredBuiltinTools: [{ name: 'WebFetch', tokens: 60, isLoaded: false }],
+      systemTools: [{ name: 'Read', tokens: 40 }],
     };
 
     expect(active.lastContextUsage).toEqual(expected);
@@ -123,6 +136,9 @@ describe('refreshContextUsage', () => {
       categories: [],
       skills: [],
       memoryFiles: [],
+      mcpTools: [],
+      deferredBuiltinTools: [],
+      systemTools: [],
     };
     const active = makeActive({
       getContextUsage: async () => {

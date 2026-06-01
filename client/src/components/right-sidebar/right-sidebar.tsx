@@ -1,9 +1,7 @@
-import { X } from 'lucide-react';
 import { type ComponentType, useEffect } from 'react';
 import { useChatStore } from '../../lib/chat-store';
 import { useRightSidebarStore } from '../../lib/right-sidebar-store';
 import { sendWS } from '../../lib/ws-send';
-import { Button } from '../ui/button';
 import { ContextPanel } from './context-panel';
 import { TodoPanel } from './todo-panel';
 
@@ -34,6 +32,7 @@ export function RightSidebar({ sessionId }: RightSidebarProps) {
 
   // Force the panel closed on every session switch — open state is scoped to the
   // chat you're looking at, not carried into the next one.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: sessionId is the trigger — close on every session switch
   useEffect(() => {
     close();
   }, [sessionId, close]);
@@ -58,19 +57,6 @@ export function RightSidebar({ sessionId }: RightSidebarProps) {
           open ? 'translate-x-0 md:w-[320px]' : 'translate-x-full md:hidden'
         }`}
       >
-        <div className="flex items-center justify-between border-b border-border px-4 py-3 shrink-0">
-          <span className="text-sm font-semibold">Details</span>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            onClick={close}
-            aria-label="Close panel"
-          >
-            <X className="h-4 w-4" />
-          </Button>
-        </div>
-
         <div className="flex flex-1 flex-col divide-y divide-border overflow-y-auto">
           {PANELS.map(({ id, Component }) => (
             <Component key={id} sessionId={sessionId} />
