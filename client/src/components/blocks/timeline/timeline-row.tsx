@@ -45,7 +45,7 @@ function statusWrap(status: RailRowStatus, icon: ReactNode): ReactNode {
     case 'error':
       return (
         <span
-          className="inline-flex h-5 w-5 items-center justify-center text-red-500"
+          className="inline-flex h-5 w-5 items-center justify-center text-destructive"
           title="Error"
         >
           <XCircle className="h-3.5 w-3.5" />
@@ -54,7 +54,7 @@ function statusWrap(status: RailRowStatus, icon: ReactNode): ReactNode {
     case 'interrupted':
       return (
         <span
-          className="inline-flex h-5 w-5 items-center justify-center text-amber-500"
+          className="inline-flex h-5 w-5 items-center justify-center text-warning"
           title="Interrupted"
         >
           <AlertTriangle className="h-3.5 w-3.5" />
@@ -71,5 +71,5 @@ function statusWrap(status: RailRowStatus, icon: ReactNode): ReactNode {
 
 /** Static decoration: an inline "completed" check on the rail for terminal rows. */
 export function CompletedDot() {
-  return <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />;
+  return <CheckCircle2 className="h-3.5 w-3.5 text-success" />;
 }

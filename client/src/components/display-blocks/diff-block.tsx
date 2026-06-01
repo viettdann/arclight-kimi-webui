@@ -116,9 +116,9 @@ export function DiffBlock({ path, oldText, newText }: DiffBlockProps) {
           <HeaderIcon
             className={`h-4 w-4 ${
               mode === 'create'
-                ? 'text-emerald-500'
+                ? 'text-success'
                 : mode === 'delete'
-                  ? 'text-red-500'
+                  ? 'text-destructive'
                   : 'text-primary'
             }`}
           />
@@ -126,9 +126,9 @@ export function DiffBlock({ path, oldText, newText }: DiffBlockProps) {
           <span
             className={`text-[10px] font-sans rounded px-1.5 py-0.5 border ${
               mode === 'create'
-                ? 'text-emerald-500 border-emerald-500/30 bg-emerald-500/10'
+                ? 'text-success border-success/30 bg-success-wash'
                 : mode === 'delete'
-                  ? 'text-red-500 border-red-500/30 bg-red-500/10'
+                  ? 'text-destructive border-destructive/30 bg-destructive-wash'
                   : 'text-muted-foreground border-border bg-muted/30'
             }`}
           >
@@ -142,7 +142,7 @@ export function DiffBlock({ path, oldText, newText }: DiffBlockProps) {
           className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors px-1.5 py-0.5 rounded hover:bg-muted"
         >
           {copied ? (
-            <Check className="h-3.5 w-3.5 text-emerald-500" />
+            <Check className="h-3.5 w-3.5 text-success" />
           ) : (
             <Copy className="h-3.5 w-3.5" />
           )}
@@ -157,9 +157,9 @@ export function DiffBlock({ path, oldText, newText }: DiffBlockProps) {
               const isAdd = line.type === 'addition';
               const isDel = line.type === 'deletion';
               const rowBg = isAdd
-                ? 'bg-emerald-500/10 text-emerald-400'
+                ? 'bg-success-wash text-success'
                 : isDel
-                  ? 'bg-red-500/10 text-red-400'
+                  ? 'bg-destructive-wash text-destructive'
                   : 'text-foreground/80 hover:bg-muted/10';
               const indicator = isAdd ? '+' : isDel ? '-' : ' ';
 

@@ -161,15 +161,15 @@ function buildRows(items: RailBlock[]): BuildResult {
         // No spinner while we wait on the user. The amber shield + pill on
         // this row anchor the request in chronological context; the actual
         // decision UI (Approve/Deny) lives in the bottom dock so the user
-        // can act without scrolling. A thin amber left-strip on the command
-        // preview echoes the dock's accent.
-        shape.icon = <ShieldAlert className="h-3.5 w-3.5 text-amber-500" />;
+        // can act without scrolling. A full warning-tinted frame on the
+        // command preview echoes the dock's accent.
+        shape.icon = <ShieldAlert className="h-3.5 w-3.5 text-warning" />;
         shape.status = 'ok';
         shape.badge = <PendingApprovalBadge />;
         if (b.name === 'Bash') {
           const command = readArgString(b, 'command');
           shape.detail = (
-            <div className="rounded-md border border-border/70 border-l-2 border-l-amber-500/60 overflow-hidden">
+            <div className="rounded-md border border-warning/40 bg-warning-wash/40 overflow-hidden">
               <TerminalOutput command={command} borderless />
             </div>
           );
@@ -204,9 +204,9 @@ function buildRows(items: RailBlock[]): BuildResult {
       rows.push({
         key: b.id,
         shape: {
-          icon: <span className="text-red-500">!</span>,
+          icon: <span className="text-destructive">!</span>,
           verb: 'Error',
-          inline: <span className="font-mono text-red-500/85">{b.code}</span>,
+          inline: <span className="font-mono text-destructive/85">{b.code}</span>,
           detail: <ErrorBlock code={b.code} message={b.message} createdAt={b.createdAt} />,
           status: 'error',
         },

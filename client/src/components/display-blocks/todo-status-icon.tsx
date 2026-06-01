@@ -11,10 +11,10 @@ interface TodoStatusIconProps {
 /** Status iconography shared by the inline todo block and the sidebar todo panel. */
 export function TodoStatusIcon({ status, className = 'h-5 w-5' }: TodoStatusIconProps) {
   if (status === 'done') {
-    return <CheckCircle2 className={`${className} text-emerald-500 fill-emerald-500/10`} />;
+    return <CheckCircle2 className={`${className} text-success fill-success-wash`} />;
   }
   if (status === 'in_progress') {
-    return <Loader2 className={`${className} text-amber-500 animate-spin`} />;
+    return <Loader2 className={`${className} text-warning animate-spin`} />;
   }
   return <Circle className={`${className} text-muted-foreground/50`} />;
 }

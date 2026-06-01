@@ -120,7 +120,7 @@ export function ProjectRow({ project, sessions, isActive }: ProjectRowProps) {
               onClick={handleOpenFiles}
               aria-label={`File management for ${project.name}`}
               title="File Management"
-              className="text-emerald-500 hover:bg-sidebar-accent"
+              className="text-success hover:bg-sidebar-accent"
             >
               <FolderTree />
             </Button>

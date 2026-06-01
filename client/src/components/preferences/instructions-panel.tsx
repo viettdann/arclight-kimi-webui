@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { USER_PREFERENCES_MAX_BYTES } from 'shared/types';
 import { Button } from '@/components/ui/button';
-import { Section } from '@/components/ui/section';
+import { SecHead } from '@/components/ui/sec-head';
 import { Textarea } from '@/components/ui/textarea';
 import { getUserPreferences, putUserPreferences } from '../../api/me-preferences';
 import { showToast } from '../toast-provider';
@@ -81,9 +81,9 @@ export function InstructionsPanel() {
         </div>
       )}
 
-      <Section
+      <SecHead
         title="Global instructions"
-        description="Personal instructions applied to every project you run — this is your own global memory, separate from a project's own instructions file."
+        description="Personal instructions applied to every project you run."
         actions={
           <Button
             type="button"
@@ -95,7 +95,9 @@ export function InstructionsPanel() {
             {saving ? 'Saving…' : 'Save'}
           </Button>
         }
-      >
+      />
+
+      <div className="space-y-3 rounded-lg border border-border bg-card p-4">
         <Textarea
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
@@ -116,7 +118,7 @@ export function InstructionsPanel() {
             {bytes.toLocaleString()} / {USER_PREFERENCES_MAX_BYTES.toLocaleString()} bytes
           </span>
         </div>
-      </Section>
+      </div>
     </div>
   );
 }

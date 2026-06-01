@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { GitCredentialDTO, GitProvider } from 'shared/types';
 import { Button } from '@/components/ui/button';
-import { Section } from '@/components/ui/section';
+import { SecHead } from '@/components/ui/sec-head';
 import { showToast } from '../../components/toast-provider';
 import { useGitCredentialsStore } from '../../lib/git-credentials-store';
 import { cn } from '../../lib/utils';
@@ -63,7 +63,7 @@ export function GitCredentialsPanel() {
         </div>
       )}
 
-      <Section
+      <SecHead
         title="Git credentials"
         description="Personal access tokens used to clone private repositories over HTTPS."
         actions={
@@ -71,60 +71,60 @@ export function GitCredentialsPanel() {
             Add credential
           </Button>
         }
-      >
-        {credentials.length === 0 ? (
-          <p className="text-xs italic text-muted-foreground border border-dashed border-border rounded-md py-6 text-center">
-            No credentials yet.
-          </p>
-        ) : (
-          <ul className="divide-y divide-border rounded-md border border-border overflow-hidden">
-            {credentials.map((cred) => (
-              <li
-                key={cred.id}
-                className="flex items-center justify-between gap-3 px-3 py-2.5 hover:bg-muted/40 transition-colors"
-              >
-                <div className="flex min-w-0 flex-col gap-0.5">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="text-sm font-medium truncate">{cred.label}</span>
-                    <span
-                      className={cn(
-                        'shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider border',
-                        'bg-muted border-border text-muted-foreground',
-                      )}
-                    >
-                      {PROVIDER_LABELS[cred.provider]}
-                    </span>
-                  </div>
-                  <div className="text-xs text-muted-foreground min-w-0">
-                    <span className="font-mono">{cred.tokenMask}</span>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3 shrink-0">
-                  <time
-                    className="text-[11px] text-muted-foreground tabular-nums"
-                    dateTime={cred.createdAt}
-                    title={cred.createdAt}
+      />
+
+      {credentials.length === 0 ? (
+        <p className="text-xs italic text-muted-foreground border border-dashed border-border rounded-md py-6 text-center">
+          No credentials yet.
+        </p>
+      ) : (
+        <ul className="divide-y divide-border rounded-md border border-border overflow-hidden">
+          {credentials.map((cred) => (
+            <li
+              key={cred.id}
+              className="flex items-center justify-between gap-3 px-3 py-2.5 hover:bg-muted/40 transition-colors"
+            >
+              <div className="flex min-w-0 flex-col gap-0.5">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-sm font-medium truncate">{cred.label}</span>
+                  <span
+                    className={cn(
+                      'shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider border',
+                      'bg-muted border-border text-muted-foreground',
+                    )}
                   >
-                    {formatDate(cred.createdAt)}
-                  </time>
-                  <Button type="button" variant="ghost" size="xs" onClick={() => openEdit(cred)}>
-                    Edit
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="xs"
-                    onClick={() => handleRemove(cred)}
-                    className="text-destructive hover:text-destructive"
-                  >
-                    Remove
-                  </Button>
+                    {PROVIDER_LABELS[cred.provider]}
+                  </span>
                 </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Section>
+                <div className="text-xs text-muted-foreground min-w-0">
+                  <span className="font-mono">{cred.tokenMask}</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 shrink-0">
+                <time
+                  className="text-[11px] text-muted-foreground tabular-nums"
+                  dateTime={cred.createdAt}
+                  title={cred.createdAt}
+                >
+                  {formatDate(cred.createdAt)}
+                </time>
+                <Button type="button" variant="ghost" size="xs" onClick={() => openEdit(cred)}>
+                  Edit
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="xs"
+                  onClick={() => handleRemove(cred)}
+                  className="text-destructive hover:text-destructive"
+                >
+                  Remove
+                </Button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
 
       <GitCredentialDialog open={dialogOpen} onOpenChange={setDialogOpen} credential={editing} />
     </div>

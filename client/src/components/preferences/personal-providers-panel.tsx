@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { ProviderDTO, ProviderType } from 'shared/types/providers';
 import { Button } from '@/components/ui/button';
-import { Section } from '@/components/ui/section';
+import { SecHead } from '@/components/ui/sec-head';
 import { deleteMyProvider, listMyProviders } from '../../api/providers';
 import { showToast } from '../../components/toast-provider';
 import { refreshComposerCatalog } from '../../lib/providers-store';
@@ -88,44 +88,40 @@ export function PersonalProvidersPanel() {
         </div>
       )}
 
-      <Section
+      <SecHead
         title="Personal providers"
-        description="Your model providers (OAuth or API key). Only visible to you."
+        description="Your own model providers (OAuth or API key). Visible only to you."
         actions={
           <Button type="button" variant="default" size="sm" onClick={openAdd}>
             Add provider
           </Button>
         }
-      >
-        {providers.length === 0 ? (
-          <p className="text-xs italic text-muted-foreground border border-dashed border-border rounded-md py-6 text-center">
-            No providers yet.
-          </p>
-        ) : (
-          <div className="space-y-4">
-            {oauthProviders.length > 0 && (
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-                  OAuth
-                </p>
-                <ProviderList
-                  providers={oauthProviders}
-                  onEdit={openEdit}
-                  onRemove={handleRemove}
-                />
-              </div>
-            )}
-            {apiProviders.length > 0 && (
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-                  API Key
-                </p>
-                <ProviderList providers={apiProviders} onEdit={openEdit} onRemove={handleRemove} />
-              </div>
-            )}
-          </div>
-        )}
-      </Section>
+      />
+
+      {providers.length === 0 ? (
+        <p className="text-xs italic text-muted-foreground border border-dashed border-border rounded-md py-6 text-center">
+          No providers yet.
+        </p>
+      ) : (
+        <div className="space-y-4">
+          {oauthProviders.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+                OAuth
+              </p>
+              <ProviderList providers={oauthProviders} onEdit={openEdit} onRemove={handleRemove} />
+            </div>
+          )}
+          {apiProviders.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+                API key
+              </p>
+              <ProviderList providers={apiProviders} onEdit={openEdit} onRemove={handleRemove} />
+            </div>
+          )}
+        </div>
+      )}
 
       <PersonalProviderDialog
         open={dialogOpen}

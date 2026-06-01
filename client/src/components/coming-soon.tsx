@@ -20,18 +20,18 @@ export function ComingSoon() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-50 px-6">
-      <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm">
-        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-indigo-50 text-indigo-600">
+    <div className="flex min-h-screen items-center justify-center bg-background px-6">
+      <div className="w-full max-w-md rounded-2xl border border-border bg-card p-8 text-center shadow-sm">
+        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-primary-wash text-primary">
           <Clock className="h-7 w-7" />
         </div>
-        <h1 className="mt-5 text-xl font-bold tracking-tight text-slate-900">Coming soon</h1>
-        <p className="mt-2 text-sm leading-relaxed text-slate-500">
+        <h1 className="mt-5 text-xl font-bold tracking-tight text-foreground">Coming soon</h1>
+        <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
           Your access to More Than Code is pending. We'll let you in as soon as your account is
           enabled — no action needed on your side.
         </p>
         {email && (
-          <p className="mt-4 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 font-mono text-xs text-slate-600">
+          <p className="mt-4 rounded-lg border border-border bg-muted px-3 py-2 font-mono text-xs text-muted-foreground">
             {email}
           </p>
         )}

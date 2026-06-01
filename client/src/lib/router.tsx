@@ -9,7 +9,6 @@ import { AccessControlPanel } from '../components/settings/access-control-panel'
 import { DefaultsPanel } from '../components/settings/defaults-panel';
 import { OverviewPanel } from '../components/settings/overview-panel';
 import { ProviderPanel } from '../components/settings/provider-panel';
-import { SettingsSection } from '../components/settings/settings-section';
 import { Shell } from '../pages/app';
 import { ChatView } from '../pages/chat-view';
 import { PreferencesView } from '../pages/preferences';
@@ -24,23 +23,30 @@ export const DRAFT_WORKDIR_PARAM = 'workDir';
 export const router = createBrowserRouter([
   {
     path: '/',
-    element: <Shell />,
     // Catches thrown errors and Responses (403/500/…) from any descendant, plus
     // React Router's synthetic 404 for URLs that match no route below.
     errorElement: <ErrorView />,
     children: [
-      { index: true, element: <ChatView /> },
       {
-        // Draft session: input only, no row yet. The first message fires
-        // `start_session`; the resulting snapshot redirects to the real id.
-        path: 'session/new',
-        element: <RequireAuth />,
-        children: [{ index: true, element: <ChatView /> }],
-      },
-      {
-        path: 'session/:id/*',
-        element: <RequireAuth />,
-        children: [{ index: true, element: <ChatView /> }],
+        // Chat Shell: fixed project rail + shared header. Settings/Preferences
+        // deliberately live OUTSIDE this so they render as full-page chrome
+        // (one sidebar + a back-to-chat topbar) — never doubled up with the rail.
+        element: <Shell />,
+        children: [
+          { index: true, element: <ChatView /> },
+          {
+            // Draft session: input only, no row yet. The first message fires
+            // `start_session`; the resulting snapshot redirects to the real id.
+            path: 'session/new',
+            element: <RequireAuth />,
+            children: [{ index: true, element: <ChatView /> }],
+          },
+          {
+            path: 'session/:id/*',
+            element: <RequireAuth />,
+            children: [{ index: true, element: <ChatView /> }],
+          },
+        ],
       },
       {
         path: 'settings',
@@ -51,15 +57,8 @@ export const router = createBrowserRouter([
             children: [
               { index: true, element: <Navigate to="overview" replace /> },
               { path: 'overview', element: <OverviewPanel /> },
-              {
-                path: 'claude',
-                element: <SettingsSection />,
-                children: [
-                  { index: true, element: <Navigate to="provider" replace /> },
-                  { path: 'provider', element: <ProviderPanel /> },
-                  { path: 'defaults', element: <DefaultsPanel /> },
-                ],
-              },
+              { path: 'providers', element: <ProviderPanel /> },
+              { path: 'session-defaults', element: <DefaultsPanel /> },
               { path: 'access', element: <AccessControlPanel /> },
             ],
           },
@@ -72,9 +71,9 @@ export const router = createBrowserRouter([
           {
             element: <PreferencesView />,
             children: [
-              { index: true, element: <Navigate to="git-credentials" replace /> },
-              { path: 'git-credentials', element: <GitCredentialsPanel /> },
+              { index: true, element: <Navigate to="providers" replace /> },
               { path: 'providers', element: <PersonalProvidersPanel /> },
+              { path: 'git-credentials', element: <GitCredentialsPanel /> },
               { path: 'instructions', element: <InstructionsPanel /> },
             ],
           },

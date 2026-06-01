@@ -1,3 +1,4 @@
+import { Check, KeyRound, Plus } from 'lucide-react';
 import { type FormEvent, useEffect, useState } from 'react';
 import type {
   ProviderDTO,
@@ -10,12 +11,12 @@ import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
-  DialogFooter,
-  DialogHeader,
+  DialogDescription,
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { cn } from '../../lib/utils';
 import {
   createMyProvider,
   fetchMyProviderModels,
@@ -297,207 +298,233 @@ export function PersonalProviderDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{isEdit ? 'Edit provider' : 'Add provider'}</DialogTitle>
-        </DialogHeader>
+      <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-[600px]">
+        <form onSubmit={handleSubmit} className="flex max-h-[calc(100dvh-6rem)] flex-col">
+          {/* Header */}
+          <div className="shrink-0 border-b border-border px-7 pt-7 pb-5">
+            <DialogTitle className="text-xl font-medium tracking-tight">
+              {isEdit ? 'Edit provider' : 'Add provider'}
+            </DialogTitle>
+            <DialogDescription className="mt-1.5">
+              Configure a personal model provider. Only you can see it.
+            </DialogDescription>
+          </div>
 
-        <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-          {/* Type selector — disabled when editing */}
-          <div className="flex flex-col gap-1.5">
-            <Label>Type</Label>
-            <div className="flex gap-2">
-              {(['oauth', 'api'] as ProviderType[]).map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  disabled={isEdit}
-                  onClick={() => !isEdit && setType(t)}
-                  className={
-                    type === t
-                      ? 'rounded-md border border-primary bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors disabled:opacity-50'
-                      : 'rounded-md border border-border bg-transparent px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-50'
-                  }
-                >
-                  {t === 'oauth' ? 'OAuth' : 'API Key'}
-                </button>
-              ))}
+          {/* Body — scrollable */}
+          <div className="flex flex-col gap-7 overflow-y-auto px-7 py-7">
+            {/* Type selector — segmented, disabled when editing */}
+            <div className="flex flex-col gap-2">
+              <Label>Type</Label>
+              <div className="inline-flex w-fit rounded-md border border-border bg-muted p-0.5">
+                {(['oauth', 'api'] as ProviderType[]).map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    disabled={isEdit}
+                    onClick={() => !isEdit && setType(t)}
+                    className={cn(
+                      'inline-flex items-center gap-1.5 rounded-[5px] px-4 py-1.5 text-sm font-medium transition-colors disabled:cursor-not-allowed',
+                      type === t
+                        ? 'bg-card text-foreground shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground disabled:opacity-50',
+                    )}
+                  >
+                    <KeyRound className="h-3.5 w-3.5" />
+                    {t === 'oauth' ? 'OAuth' : 'API key'}
+                  </button>
+                ))}
+              </div>
+              {isEdit && (
+                <p className="text-xs text-muted-foreground">
+                  Type cannot be changed after creation.
+                </p>
+              )}
             </div>
-            {isEdit && (
-              <p className="text-xs text-muted-foreground">
-                Type cannot be changed after creation.
-              </p>
-            )}
-          </div>
 
-          {/* Namespace */}
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="pp-namespace">Namespace</Label>
-            <Input
-              id="pp-namespace"
-              type="text"
-              value={namespace}
-              onChange={(e) => setNamespace(e.target.value)}
-              placeholder="my-provider"
-              autoFocus
-            />
-          </div>
-
-          {/* Base URL (API only) */}
-          {type === 'api' && (
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="pp-base-url">Base URL</Label>
+            {/* Namespace */}
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="pp-namespace">Namespace</Label>
               <Input
-                id="pp-base-url"
-                type="url"
-                value={baseUrl}
-                onChange={(e) => setBaseUrl(e.target.value)}
-                placeholder="https://api.example.com/v1"
+                id="pp-namespace"
+                type="text"
+                value={namespace}
+                onChange={(e) => setNamespace(e.target.value)}
+                placeholder="my-openai"
+                autoFocus
               />
+              <p className="text-xs text-muted-foreground">
+                Used to prefix model IDs, e.g.{' '}
+                <span className="font-mono">{namespace.trim() || 'my-openai'}/gpt-4o</span>.
+              </p>
             </div>
-          )}
 
-          {/* Credentials. For API providers, Models sits beside the API key. */}
-          {type === 'api' ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-start">
+            {/* Base URL (API only) */}
+            {type === 'api' && (
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="pp-base-url">Base URL</Label>
+                <Input
+                  id="pp-base-url"
+                  type="url"
+                  value={baseUrl}
+                  onChange={(e) => setBaseUrl(e.target.value)}
+                  placeholder="https://api.openai.com/v1"
+                />
+              </div>
+            )}
+
+            {/* Credentials. For API providers, Models sits beside the token. */}
+            {type === 'api' ? (
+              <div className="grid grid-cols-1 gap-x-7 gap-y-7 sm:grid-cols-2 sm:items-start">
+                <SecretField
+                  id="pp-token"
+                  label="Token"
+                  masked={provider?.tokenMasked ?? ''}
+                  isSet={isEdit}
+                  value={token}
+                  onChange={setToken}
+                  placeholder={isEdit ? 'Leave blank to keep current' : 'API key'}
+                />
+                <div className="flex flex-col gap-2">
+                  <Label>Models</Label>
+                  <div className="flex flex-col gap-1 rounded-md border border-border bg-muted/40 p-3">
+                    {fetchModelsError && (
+                      <p className="px-1 text-xs italic text-muted-foreground">
+                        {fetchModelsError}
+                      </p>
+                    )}
+                    {hasModels ? (
+                      <ul className="max-h-52 space-y-0.5 overflow-y-auto">
+                        {modelEntries.map((m, idx) => (
+                          <li
+                            key={m.modelId}
+                            className="flex items-center gap-2.5 rounded-[5px] px-1.5 py-1.5 hover:bg-card"
+                          >
+                            <Checkbox
+                              id={`pp-model-${idx}`}
+                              checked={m.selected}
+                              onChange={() => toggleModelSelected(idx)}
+                            />
+                            <label
+                              htmlFor={`pp-model-${idx}`}
+                              className="min-w-0 flex-1 cursor-pointer truncate font-mono text-[13px]"
+                            >
+                              {m.displayName}
+                            </label>
+                            {m.selected && (
+                              <button
+                                type="button"
+                                onClick={() => setDefaultModel(idx)}
+                                className={cn(
+                                  'shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors',
+                                  m.isDefault
+                                    ? 'bg-primary-wash text-primary-hover'
+                                    : 'border border-border-strong text-muted-foreground hover:text-foreground',
+                                )}
+                              >
+                                {m.isDefault ? 'Default' : 'Set default'}
+                              </button>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="px-1 py-2 text-xs italic text-muted-foreground">
+                        No models yet — fetch them or add one manually below.
+                      </p>
+                    )}
+
+                    {/* Manual add row */}
+                    <div className="flex gap-2 pt-2">
+                      <Input
+                        type="text"
+                        value={manualModelId}
+                        onChange={(e) => setManualModelId(e.target.value)}
+                        placeholder="model-id (e.g. gpt-4o)"
+                        className="text-sm"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            addManualModel();
+                          }
+                        }}
+                      />
+                      <Button type="button" variant="outline" size="sm" onClick={addManualModel}>
+                        <Plus className="mr-1 h-3.5 w-3.5" />
+                        Add
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
               <SecretField
                 id="pp-token"
-                label="API Key"
+                label="Token"
                 masked={provider?.tokenMasked ?? ''}
                 isSet={isEdit}
                 value={token}
                 onChange={setToken}
-                placeholder={isEdit ? 'Leave blank to keep current' : 'API key'}
+                placeholder={isEdit ? 'Leave blank to keep current' : 'OAuth token'}
               />
-              <div className="flex flex-col gap-2 rounded-md border border-border bg-muted/30 px-4 py-3">
-                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Models
-                </p>
-                {fetchModelsError && (
-                  <p className="text-xs italic text-muted-foreground">{fetchModelsError}</p>
-                )}
-                {hasModels ? (
-                  <ul className="space-y-1.5">
-                    {modelEntries.map((m, idx) => (
-                      <li key={m.modelId} className="flex items-center gap-3">
-                        <Checkbox
-                          id={`pp-model-${idx}`}
-                          checked={m.selected}
-                          onChange={() => toggleModelSelected(idx)}
-                        />
-                        <label
-                          htmlFor={`pp-model-${idx}`}
-                          className="flex-1 cursor-pointer text-sm"
-                        >
-                          <span className="font-medium">{m.displayName}</span>
-                          {m.displayName !== m.modelId && (
-                            <span className="ml-1.5 font-mono text-xs text-muted-foreground">
-                              {m.modelId}
-                            </span>
-                          )}
-                        </label>
-                        <button
-                          type="button"
-                          disabled={!m.selected}
-                          onClick={() => setDefaultModel(idx)}
-                          className={
-                            m.isDefault
-                              ? 'text-[10px] font-semibold uppercase tracking-wider rounded-full px-2 py-0.5 border border-primary bg-primary text-primary-foreground'
-                              : 'text-[10px] font-semibold uppercase tracking-wider rounded-full px-2 py-0.5 border border-border text-muted-foreground hover:border-primary hover:text-foreground disabled:opacity-40'
-                          }
-                        >
-                          {m.isDefault ? 'Default' : 'Set default'}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="text-xs italic text-muted-foreground">
-                    No models yet — fetch them or add one manually below.
-                  </p>
-                )}
+            )}
 
-                {/* Manual add row */}
-                <div className="flex gap-2 pt-1">
-                  <Input
-                    type="text"
-                    value={manualModelId}
-                    onChange={(e) => setManualModelId(e.target.value)}
-                    placeholder="model-id (e.g. gpt-4o)"
-                    className="h-7 text-xs"
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        addManualModel();
-                      }
-                    }}
-                  />
-                  <Button type="button" variant="outline" size="sm" onClick={addManualModel}>
-                    Add
+            {/* Connection — test + fetch-models actions */}
+            <div className="flex flex-col gap-2">
+              <Label>Connection</Label>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleTest}
+                  disabled={testing || !testReady}
+                  title={
+                    testReady
+                      ? undefined
+                      : type === 'api'
+                        ? 'Fill base URL, API key, and select a model first'
+                        : 'Enter a token first'
+                  }
+                >
+                  {testing ? 'Testing…' : 'Test connection'}
+                </Button>
+                {type === 'api' && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleFetchModels}
+                    disabled={fetchingModels || !fetchReady}
+                    title={
+                      fetchReady ? 'Probe the /models endpoint' : 'Fill base URL and API key first'
+                    }
+                  >
+                    {fetchingModels ? 'Fetching…' : 'Fetch models'}
                   </Button>
-                </div>
+                )}
+                {testResult?.ok && (
+                  <span className="inline-flex items-center gap-1 text-sm text-success">
+                    <Check className="h-3.5 w-3.5" />
+                    Connection OK
+                  </span>
+                )}
               </div>
+              {testError && <p className="text-sm text-destructive">{testError}</p>}
             </div>
-          ) : (
-            <SecretField
-              id="pp-token"
-              label="Token"
-              masked={provider?.tokenMasked ?? ''}
-              isSet={isEdit}
-              value={token}
-              onChange={setToken}
-              placeholder={isEdit ? 'Leave blank to keep current' : 'OAuth token'}
-            />
-          )}
 
-          {/* Test + fetch-models actions */}
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={handleTest}
-              disabled={testing || !testReady}
-              title={
-                testReady
-                  ? undefined
-                  : type === 'api'
-                    ? 'Fill base URL, API key, and select a model first'
-                    : 'Enter a token first'
-              }
-            >
-              {testing ? 'Testing…' : 'Test connection'}
-            </Button>
-            {type === 'api' && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={handleFetchModels}
-                disabled={fetchingModels || !fetchReady}
-                title={
-                  fetchReady ? 'Probe the /models endpoint' : 'Fill base URL and API key first'
-                }
-              >
-                {fetchingModels ? 'Fetching…' : 'Fetch models'}
-              </Button>
-            )}
-            {testResult?.ok && (
-              <span className="text-xs text-green-600 dark:text-green-400">Connection OK</span>
-            )}
+            {formError && <p className="text-sm text-destructive">{formError}</p>}
           </div>
-          {testError && <p className="text-sm text-destructive">{testError}</p>}
 
-          {formError && <p className="text-sm text-destructive">{formError}</p>}
-
-          <DialogFooter className="mt-2">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+          {/* Footer — pinned action bar */}
+          <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border bg-card-2 px-7 py-5">
+            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
             <Button type="submit" disabled={submitting || (credentialDirty && !testedOk)}>
-              {submitting ? 'Saving…' : isEdit ? 'Save' : 'Add'}
+              <Check className="mr-1 h-3.5 w-3.5" />
+              {submitting ? 'Saving…' : isEdit ? 'Save provider' : 'Save provider'}
             </Button>
-          </DialogFooter>
+          </div>
         </form>
       </DialogContent>
     </Dialog>
