@@ -438,6 +438,31 @@ describe('defaultSelectionForUser', () => {
     expect(result).toBeNull();
   });
 
+  it('(3) admin: private built-in is eligible (no publicOnly filter) → picks its default', async () => {
+    const builtinPriv = makeProvider({
+      id: 'b-priv',
+      ownerUserId: null,
+      visibility: 'private',
+      type: 'api',
+    });
+    const models = [
+      makeModel({ id: 'bp-m1', providerId: 'b-priv', modelId: 'pri-a', isDefault: false }),
+      makeModel({ id: 'bp-m2', providerId: 'b-priv', modelId: 'pri-default', isDefault: true }),
+    ];
+
+    const db = makeFakeDbWithSession('admin', null);
+    mockListOwnerRows.mockResolvedValueOnce([]);
+    // admin path: the built-in lookup must NOT restrict to public, mirroring
+    // listAvailableForUser, so an admin-only built-in can be auto-pinned.
+    mockListBuiltinRows.mockImplementationOnce(async (_db: DB, opts?: { publicOnly?: boolean }) => {
+      expect(opts?.publicOnly).not.toBe(true);
+      return [{ provider: builtinPriv, models }];
+    });
+
+    const result = await defaultSelectionForUser(db, 'admin-1');
+    expect(result).toEqual({ providerId: 'b-priv', model: 'pri-default' });
+  });
+
   it('(4) no session, no personal, no public built-in → null', async () => {
     const db = makeFakeDbWithSession('user', null);
     mockListOwnerRows.mockResolvedValueOnce([]);

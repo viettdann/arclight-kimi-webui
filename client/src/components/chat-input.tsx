@@ -48,6 +48,11 @@ const EFFORT_OPTIONS: { value: EffortLevel | null; label: string }[] = [
   ...EFFORT_LEVELS.map((value) => ({ value, label: effortLabel(value) })),
 ];
 
+// Single source for the two "can't send yet" prompts — shown both as the
+// send-blocked toast and the Model trigger's tooltip so the wording can't drift.
+const MSG_MODEL_UNRESOLVABLE = 'The selected model is no longer available — pick another';
+const MSG_SELECT_MODEL = 'Select a model before sending';
+
 // Group order for the picker: Commands (builtin, then project) before Skills.
 const KIND_ORDER: Record<CommandInfo['kind'], number> = { builtin: 0, project: 1, skill: 2 };
 
@@ -134,6 +139,15 @@ export function ChatInput() {
     status === 'ready' &&
     (available?.builtin.length ?? 0) === 0 &&
     (available?.personal.length ?? 0) === 0;
+
+  // Catalog has providers but this session has no usable (providerId, model) —
+  // neither pinned on the session nor picked locally, or the pick is orphaned.
+  // The server can't resolve a provider for the send and would reply
+  // `provider_unset`; block the send here and steer the user to the model picker
+  // instead. Distinct from `noModelsAvailable` (catalog empty) so the prompt can
+  // say "pick a model" rather than "configure a provider".
+  const needsSelection =
+    status === 'ready' && !noModelsAvailable && (!hasSelection || isUnresolvable);
 
   const session = useChatStore((s) => (sessionId ? s.sessions[sessionId] : null));
   const isTurnInProgress = session?.isTurnInProgress ?? false;
@@ -236,6 +250,13 @@ export function ChatInput() {
     if (!text.trim() || !sessionId || isTurnInProgress) return;
     if (noModelsAvailable) {
       showToast({ message: 'No model available — configure a provider first', type: 'error' });
+      return;
+    }
+    if (needsSelection) {
+      showToast({
+        message: isUnresolvable ? MSG_MODEL_UNRESOLVABLE : MSG_SELECT_MODEL,
+        type: 'error',
+      });
       return;
     }
     const content = text.trim();
@@ -389,9 +410,11 @@ export function ChatInput() {
     ? 'Select or create a project to start...'
     : noModelsAvailable
       ? 'No models available — configure a provider to start'
-      : isTurnInProgress
-        ? 'Agent is running — press Stop to halt'
-        : 'Ask anything...';
+      : needsSelection
+        ? 'Select a model to start...'
+        : isTurnInProgress
+          ? 'Agent is running — press Stop to halt'
+          : 'Ask anything...';
 
   // Build flat model lists for dropdown.
   const builtinProviders = available?.builtin ?? [];
@@ -570,13 +593,15 @@ export function ChatInput() {
                   type="button"
                   variant="ghost"
                   size="xs"
-                  className={`cursor-pointer ${isUnresolvable ? 'text-amber-500' : 'text-muted-foreground'}`}
+                  className={`cursor-pointer ${needsSelection ? 'text-amber-500' : 'text-muted-foreground'}`}
                   disabled={!sessionId}
                   aria-label="Model"
                   title={
                     isUnresolvable
-                      ? 'The selected model is no longer available — pick another'
-                      : 'Model — applies from the next message'
+                      ? MSG_MODEL_UNRESOLVABLE
+                      : needsSelection
+                        ? MSG_SELECT_MODEL
+                        : 'Model — applies from the next message'
                   }
                 >
                   <span className="max-w-[16ch] truncate">{modelLabel}</span>
@@ -684,7 +709,7 @@ export function ChatInput() {
                 type="button"
                 size="icon-sm"
                 onClick={handlePrimaryAction}
-                disabled={!text.trim() || !sessionId || noModelsAvailable}
+                disabled={!text.trim() || !sessionId || noModelsAvailable || needsSelection}
                 aria-label="Send message"
                 className="cursor-pointer"
               >

@@ -18,6 +18,20 @@ async function getUserRole(db: DB, userId: string): Promise<'admin' | 'user' | n
   return (rows[0]?.role as 'admin' | 'user') ?? null;
 }
 
+/**
+ * Built-in providers in the scope a user may use: an admin sees every built-in,
+ * a non-admin only public ones. Single source of truth for the role→visibility
+ * rule shared by the composer catalog (`listAvailableForUser`) and the
+ * session-default fallback (`defaultSelectionForUser`) so the two never drift.
+ */
+async function listBuiltinRowsForUser(
+  db: DB,
+  userId: string,
+): Promise<{ provider: ProviderRow; models: ProviderModelRow[] }[]> {
+  const role = await getUserRole(db, userId);
+  return role === 'admin' ? listBuiltinRows(db) : listBuiltinRows(db, { publicOnly: true });
+}
+
 export async function resolveProviderForUser(
   db: DB,
   userId: string,
@@ -47,9 +61,7 @@ export async function listAvailableForUser(
   db: DB,
   userId: string,
 ): Promise<AvailableProvidersResponse> {
-  const role = await getUserRole(db, userId);
-  const builtinRows =
-    role === 'admin' ? await listBuiltinRows(db) : await listBuiltinRows(db, { publicOnly: true });
+  const builtinRows = await listBuiltinRowsForUser(db, userId);
 
   const personalRows = await listOwnerRows(db, userId);
 
@@ -94,8 +106,12 @@ export async function defaultSelectionForUser(
     if (model) return { providerId: provider.id, model };
   }
 
-  // (3) Public built-in providers, newest first; first with >=1 model.
-  const builtinRows = await listBuiltinRows(db, { publicOnly: true });
+  // (3) Built-in providers, newest first; first with >=1 model. Same role→scope
+  // rule as the composer catalog: an admin may default to a private built-in, a
+  // non-admin only to public ones. Without this an admin-only built-in shows in
+  // the composer dropdown yet never auto-pins, so a fresh session sends with a
+  // null provider → `provider_unset`.
+  const builtinRows = await listBuiltinRowsForUser(db, userId);
   for (const { provider, models } of builtinRows) {
     const model = pickDefaultModel(models);
     if (model) return { providerId: provider.id, model };
