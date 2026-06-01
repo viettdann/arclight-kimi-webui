@@ -157,6 +157,47 @@ export async function backupSubagents(
 }
 
 /**
+ * Parse transcript JSONL and return the LATEST AI-generated title the `claude`
+ * binary wrote into it — the `aiTitle` of the last `{"type":"ai-title",…}`
+ * entry. The binary emits this line for free during a normal turn (no extra API
+ * call on our side) and rewrites it last-wins, so the final occurrence is the
+ * current title. Pure (no IO); returns null when no such entry exists.
+ */
+export function aiTitleFromJsonl(content: string): string | null {
+  let title: string | null = null;
+  for (const line of content.split('\n')) {
+    if (!line) continue;
+    let obj: unknown;
+    try {
+      obj = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (typeof obj !== 'object' || obj === null) continue;
+    const o = obj as { type?: unknown; aiTitle?: unknown };
+    if (o.type !== 'ai-title' || typeof o.aiTitle !== 'string') continue;
+    const trimmed = o.aiTitle.trim();
+    if (trimmed) title = trimmed; // last-wins
+  }
+  return title;
+}
+
+/**
+ * Read the session's AI title straight from the persisted transcript. Survives
+ * restarts and `--watch` reloads, so it is the reliable source for titling a
+ * session whose turn ran in an earlier runtime. Returns null if there is no
+ * transcript yet or the binary has not written an `ai-title` entry.
+ */
+export async function aiTitleFromTranscript(sessionId: string): Promise<string | null> {
+  const row = await db.query.sessionTranscripts.findFirst({
+    where: eq(sessionTranscripts.sessionId, sessionId),
+    columns: { content: true },
+  });
+  if (!row?.content) return null;
+  return aiTitleFromJsonl(row.content);
+}
+
+/**
  * Restore the transcript (and any subagent files) from the DB back to the
  * filesystem so the binary can `resume` from them. Recreates the project dir,
  * writes the main JSONL, then writes each subagent entry into the subagent dir.
