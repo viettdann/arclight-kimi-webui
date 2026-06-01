@@ -73,6 +73,7 @@ function makeRecordingDb(): RecordingDb {
 
   const buildSelectChain = (call: SelectCall): unknown => {
     const chain: Record<string, unknown> = {};
+    chain.leftJoin = () => chain;
     chain.where = () => {
       call.whereCalls += 1;
       return chain;
@@ -247,6 +248,43 @@ describe('GET /api/sessions', () => {
     expect(sel?.whereCalls).toBe(1);
     expect(sel?.orderByCalls).toBe(1);
     expect(sel?.limit).toBe(200);
+  });
+
+  it('derives firstUserText from the transcript head, normalized + capped', async () => {
+    const audit: AuditEvent[] = [];
+    const fake = makeRecordingDb();
+    const head = [
+      JSON.stringify({ type: 'permission-mode', mode: 'ask' }),
+      JSON.stringify({
+        type: 'user',
+        message: { role: 'user', content: 'Xin chào,\n  fix the   bug' },
+      }),
+    ].join('\n');
+    fake.selectQueue.push([
+      { ...aliceRow({ id: 'titled' }), title: 'Real title', transcriptHead: head },
+      { ...aliceRow({ id: 'provisional' }), title: null, transcriptHead: head },
+      { ...aliceRow({ id: 'empty' }), title: null, transcriptHead: null },
+    ]);
+    const manager = new SessionManager();
+    const app = buildApp({
+      user: { id: 'alice', email: 'alice@example.com' },
+      db: fake.db,
+      manager,
+      audit,
+    });
+
+    const res = await app.request('/api/sessions');
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { sessions: SessionListItem[] };
+    const byId = Object.fromEntries(body.sessions.map((s) => [s.id, s]));
+    // A set title is untouched; firstUserText is derived regardless of title.
+    expect(byId.titled?.title).toBe('Real title');
+    expect(byId.titled?.firstUserText).toBe('Xin chào, fix the bug');
+    // Untitled session falls back to the (normalized) first user prompt.
+    expect(byId.provisional?.title).toBeNull();
+    expect(byId.provisional?.firstUserText).toBe('Xin chào, fix the bug');
+    // No transcript yet → no provisional title.
+    expect(byId.empty?.firstUserText).toBeNull();
   });
 
   it('rejects unauthenticated requests with 401', async () => {

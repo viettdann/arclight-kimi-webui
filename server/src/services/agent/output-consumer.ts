@@ -21,14 +21,17 @@ import type {
   TurnEndStatus,
   WSMessageType,
 } from 'shared/types';
+import { LIGHT_MODEL } from 'shared/types/providers';
 import { db, schema } from '../../db';
 import { logger } from '../../lib/logger';
 import { broadcastEvent } from '../../lib/ws-broadcast';
+import { resolveProviderForUser } from '../providers/resolve';
 import type { ActiveSession } from '../session-manager';
 import { sessionManager } from '../session-manager';
 import { refreshCatalog } from './commands-catalog';
 import { toDisplayBlocks } from './display-blocks';
-import { aiTitleFromTranscript, appendTranscript, backupSubagents } from './transcript-store';
+import { generateTitle } from './title';
+import { appendTranscript, backupSubagents, readTranscriptTitleInputs } from './transcript-store';
 
 const log = logger.child({ module: 'agent/output-consumer' });
 
@@ -443,45 +446,80 @@ export async function consumeQueryOutput(active: ActiveSession): Promise<void> {
     await maybePersistTitle();
   }
 
-  /**
-   * Mirror the SDK's AI title into our `sessions` row once per session, whenever
-   * it still has none. The `claude` binary generates the title itself and writes
-   * a `{"type":"ai-title",…}` entry into the transcript during a normal turn —
-   * no extra API call on our side. We just read the latest such entry (from the
-   * transcript already backed up this turn) and persist + broadcast it.
-   *
-   * Gated solely on `title IS NULL`, so a turn that ran before the binary had
-   * written the entry (or in a since-reloaded runtime) is retried on the next
-   * turn end.
-   */
-  async function maybePersistTitle(): Promise<void> {
-    let row: { title: string | null } | undefined;
-    try {
-      row = await db.query.sessions.findFirst({
-        where: eq(schema.sessions.id, active.sessionId),
-        columns: { title: true },
-      });
-    } catch (err) {
-      log.warn({ err, sessionId: active.sessionId }, 'title lookup failed');
-      return;
-    }
-    if (row?.title) return; // already titled
-
-    const title = await aiTitleFromTranscript(active.sessionId);
-    if (!title) return; // binary has not written an ai-title entry yet
-
-    const clamped = title.slice(0, 255);
+  /** Persist a title + its provenance, then broadcast the update. */
+  async function persistTitle(title: string, source: 'ai' | 'fallback'): Promise<void> {
     try {
       await db
         .update(schema.sessions)
-        .set({ title: clamped })
+        .set({ title, titleSource: source })
         .where(eq(schema.sessions.id, active.sessionId));
     } catch (err) {
       log.error({ err, sessionId: active.sessionId }, 'failed to persist title');
       return;
     }
-    broadcastEvent(active, 'title_update', { title: clamped }, sessionManager);
-    log.info({ sessionId: active.sessionId, title: clamped }, 'AI title persisted from transcript');
+    broadcastEvent(active, 'title_update', { title }, sessionManager);
+    log.info({ sessionId: active.sessionId, title, source }, 'title persisted');
+  }
+
+  /**
+   * Settle the session's title on turn end. The `claude` binary normally writes
+   * a `{"type":"ai-title",…}` entry into the transcript for free during a turn,
+   * but a 3rd-party proxy can drop that background generation (notably on short
+   * sessions), leaving the entry absent. So:
+   *
+   *  - `manual` source → leave the user's title alone.
+   *  - binary ai-title present → mirror it as `ai` (overriding any prior
+   *    `fallback`, kept in sync if the binary rewrites it).
+   *  - no ai-title yet & still untitled → self-generate a `fallback` title from
+   *    the first user prompt; a later binary ai-title supersedes it.
+   *
+   * Re-evaluated every turn end while the title is not yet `ai`, so a deferred
+   * binary title (or one written in an earlier runtime) is still picked up.
+   */
+  async function maybePersistTitle(): Promise<void> {
+    let row: { title: string | null; titleSource: string | null } | undefined;
+    try {
+      row = await db.query.sessions.findFirst({
+        where: eq(schema.sessions.id, active.sessionId),
+        columns: { title: true, titleSource: true },
+      });
+    } catch (err) {
+      log.warn({ err, sessionId: active.sessionId }, 'title lookup failed');
+      return;
+    }
+    if (row?.titleSource === 'manual') return; // user-set — never overwrite
+
+    const { aiTitle, firstUserText } = await readTranscriptTitleInputs(active.sessionId);
+
+    // Binary's own title wins whenever present: adopt it, overriding a fallback.
+    if (aiTitle) {
+      const clamped = aiTitle.slice(0, 255);
+      if (row?.title === clamped && row?.titleSource === 'ai') return; // already mirrored
+      await persistTitle(clamped, 'ai');
+      return;
+    }
+
+    // No binary title. Generate our own only while still untitled — an existing
+    // fallback is kept (the binary may still supersede it on a later turn).
+    if (row?.title) return;
+    if (!firstUserText) return;
+
+    const provider = await resolveProviderForUser(db, active.userId, active.providerId);
+    if (!provider) return;
+
+    // An api proxy may not expose the Anthropic light model id, so reuse the
+    // session's resolved model there; oauth always has the light model.
+    const titleModel = provider.type === 'api' ? (active.model ?? LIGHT_MODEL) : LIGHT_MODEL;
+
+    let title: string | null;
+    try {
+      title = await generateTitle(firstUserText, provider, titleModel);
+    } catch (err) {
+      log.warn({ err, sessionId: active.sessionId }, 'title generation threw');
+      return;
+    }
+    if (!title) return;
+    await persistTitle(title.slice(0, 255), 'fallback');
   }
 
   log.info({ sessionId: active.sessionId }, 'output consumer started');

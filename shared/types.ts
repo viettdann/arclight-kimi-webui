@@ -160,6 +160,13 @@ export interface SessionListItem {
   /** `local` when `workDir === localWorkDir`; `foreign` otherwise. */
   origin: 'local' | 'foreign';
   title: string | null;
+  /**
+   * First user prompt (whitespace-normalized, length-capped), or null when the
+   * session has no transcript yet. The client shows this as a provisional title
+   * until a real `title` (binary ai-title or self-generated fallback) is set —
+   * it is never persisted to the `title` column.
+   */
+  firstUserText: string | null;
   model: string | null;
   /** Provider that owns `model`; null when unset or orphaned. */
   providerId: string | null;
