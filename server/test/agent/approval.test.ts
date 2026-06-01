@@ -204,6 +204,85 @@ describe('buildCanUseTool — ask mode', () => {
   });
 });
 
+describe('buildCanUseTool — approve_for_session', () => {
+  beforeEach(() => {
+    broadcasts.length = 0;
+  });
+
+  it('remembers the exact target and auto-allows it without re-prompting', async () => {
+    const active = makeActive('ask');
+    const cb = buildCanUseTool(active);
+    const sig = new AbortController().signal;
+
+    const p1 = cb('Read', { file_path: 'src/index.ts' }, ctx(sig));
+    await tick();
+    expect(active.pendingApprovals.size).toBe(1);
+    [...active.pendingApprovals.values()][0]!.resolve('approve_for_session');
+    expect(await p1).toEqual({ behavior: 'allow', updatedInput: { file_path: 'src/index.ts' } });
+
+    // Same target again → no prompt, no broadcast, allowed straight away.
+    broadcasts.length = 0;
+    const result = await cb('Read', { file_path: 'src/index.ts' }, ctx(sig));
+    expect(result).toEqual({ behavior: 'allow', updatedInput: { file_path: 'src/index.ts' } });
+    expect(active.pendingApprovals.size).toBe(0);
+    expect(broadcasts).toHaveLength(0);
+  });
+
+  it('still prompts for a different target of the same tool', async () => {
+    const active = makeActive('ask');
+    const cb = buildCanUseTool(active);
+    const sig = new AbortController().signal;
+
+    const p1 = cb('Read', { file_path: 'abc.ts' }, ctx(sig));
+    await tick();
+    [...active.pendingApprovals.values()][0]!.resolve('approve_for_session');
+    await p1;
+
+    broadcasts.length = 0;
+    const p2 = cb('Read', { file_path: 'efg.ts' }, ctx(sig));
+    await tick();
+    expect(broadcasts.map((b) => b.type)).toContain('approval_request');
+    expect(active.pendingApprovals.size).toBe(1);
+    [...active.pendingApprovals.values()][0]!.resolve('reject');
+    expect(await p2).toEqual({ behavior: 'deny', message: 'Denied by user' });
+  });
+
+  it('keys Bash on the leading binary, so later args of the same command auto-allow', async () => {
+    const active = makeActive('ask');
+    const cb = buildCanUseTool(active);
+    const sig = new AbortController().signal;
+
+    const p1 = cb('Bash', { command: 'npm run test' }, ctx(sig));
+    await tick();
+    [...active.pendingApprovals.values()][0]!.resolve('approve_for_session');
+    await p1;
+
+    broadcasts.length = 0;
+    const result = await cb('Bash', { command: 'npm run build' }, ctx(sig));
+    expect(result.behavior).toBe('allow');
+    expect(broadcasts).toHaveLength(0);
+  });
+
+  it('does not remember when the user picks plain approve', async () => {
+    const active = makeActive('ask');
+    const cb = buildCanUseTool(active);
+    const sig = new AbortController().signal;
+
+    const p1 = cb('Read', { file_path: 'once.ts' }, ctx(sig));
+    await tick();
+    [...active.pendingApprovals.values()][0]!.resolve('approve');
+    await p1;
+    expect(active.sessionAllowRules.has('Read:once.ts')).toBe(false);
+
+    broadcasts.length = 0;
+    const p2 = cb('Read', { file_path: 'once.ts' }, ctx(sig));
+    await tick();
+    expect(broadcasts.map((b) => b.type)).toContain('approval_request');
+    [...active.pendingApprovals.values()][0]!.resolve('reject');
+    await p2;
+  });
+});
+
 describe('buildCanUseTool — abort handling', () => {
   beforeEach(() => {
     broadcasts.length = 0;

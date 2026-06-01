@@ -99,6 +99,30 @@ function describeTool(
 }
 
 /**
+ * Build a per-target rule key from a tool name + its input, used to remember an
+ * "approve for session" decision (see `ActiveSession.sessionAllowRules`).
+ *
+ * Granularity is per-target, not per-tool: approving `Read foo` keys `Read:foo`,
+ * so `Read bar` still asks. Bash keys on the leading command word only (the
+ * binary, before any whitespace/flags) so subsequent invocations of the same
+ * command — regardless of arguments — match, mirroring the `Bash(cmd:*)` prefix
+ * model. A tool with no extractable target falls back to the bare tool name
+ * (whole-tool scope), since there is nothing finer to key on.
+ */
+export function buildRuleKey(toolName: string, input: Record<string, unknown>): string {
+  if (toolName === 'Bash' && typeof input.command === 'string') {
+    const binary = input.command.trim().split(/\s+/)[0] ?? '';
+    return binary ? `Bash:${binary}` : 'Bash';
+  }
+  const target =
+    (typeof input.file_path === 'string' && input.file_path) ||
+    (typeof input.path === 'string' && input.path) ||
+    (typeof input.url === 'string' && input.url) ||
+    '';
+  return target ? `${toolName}:${target}` : toolName;
+}
+
+/**
  * Build the SDK `canUseTool` callback for a session. Handles `AskUserQuestion`
  * in every mode, plus the per-mode permission flow (bypass/safe/ask).
  */
@@ -188,6 +212,12 @@ async function askApproval(
 ): Promise<PermissionResult> {
   if (signal.aborted) return { behavior: 'deny', message: 'aborted' };
 
+  // Honor a prior "approve for session" for this exact target without prompting.
+  const ruleKey = buildRuleKey(toolName, input);
+  if (active.sessionAllowRules.has(ruleKey)) {
+    return { behavior: 'allow', updatedInput: input };
+  }
+
   const requestId = randomUUID();
   const { action, description } = describeTool(toolName, input);
   const command =
@@ -220,7 +250,10 @@ async function askApproval(
   active.pendingApprovals.delete(requestId);
 
   if (response === 'approve' || response === 'approve_for_session') {
-    logger.debug({ toolName, requestId, response }, 'tool approved by user');
+    if (response === 'approve_for_session') {
+      active.sessionAllowRules.add(ruleKey);
+    }
+    logger.debug({ toolName, requestId, response, ruleKey }, 'tool approved by user');
     return { behavior: 'allow', updatedInput: input };
   }
   return { behavior: 'deny', message: 'Denied by user' };
