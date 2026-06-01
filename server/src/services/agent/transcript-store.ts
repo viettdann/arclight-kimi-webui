@@ -182,19 +182,71 @@ export function aiTitleFromJsonl(content: string): string | null {
   return title;
 }
 
+/** Extract plain text from a transcript message `content` (string or content-
+ *  block array). Returns '' when no text part is present (e.g. a tool_result-
+ *  only user turn). */
+function messageText(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .filter(
+      (b): b is { type: 'text'; text: string } =>
+        typeof b === 'object' &&
+        b !== null &&
+        (b as { type?: unknown }).type === 'text' &&
+        typeof (b as { text?: unknown }).text === 'string',
+    )
+    .map((b) => b.text)
+    .join('');
+}
+
 /**
- * Read the session's AI title straight from the persisted transcript. Survives
- * restarts and `--watch` reloads, so it is the reliable source for titling a
- * session whose turn ran in an earlier runtime. Returns null if there is no
- * transcript yet or the binary has not written an `ai-title` entry.
+ * Parse transcript JSONL and return the FIRST real user prompt's text — the
+ * first non-meta `{"type":"user",…}` entry that carries any text. Skips
+ * `isMeta` entries and tool_result-only turns (no text part). Used to seed the
+ * self-generated fallback title when the binary wrote no ai-title. Pure (no IO);
+ * returns null when no such entry exists.
  */
-export async function aiTitleFromTranscript(sessionId: string): Promise<string | null> {
+export function firstUserTextFromJsonl(content: string): string | null {
+  for (const line of content.split('\n')) {
+    if (!line) continue;
+    let obj: unknown;
+    try {
+      obj = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (typeof obj !== 'object' || obj === null) continue;
+    const o = obj as { type?: unknown; isMeta?: unknown; message?: { content?: unknown } };
+    if (o.type !== 'user' || o.isMeta === true) continue;
+    const text = messageText(o.message?.content).trim();
+    if (text) return text;
+  }
+  return null;
+}
+
+/** The two title inputs read together from one transcript fetch. */
+export interface TranscriptTitleInputs {
+  /** Binary-written ai-title (last-wins), or null if none yet. */
+  aiTitle: string | null;
+  /** First real user prompt text, for the self-generated fallback. */
+  firstUserText: string | null;
+}
+
+/**
+ * Read both title inputs from the persisted transcript in a single DB fetch.
+ * Survives restarts and `--watch` reloads, so it is the reliable source for
+ * titling a session whose turn ran in an earlier runtime. Returns nulls when
+ * there is no transcript yet.
+ */
+export async function readTranscriptTitleInputs(sessionId: string): Promise<TranscriptTitleInputs> {
   const row = await db.query.sessionTranscripts.findFirst({
     where: eq(sessionTranscripts.sessionId, sessionId),
     columns: { content: true },
   });
-  if (!row?.content) return null;
-  return aiTitleFromJsonl(row.content);
+  const content = row?.content;
+  if (!content) return { aiTitle: null, firstUserText: null };
+  return { aiTitle: aiTitleFromJsonl(content), firstUserText: firstUserTextFromJsonl(content) };
 }
 
 /**

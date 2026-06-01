@@ -158,7 +158,7 @@ export function ConfirmDeleteProjectDialog({
               <ul className="mt-1 list-disc space-y-0.5 pl-5 text-muted-foreground">
                 {shownTitles.map((s) => (
                   <li key={s.id} className="truncate">
-                    {s.title ?? 'Untitled session'}
+                    {s.title ?? s.firstUserText ?? 'Untitled session'}
                   </li>
                 ))}
                 {overflow > 0 && <li className="text-muted-foreground/70">+{overflow} more</li>}

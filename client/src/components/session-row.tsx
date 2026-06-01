@@ -21,7 +21,9 @@ export function SessionRow({ session }: SessionRowProps) {
   const remove = useSessionsStore((s) => s.remove);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [confirmRestoreOpen, setConfirmRestoreOpen] = useState(false);
-  const title = session.title ?? 'Untitled session';
+  // Real title (binary ai-title / fallback) wins; until one exists, show the
+  // first user prompt as a provisional title; only then the generic placeholder.
+  const title = session.title ?? session.firstUserText ?? 'Untitled session';
   const isForeign = session.origin === 'foreign';
 
   const attach = () => {

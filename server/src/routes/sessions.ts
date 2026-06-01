@@ -1,6 +1,6 @@
 import { rm } from 'node:fs/promises';
 import path from 'node:path';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, getTableColumns, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import type { SessionListItem, SessionListResponse } from 'shared/types';
 import { slug } from '../auth';
@@ -8,11 +8,36 @@ import { type AuthVariables, requireAuth } from '../auth/middleware';
 import { type DB, db as defaultDb, schema } from '../db';
 import { env as defaultEnv, type Env } from '../env';
 import { auditLog as defaultAuditLog, logger } from '../lib/logger';
-import { projectTranscriptDir, transcriptPath } from '../services/agent/transcript-store';
+import {
+  firstUserTextFromJsonl,
+  projectTranscriptDir,
+  transcriptPath,
+} from '../services/agent/transcript-store';
 import { teardownActiveSession } from '../services/session-lifecycle';
 import { sessionManager as defaultManager, type SessionManager } from '../services/session-manager';
 
 const SESSIONS_LIST_LIMIT = 200;
+
+/** Bytes of transcript head read to derive the provisional title. The first
+ *  user prompt sits within the first few hundred bytes, so this is ample. */
+const TRANSCRIPT_HEAD_BYTES = 8192;
+
+/** Max length of the provisional title shipped to the client. */
+const PROVISIONAL_TITLE_MAX = 120;
+
+/**
+ * Derive a provisional title from a transcript head: the first real user
+ * prompt, whitespace-collapsed to one line and length-capped. Null when the
+ * head holds no user text yet. Never persisted — purely a display fallback.
+ */
+function provisionalTitle(head: string | null | undefined): string | null {
+  if (!head) return null;
+  const text = firstUserTextFromJsonl(head);
+  if (!text) return null;
+  const oneLine = text.replace(/\s+/g, ' ').trim();
+  if (!oneLine) return null;
+  return oneLine.length > PROVISIONAL_TITLE_MAX ? oneLine.slice(0, PROVISIONAL_TITLE_MAX) : oneLine;
+}
 
 export interface SessionsRouterDeps {
   db: DB;
@@ -46,9 +71,20 @@ export function createSessionsRouter(deps: SessionsRouterDeps): Hono<{ Variables
     const user = c.var.user;
     if (user == null) return c.json({ error: 'unauthorized' }, 401);
 
+    // Join the transcript head (not the full content — sessions can be 100KB+)
+    // so the provisional title can be derived without a second query per row.
     const rows = await db
-      .select()
+      .select({
+        ...getTableColumns(schema.sessions),
+        transcriptHead: sql<
+          string | null
+        >`left(${schema.sessionTranscripts.content}, ${TRANSCRIPT_HEAD_BYTES})`,
+      })
       .from(schema.sessions)
+      .leftJoin(
+        schema.sessionTranscripts,
+        eq(schema.sessionTranscripts.sessionId, schema.sessions.id),
+      )
       .where(eq(schema.sessions.userId, user.id))
       .orderBy(desc(schema.sessions.lastActiveAt))
       .limit(SESSIONS_LIST_LIMIT);
@@ -67,6 +103,7 @@ export function createSessionsRouter(deps: SessionsRouterDeps): Hono<{ Variables
         localWorkDir,
         origin: r.workDir === localWorkDir ? 'local' : 'foreign',
         title: r.title,
+        firstUserText: provisionalTitle(r.transcriptHead),
         model: r.model,
         providerId: r.providerId,
         thinking: r.thinking,

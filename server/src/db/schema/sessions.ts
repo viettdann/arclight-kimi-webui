@@ -22,6 +22,13 @@ export const sessions = pgTable(
     workDir: text().notNull(),
     projectName: varchar({ length: 255 }).notNull(),
     title: varchar({ length: 255 }),
+    // Provenance of `title`, gating whether a turn-end may overwrite it:
+    //   'ai'       → mirrored from the binary's own ai-title (authoritative).
+    //   'fallback' → self-generated when the binary wrote none; a later binary
+    //                ai-title supersedes it.
+    //   'manual'   → set by the user; never overwritten.
+    //   null       → untitled (or a legacy row from before this column).
+    titleSource: text(), // ai | fallback | manual | null
     model: varchar({ length: 100 }),
     providerId: uuid().references(() => providers.id, { onDelete: 'set null' }),
     thinking: boolean().notNull().default(false),

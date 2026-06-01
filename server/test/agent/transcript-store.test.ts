@@ -4,6 +4,7 @@ import { env } from '../../src/env';
 import {
   aiTitleFromJsonl,
   encodeCwd,
+  firstUserTextFromJsonl,
   MAX_ENCODED_LEN,
   subagentDir,
   transcriptPath,
@@ -102,10 +103,9 @@ describe('aiTitleFromJsonl', () => {
     JSON.stringify({ type: 'user', message: { role: 'user', content } });
 
   it('returns the aiTitle of a single ai-title entry', () => {
-    const jsonl = [
-      userLine('what is the cwd?'),
-      titleLine('Find current project directory'),
-    ].join('\n');
+    const jsonl = [userLine('what is the cwd?'), titleLine('Find current project directory')].join(
+      '\n',
+    );
     expect(aiTitleFromJsonl(jsonl)).toBe('Find current project directory');
   });
 
@@ -123,17 +123,56 @@ describe('aiTitleFromJsonl', () => {
   });
 
   it('skips non-string / empty aiTitle and tolerates malformed lines', () => {
-    const jsonl = [
-      'not json',
-      titleLine(42),
-      titleLine('   '),
-      titleLine('the real title'),
-    ].join('\n');
+    const jsonl = ['not json', titleLine(42), titleLine('   '), titleLine('the real title')].join(
+      '\n',
+    );
     expect(aiTitleFromJsonl(jsonl)).toBe('the real title');
   });
 
   it('returns null when there is no ai-title entry', () => {
     expect(aiTitleFromJsonl([userLine('hi'), 'garbage'].join('\n'))).toBeNull();
     expect(aiTitleFromJsonl('')).toBeNull();
+  });
+});
+
+describe('firstUserTextFromJsonl', () => {
+  const userLine = (content: unknown, extra: Record<string, unknown> = {}) =>
+    JSON.stringify({ type: 'user', message: { role: 'user', content }, ...extra });
+  const asstLine = (text: string) =>
+    JSON.stringify({
+      type: 'assistant',
+      message: { role: 'assistant', content: [{ type: 'text', text }] },
+    });
+
+  it('returns the first user message (string content)', () => {
+    const jsonl = [userLine('Xin chào'), asstLine('hi back')].join('\n');
+    expect(firstUserTextFromJsonl(jsonl)).toBe('Xin chào');
+  });
+
+  it('joins text blocks of an array-content user message', () => {
+    const jsonl = userLine([
+      { type: 'text', text: 'fix the ' },
+      { type: 'text', text: 'login bug' },
+    ]);
+    expect(firstUserTextFromJsonl(jsonl)).toBe('fix the login bug');
+  });
+
+  it('skips isMeta entries and tool_result-only turns, returns the first real prompt', () => {
+    const jsonl = [
+      userLine('system context', { isMeta: true }),
+      userLine([{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }]),
+      userLine('the real first prompt'),
+    ].join('\n');
+    expect(firstUserTextFromJsonl(jsonl)).toBe('the real first prompt');
+  });
+
+  it('returns the FIRST (not last) user prompt and tolerates malformed lines', () => {
+    const jsonl = ['not json', userLine('hello'), userLine('second')].join('\n');
+    expect(firstUserTextFromJsonl(jsonl)).toBe('hello');
+  });
+
+  it('returns null when there is no user text', () => {
+    expect(firstUserTextFromJsonl([asstLine('only assistant')].join('\n'))).toBeNull();
+    expect(firstUserTextFromJsonl('')).toBeNull();
   });
 });
