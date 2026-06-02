@@ -1,6 +1,7 @@
 import { APPROVAL_MODES, type ApprovalMode, EFFORT_LEVELS, type EffortLevel } from 'shared/types';
 import { create } from 'zustand';
 import { getMySettings, getResolvedDefaults, putMySettings } from '../api/config';
+import { saveWithToast } from './save-toast';
 
 const DEBOUNCE_MS = 500;
 
@@ -31,6 +32,7 @@ interface SessionDefaultsState {
   effort: EffortLevel | null;
   isUserOverride: OverrideState;
   status: 'idle' | 'loading' | 'ready' | 'error';
+  saveFailed: boolean;
 
   setApprovalMode: (mode: ApprovalMode) => void;
   setThinking: (on: boolean) => void;
@@ -61,15 +63,20 @@ export const useSessionDefaultsStore = create<SessionDefaultsState>((set) => {
   let flushTimer: ReturnType<typeof setTimeout> | null = null;
   let pending: Record<string, unknown> = {};
 
+  function persist(changes: { key: string; value: unknown }[]) {
+    saveWithToast(() => putMySettings(changes), {
+      error: 'Failed to save defaults',
+      onSettled: (failed) => set({ saveFailed: failed }),
+    });
+  }
+
   function scheduleFlush() {
     if (flushTimer) clearTimeout(flushTimer);
     flushTimer = setTimeout(() => {
       const changes = Object.entries(pending).map(([key, value]) => ({ key, value }));
       pending = {};
       if (changes.length === 0) return;
-      void putMySettings(changes).catch(() => {
-        // Optimistic — failure surfaces on next load, not inline.
-      });
+      persist(changes);
     }, DEBOUNCE_MS);
   }
 
@@ -125,6 +132,7 @@ export const useSessionDefaultsStore = create<SessionDefaultsState>((set) => {
     },
 
     status: 'idle',
+    saveFailed: false,
 
     setApprovalMode: (approvalMode) => {
       if (!isApprovalMode(approvalMode)) return;

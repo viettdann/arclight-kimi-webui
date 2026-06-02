@@ -10,6 +10,7 @@ import {
   putProjectDiscoverySettings,
 } from '../../api/project-discovery';
 import { showToast } from '../toast-provider';
+import { useRegisterDirty } from './use-settings-dirty';
 
 type Status = 'idle' | 'loading' | 'ready' | 'error';
 
@@ -46,6 +47,7 @@ export function ProjectDiscoverySection() {
   }, []);
 
   const dirty = draftEntries !== savedEntries.join('\n') || draftOverride !== savedOverride;
+  useRegisterDirty('project-discovery', dirty);
 
   async function handleSave() {
     if (!dirty || saving) return;

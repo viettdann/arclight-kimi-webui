@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { SecHead } from '@/components/ui/sec-head';
 import { Textarea } from '@/components/ui/textarea';
 import { getUserPreferences, putUserPreferences } from '../../api/me-preferences';
+import { useRegisterDirty } from '../settings/use-settings-dirty';
 import { showToast } from '../toast-provider';
 
 type Status = 'idle' | 'loading' | 'ready' | 'error';
@@ -46,6 +47,7 @@ export function InstructionsPanel() {
   const bytes = byteLength(draft);
   const overCap = bytes > USER_PREFERENCES_MAX_BYTES;
   const dirty = draft !== saved;
+  useRegisterDirty('instructions', dirty);
 
   async function handleSave() {
     if (overCap || !dirty || saving) return;

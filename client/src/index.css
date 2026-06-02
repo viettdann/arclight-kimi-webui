@@ -153,16 +153,6 @@
   }
 }
 
-@keyframes toast-slide-in {
-  from { opacity: 0; transform: translateX(100%); }
-  to { opacity: 1; transform: translateX(0); }
-}
-
-@keyframes toast-slide-out {
-  from { opacity: 1; transform: translateX(0); }
-  to { opacity: 0; transform: translateX(100%); }
-}
-
 /* Syntax highlighting — Lezer tags mapped to `.tok-*` by highlight-code.ts. */
 .code-hl { color: var(--code-ink); }
 .code-hl .tok-com  { color: var(--tok-com); font-style: italic; }

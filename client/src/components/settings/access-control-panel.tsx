@@ -12,7 +12,9 @@ import {
   setAccessControl,
 } from '../../api/access';
 import { useAuthStore } from '../../lib/auth-store';
+import { saveWithToast } from '../../lib/save-toast';
 import { cn } from '../../lib/utils';
+import { useRegisterDirty } from './use-settings-dirty';
 
 type OverrideChoice = 'default' | 'on' | 'off';
 
@@ -36,6 +38,9 @@ export function AccessControlPanel() {
   const [newEmail, setNewEmail] = useState('');
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [saveFailed, setSaveFailed] = useState(false);
+
+  useRegisterDirty('access-control', saveFailed);
 
   useEffect(() => {
     let cancelled = false;
@@ -57,17 +62,21 @@ export function AccessControlPanel() {
     };
   }, []);
 
-  async function changeOverride(choice: OverrideChoice) {
-    setSavingControl(true);
+  function changeOverride(choice: OverrideChoice) {
     setError(null);
-    try {
-      const next = await setAccessControl(overrideFromChoice(choice));
-      setControl(next);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to update');
-    } finally {
-      setSavingControl(false);
-    }
+    // setSavingControl lives inside `run` so it toggles on the initial save and
+    // on every Retry; the finally guarantees the control re-enables either way.
+    saveWithToast(
+      async () => {
+        setSavingControl(true);
+        try {
+          setControl(await setAccessControl(overrideFromChoice(choice)));
+        } finally {
+          setSavingControl(false);
+        }
+      },
+      { error: 'Failed to update', onSettled: setSaveFailed },
+    );
   }
 
   async function handleAdd() {
@@ -124,10 +133,7 @@ export function AccessControlPanel() {
 
   return (
     <div className="space-y-4">
-      <SecHead
-        title="Members & access"
-        description="Who can sign in and use this workspace."
-      />
+      <SecHead title="Members & access" description="Who can sign in and use this workspace." />
 
       {error && (
         <div className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-2.5 text-sm text-destructive">
@@ -198,10 +204,7 @@ export function AccessControlPanel() {
           </div>
 
           <div className="space-y-1.5">
-            <label
-              htmlFor="allowlist-add"
-              className="block text-xs font-semibold text-foreground"
-            >
+            <label htmlFor="allowlist-add" className="block text-xs font-semibold text-foreground">
               Add to allowlist
             </label>
             <div className="flex gap-2">

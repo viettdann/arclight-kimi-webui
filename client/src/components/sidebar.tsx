@@ -1,14 +1,6 @@
-import {
-  ChevronRight,
-  ChevronsUpDown,
-  LogOut,
-  Plus,
-  Settings,
-  SquarePen,
-  Zap,
-} from 'lucide-react';
+import { ChevronRight, ChevronsUpDown, LogOut, Plus, Settings, SquarePen, Zap } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router';
+import { useLocation, useNavigate, useParams } from 'react-router';
 import type { WSMessageType } from 'shared/types';
 import { Button } from '@/components/ui/button';
 import { DropdownItem, DropdownMenu, DropdownSeparator } from '@/components/ui/dropdown-menu';
@@ -33,19 +25,21 @@ interface SidebarProps {
 
 function AuthSection({ onLoginClick, onClose }: { onLoginClick: () => void; onClose: () => void }) {
   const navigate = useNavigate();
+  const location = useLocation();
   // Single-field selectors avoid re-renders on unrelated auth-store changes.
   const status = useAuthStore((s) => s.status);
   const user = useAuthStore((s) => s.user);
   const isAdmin = useAuthStore((s) => s.status === 'authenticated' && s.user?.role === 'admin');
   const clearSession = useAuthStore((s) => s.clearSession);
 
-  const go = useCallback(
-    (path: string) => {
-      onClose?.();
-      navigate(path);
-    },
-    [navigate, onClose],
-  );
+  // Open Settings as a modal overlay. Stamp the current URL into history state
+  // so the modal knows where to return on close (cold deep-links fall back to `/`).
+  const openSettings = useCallback(() => {
+    onClose?.();
+    navigate('/settings', {
+      state: { backgroundLocation: `${location.pathname}${location.search}` },
+    });
+  }, [navigate, onClose, location.pathname, location.search]);
 
   if (status === 'unknown') {
     return (
@@ -122,18 +116,12 @@ function AuthSection({ onLoginClick, onClose }: { onLoginClick: () => void; onCl
             <p className="truncate text-xs text-muted-foreground">{user?.email}</p>
           </div>
         </div>
-        {isAdmin && (
-          <>
-            <DropdownSeparator />
-            <DropdownItem
-              icon={<Settings />}
-              trailing={<ChevronRight />}
-              onClick={() => go('/settings')}
-            >
-              Admin settings
-            </DropdownItem>
-          </>
-        )}
+        <DropdownSeparator />
+        {/* Settings is for everyone — the modal shows providers/workspace/general
+            to all users and adds the admin-only System section for admins. */}
+        <DropdownItem icon={<Settings />} trailing={<ChevronRight />} onClick={openSettings}>
+          Settings
+        </DropdownItem>
         <DropdownSeparator />
         <DropdownItem destructive icon={<LogOut />} onClick={() => clearSession('manual')}>
           Log out

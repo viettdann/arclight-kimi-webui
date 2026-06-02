@@ -19,6 +19,7 @@ import {
 } from '../../components/settings/use-provider-form';
 import { showToast } from '../../components/toast-provider';
 import { refreshComposerCatalog } from '../../lib/providers-store';
+import { useRegisterDirty } from '../settings/use-settings-dirty';
 
 /** Which form is open: adding a provider of a given type, or editing one by id. */
 type EditTarget = { kind: 'add'; type: ProviderType } | { kind: 'edit'; id: string } | null;
@@ -49,6 +50,7 @@ export function PersonalProvidersPanel() {
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [editing, setEditing] = useState<EditTarget>(null);
+  useRegisterDirty('personal-provider-form', editing !== null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);

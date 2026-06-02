@@ -12,6 +12,7 @@ import { Switch } from '@/components/ui/switch';
 import { isResolvable, labelFor, useProvidersStore } from '../../lib/providers-store';
 import { useSessionDefaultsStore } from '../../lib/session-defaults-store';
 import { cn } from '../../lib/utils';
+import { useRegisterDirty } from './use-settings-dirty';
 
 export const APPROVAL_LABELS: Record<ApprovalMode, string> = {
   ask: 'Ask — confirm every tool call',
@@ -46,6 +47,8 @@ function sourceBadgeClass(source: Source): string {
 export function DefaultsPanel() {
   const store = useSessionDefaultsStore();
   const { available, ensureLoaded } = useProvidersStore();
+
+  useRegisterDirty('session-defaults', store.saveFailed);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: one-shot on mount
   useEffect(() => {

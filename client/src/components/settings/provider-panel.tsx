@@ -16,6 +16,7 @@ import { refreshComposerCatalog } from '../../lib/providers-store';
 import { cn } from '../../lib/utils';
 import { ProviderForm } from './provider-form';
 import { emptyForm, formFromProvider, useProviderForm } from './use-provider-form';
+import { useRegisterDirty } from './use-settings-dirty';
 
 // ── Main component ────────────────────────────────────────────────────────────
 
@@ -26,6 +27,7 @@ export function ProviderPanel() {
 
   /** Which provider is being edited (by id), or 'new' for the add form, or null. */
   const [editing, setEditing] = useState<string | 'new' | null>(null);
+  useRegisterDirty('builtin-provider-form', editing !== null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 

@@ -27,9 +27,9 @@ export const router = createBrowserRouter([
     errorElement: <ErrorView />,
     children: [
       {
-        // Chat Shell: fixed project rail + shared header. Settings/Preferences
-        // deliberately live OUTSIDE this so they render as full-page chrome
-        // (one sidebar + a back-to-chat topbar) — never doubled up with the rail.
+        // Chat Shell: fixed project rail + shared header. Chat pages AND the
+        // settings modal render under here, so the rail + header stay mounted and
+        // blur through the settings backdrop instead of dropping to a blank page.
         element: <Shell />,
         children: [
           { index: true, element: <ChatView /> },
@@ -45,30 +45,33 @@ export const router = createBrowserRouter([
             element: <RequireAuth />,
             children: [{ index: true, element: <ChatView /> }],
           },
-        ],
-      },
-      {
-        path: 'settings',
-        element: <RequireAuth />,
-        children: [
           {
-            element: <SettingsView />,
+            // Settings is a route-driven modal (SettingsView → SettingsDialog,
+            // portaled). Nested here so opening it keeps the Shell behind the
+            // backdrop; closing navigates back to `backgroundLocation`.
+            path: 'settings',
+            element: <RequireAuth />,
             children: [
-              { index: true, element: <Navigate to="providers" replace /> },
-              { path: 'providers', element: <ProvidersSection /> },
-              { path: 'workspace', element: <WorkspacePanel /> },
-              { path: 'general', element: <GeneralSection /> },
-              { path: 'system', element: <SystemSection /> },
-              // ── Redirect map for old URLs ──
-              { path: 'overview', element: <Navigate to="/settings/system" replace /> },
               {
-                path: 'session-defaults',
-                element: <Navigate to="/settings/workspace" replace />,
-              },
-              { path: 'access', element: <Navigate to="/settings/system" replace /> },
-              {
-                path: 'project-discovery',
-                element: <Navigate to="/settings/system" replace />,
+                element: <SettingsView />,
+                children: [
+                  { index: true, element: <Navigate to="providers" replace /> },
+                  { path: 'providers', element: <ProvidersSection /> },
+                  { path: 'workspace', element: <WorkspacePanel /> },
+                  { path: 'general', element: <GeneralSection /> },
+                  { path: 'system', element: <SystemSection /> },
+                  // ── Redirect map for old URLs ──
+                  { path: 'overview', element: <Navigate to="/settings/system" replace /> },
+                  {
+                    path: 'session-defaults',
+                    element: <Navigate to="/settings/workspace" replace />,
+                  },
+                  { path: 'access', element: <Navigate to="/settings/system" replace /> },
+                  {
+                    path: 'project-discovery',
+                    element: <Navigate to="/settings/system" replace />,
+                  },
+                ],
               },
             ],
           },

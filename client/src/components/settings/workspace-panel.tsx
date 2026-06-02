@@ -1,15 +1,14 @@
 import { useEffect, useState } from 'react';
-import {
-  APPROVAL_MODES,
-  type ApprovalMode,
-} from 'shared/types';
+import { APPROVAL_MODES, type ApprovalMode } from 'shared/types';
 import { SecHead } from '@/components/ui/sec-head';
 import { Select } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { useAuthStore } from '@/lib/auth-store';
 import { getSiteDefaults, putSiteSettings } from '../../api/config';
+import { saveWithToast } from '../../lib/save-toast';
 import { cn } from '../../lib/utils';
 import { APPROVAL_LABELS, DefaultsPanel } from './defaults-panel';
+import { useRegisterDirty } from './use-settings-dirty';
 
 /**
  * Workspace section: per-user session defaults + site-wide defaults (admin).
@@ -61,6 +60,9 @@ function SiteDefaultsPanel() {
   const [approvalMode, setApprovalMode] = useState<ApprovalMode>('ask');
   const [hasThinking, setHasThinking] = useState(false);
   const [hasApprovalMode, setHasApprovalMode] = useState(false);
+  const [saveFailed, setSaveFailed] = useState(false);
+
+  useRegisterDirty('site-defaults', saveFailed);
 
   // Load site defaults once on mount
   // biome-ignore lint/correctness/useExhaustiveDependencies: one-shot on mount
@@ -94,22 +96,22 @@ function SiteDefaultsPanel() {
     };
   }, []);
 
-  async function saveSiteSetting(key: string, value: unknown) {
-    setError(null);
-    try {
-      await putSiteSettings([{ key, value }]);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to save');
-    }
+  function persistSite(key: string, value: unknown) {
+    saveWithToast(
+      () => {
+        setError(null);
+        return putSiteSettings([{ key, value }]);
+      },
+      { onSettled: setSaveFailed },
+    );
   }
 
-  async function deleteSiteSetting(key: string) {
-    setError(null);
-    try {
-      await putSiteSettings([{ key, value: null }]);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to delete');
-    }
+  function saveSiteSetting(key: string, value: unknown) {
+    persistSite(key, value);
+  }
+
+  function deleteSiteSetting(key: string) {
+    persistSite(key, null);
   }
 
   if (status === 'loading' || status === 'idle') {
@@ -139,9 +141,7 @@ function SiteDefaultsPanel() {
             <span
               className={cn(
                 'rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em]',
-                hasThinking
-                  ? 'bg-warning-wash text-warning'
-                  : 'bg-muted text-muted-foreground',
+                hasThinking ? 'bg-warning-wash text-warning' : 'bg-muted text-muted-foreground',
               )}
             >
               {hasThinking ? 'Site override' : 'Code default'}
@@ -182,9 +182,7 @@ function SiteDefaultsPanel() {
             <span
               className={cn(
                 'rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em]',
-                hasApprovalMode
-                  ? 'bg-warning-wash text-warning'
-                  : 'bg-muted text-muted-foreground',
+                hasApprovalMode ? 'bg-warning-wash text-warning' : 'bg-muted text-muted-foreground',
               )}
             >
               {hasApprovalMode ? 'Site override' : 'Code default'}
