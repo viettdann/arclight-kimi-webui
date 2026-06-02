@@ -29,6 +29,20 @@
       "when": 1780293966187,
       "tag": "0003_add_title_source",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1780373611840,
+      "tag": "0004_add_session_store_entries",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1780374549199,
+      "tag": "0005_drop_session_transcripts",
+      "breakpoints": true
     }
   ]
 }

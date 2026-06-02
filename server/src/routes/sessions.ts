@@ -1,4 +1,3 @@
-import { rm } from 'node:fs/promises';
 import path from 'node:path';
 import { and, desc, eq, getTableColumns, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
@@ -9,19 +8,17 @@ import { type DB, db as defaultDb, schema } from '../db';
 import { env as defaultEnv, type Env } from '../env';
 import { auditLog as defaultAuditLog, logger } from '../lib/logger';
 import { isUnderWorkspace } from '../services/agent/agent-paths';
-import {
-  firstUserTextFromJsonl,
-  projectTranscriptDir,
-  transcriptPath,
-} from '../services/agent/transcript-store';
+import { deleteStoreEntries } from '../services/agent/session-store';
+import { clearLocalSession, firstUserTextFromJsonl } from '../services/agent/transcript-store';
 import { teardownActiveSession } from '../services/session-lifecycle';
 import { sessionManager as defaultManager, type SessionManager } from '../services/session-manager';
 
 const SESSIONS_LIST_LIMIT = 200;
 
-/** Bytes of transcript head read to derive the provisional title. The first
- *  user prompt sits within the first few hundred bytes, so this is ample. */
-const TRANSCRIPT_HEAD_BYTES = 8192;
+/** First N user-type main entries scanned to derive the provisional title. The
+ *  opening prompt is the first user entry; a small cap absorbs any leading
+ *  tool_result-only user turns while keeping the per-row subquery cheap. */
+const TITLE_HEAD_USER_ENTRIES = 5;
 
 /** Max length of the provisional title shipped to the client. */
 const PROVISIONAL_TITLE_MAX = 120;
@@ -77,15 +74,24 @@ export function createSessionsRouter(deps: SessionsRouterDeps): Hono<{ Variables
     const rows = await db
       .select({
         ...getTableColumns(schema.sessions),
-        transcriptHead: sql<
-          string | null
-        >`left(${schema.sessionTranscripts.content}, ${TRANSCRIPT_HEAD_BYTES})`,
+        // Provisional-title head: the session's first few *user* main entries
+        // (by SDK id) reconstructed as JSONL — only `type='user'` non-meta rows,
+        // since the title is the opening user prompt. Filtering in SQL avoids
+        // shipping assistant/tool entries. A correlated subquery keeps the
+        // listing a single round-trip; the load index covers sdk_session_id.
+        transcriptHead: sql<string | null>`(
+          SELECT string_agg(sub.entry::text, E'\n' ORDER BY sub.id)
+          FROM (
+            SELECT id, entry FROM session_store_entries
+            WHERE sdk_session_id = ${schema.sessions.sdkSessionId}
+              AND subpath IS NULL
+              AND entry->>'type' = 'user'
+              AND COALESCE(entry->>'isMeta', '') <> 'true'
+            ORDER BY id LIMIT ${TITLE_HEAD_USER_ENTRIES}
+          ) sub
+        )`,
       })
       .from(schema.sessions)
-      .leftJoin(
-        schema.sessionTranscripts,
-        eq(schema.sessionTranscripts.sessionId, schema.sessions.id),
-      )
       .where(eq(schema.sessions.userId, user.id))
       .orderBy(desc(schema.sessions.lastActiveAt))
       .limit(SESSIONS_LIST_LIMIT);
@@ -121,9 +127,8 @@ export function createSessionsRouter(deps: SessionsRouterDeps): Hono<{ Variables
   });
 
   // DELETE /:id — hard delete. If in memory, tear the session down first so the
-  // SDK is shut down and any in-flight backup drains. Then remove the on-disk
-  // transcript (best-effort) and DELETE the row. `session_transcripts` is
-  // removed via ON DELETE CASCADE.
+  // SDK is shut down. Then remove the session's mirrored store entries + on-disk
+  // scratch (best-effort) and DELETE the row.
   sessions.delete('/:id', async (c) => {
     const user = c.var.user;
     if (user == null) return c.json({ error: 'unauthorized' }, 401);
@@ -146,19 +151,19 @@ export function createSessionsRouter(deps: SessionsRouterDeps): Hono<{ Variables
       await teardownActiveSession(active, { manager, db });
     }
 
-    if (row.sdkSessionId && isUnderWorkspace(row.workDir)) {
-      // Remove this session's on-disk transcript: the `<sdkSessionId>.jsonl`
-      // file and the `<sdkSessionId>/` subtree (subagent transcripts). Both sit
-      // under the shared per-cwd project dir, so sibling sessions are untouched.
-      // Foreign/remote workDirs outside the workspace never had a local
-      // transcript dir, so there is nothing to remove for them.
-      const jsonl = transcriptPath(row.workDir, row.sdkSessionId);
-      const subtree = path.join(projectTranscriptDir(row.workDir), row.sdkSessionId);
+    if (row.sdkSessionId) {
+      // Remove the session's mirrored transcript from the DB store (the cleanup
+      // the old session_transcripts FK cascade used to do; store rows are generic).
       try {
-        await rm(jsonl, { force: true });
-        await rm(subtree, { recursive: true, force: true });
+        await deleteStoreEntries(db, [row.sdkSessionId]);
       } catch (err) {
-        logger.warn({ err, sessionId: id, jsonl }, 'failed to remove session transcript');
+        logger.warn({ err, sessionId: id }, 'failed to remove session store entries');
+      }
+      // Remove on-disk scratch: `<sdkSessionId>.jsonl` + the `<sdkSessionId>/`
+      // subtree (subagent transcripts), siblings untouched. Foreign/remote
+      // workDirs outside the workspace never had a local dir.
+      if (isUnderWorkspace(row.workDir)) {
+        await clearLocalSession(row.workDir, row.sdkSessionId);
       }
     }
 

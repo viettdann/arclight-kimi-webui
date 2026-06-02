@@ -35,7 +35,6 @@ import { refreshContextUsage } from '../services/agent/context-usage';
 import { createMessageBridge } from '../services/agent/message-bridge';
 import { consumeQueryOutput } from '../services/agent/output-consumer';
 import { startQuery } from '../services/agent/query-runner';
-import { restoreTranscript } from '../services/agent/transcript-store';
 import { adoptProjectForUser, ProjectNotFoundError } from '../services/projects';
 import {
   defaultSelectionForUser,
@@ -114,8 +113,9 @@ const defaultRestore: RestoreInjection = async (sessionId, mgr, dbh) => {
     .limit(1);
   if (!row) throw new Error(`session ${sessionId} not found`);
 
-  await restoreTranscript(sessionId);
-
+  // No local restore: the delete-local-before-resume guard + SDK `load()`
+  // rematerialize the transcript from the DB store when the first turn resumes.
+  // The snapshot the client receives is built from the store, not local files.
   const active = mgr.register({
     sessionId: row.id,
     userId: row.userId,
@@ -354,10 +354,6 @@ async function beginFirstTurn(ws: WS, active: ActiveSession, content: string): P
   }
 
   active.turnInProgress = true;
-  // Reset the end-of-turn flush-barrier anchor; the consumer re-captures it from
-  // this turn's assistant messages.
-  active.lastMainAssistantId = null;
-  active.lastMainAssistantBlocks = 0;
   broadcastEvent<TurnBeginPayload>(
     active,
     'turn_begin',

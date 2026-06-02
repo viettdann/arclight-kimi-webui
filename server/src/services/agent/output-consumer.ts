@@ -1,6 +1,7 @@
 import type {
   SDKAssistantMessage,
   SDKMessage,
+  SDKMirrorErrorMessage,
   SDKPartialAssistantMessage,
   SDKResultMessage,
   SDKTaskNotificationMessage,
@@ -31,7 +32,7 @@ import { sessionManager } from '../session-manager';
 import { refreshCatalog } from './commands-catalog';
 import { toDisplayBlocks } from './display-blocks';
 import { generateTitle } from './title';
-import { backupSubagents, readTranscriptTitleInputs, syncTranscript } from './transcript-store';
+import { readTranscriptTitleInputs } from './transcript-store';
 
 const log = logger.child({ module: 'agent/output-consumer' });
 
@@ -116,18 +117,6 @@ function isUserAbort(err: unknown): boolean {
 }
 
 /**
- * Minimum spacing (ms) between mid-turn subagent checkpoints. `backupSubagents`
- * re-reads the (monotonically growing) subagent JSONL and rewrites the entire
- * `subagents` column, so an unthrottled per-message backup is ~O(messages·size)
- * IO while a subagent streams. Each backup reads the FULL current file, so a
- * later one subsumes every message skipped since the last — and the turn-end
- * flush captures the final state regardless — so this only caps how much
- * streaming progress a crash/F5 can lose (≤ this interval), never a completed
- * subagent.
- */
-const SUBAGENT_BACKUP_THROTTLE_MS = 1000;
-
-/**
  * Live streaming consumer for one session's SDK query. Runs for the LIFETIME of
  * the session — the streaming-input `query` stays open across turns, so this
  * `for await` only ends when the bridge closes or the query is aborted. Every
@@ -164,9 +153,6 @@ export async function consumeQueryOutput(active: ActiveSession): Promise<void> {
   // and the reload renderer's `contentBlockIndex`. (The array-local index is
   // always 0 here, which would collide text onto the first block's id.)
   const assistantBlockCursor = new Map<string, { messageId: string; index: number }>();
-  // Wall-clock of the last mid-turn subagent backup that actually ran. Used to
-  // throttle checkpoints to ≥ SUBAGENT_BACKUP_THROTTLE_MS apart (see below).
-  let lastSubagentBackupAt = 0;
 
   function getIndexMap(scope: string): Map<number, string> {
     let m = toolUseIdByIndex.get(scope);
@@ -202,44 +188,6 @@ export async function consumeQueryOutput(active: ActiveSession): Promise<void> {
     } catch (err) {
       log.error({ err, sessionId: active.sessionId }, 'failed to persist sdkSessionId');
     }
-  }
-
-  /** Chain a transcript backup on the per-session mutex (fire-and-forget). */
-  function chainBackup(fn: () => Promise<void>): void {
-    active.backupMutex = active.backupMutex.then(fn).catch((err) => {
-      log.error({ err, sessionId: active.sessionId }, 'transcript backup failed');
-    });
-  }
-
-  /** Read the subagent JSONL from disk into the `subagents` column. No-op without an sdkSessionId. */
-  function backupSubagentsNow(): Promise<void> {
-    if (!active.sdkSessionId) return Promise.resolve();
-    return backupSubagents(active.sessionId, active.sdkSessionId, active.workDir);
-  }
-
-  /**
-   * Throttled mid-turn subagent backup. While a subagent streams, the main agent
-   * is blocked on the Task tool, so the main-scope `syncTranscript` never fires —
-   * and `backupSubagents` otherwise only ran at turn end, so a F5 mid-turn lost
-   * the entire subagent (its JSONL was on disk but never in the `subagents`
-   * column the snapshot renders from). Checkpoint it here, bounded two ways:
-   *  - the `subagentBackupQueued` latch coalesces a burst into at most one queued
-   *    backup beyond the one in flight (cleared when the backup starts, so the
-   *    next message re-arms a fresh checkpoint);
-   *  - a `SUBAGENT_BACKUP_THROTTLE_MS` time gate skips the run if one happened
-   *    too recently — re-checked inside the chained task so a backup deferred
-   *    behind slow IO still fires once the interval has elapsed.
-   */
-  function chainSubagentBackup(): void {
-    if (!active.sdkSessionId || active.subagentBackupQueued) return;
-    active.subagentBackupQueued = true;
-    chainBackup(async () => {
-      active.subagentBackupQueued = false;
-      const now = Date.now();
-      if (now - lastSubagentBackupAt < SUBAGENT_BACKUP_THROTTLE_MS) return;
-      lastSubagentBackupAt = now;
-      await backupSubagentsNow();
-    });
   }
 
   function handleStreamEvent(msg: SDKPartialAssistantMessage): void {
@@ -369,28 +317,6 @@ export async function consumeQueryOutput(active: ActiveSession): Promise<void> {
           break;
       }
     }
-
-    // Main scope only: anchor the end-of-turn flush barrier and keep the DB
-    // snapshot fresh mid-turn. `cursor.index` is now the total content-block
-    // count seen for this message.id; the LAST assistant message of the turn
-    // leaves the anchor pointing at the tail the barrier must wait for.
-    if (parent === null) {
-      active.lastMainAssistantId = messageId;
-      active.lastMainAssistantBlocks = cursor.index;
-      if (active.sdkSessionId) {
-        const sdkSessionId = active.sdkSessionId;
-        const cwd = active.workDir;
-        // Mid-turn sync: no barrier — keep snapshot/F5 fresh between turns.
-        chainBackup(() => syncTranscript(active.sessionId, sdkSessionId, cwd));
-      }
-    } else {
-      // Subagent assistant message: the main transcript is unchanged (the main
-      // agent is parked on the Task tool), so the sync above never fires while a
-      // subagent streams. Checkpoint the subagent JSONL into the `subagents`
-      // column so a mid-turn F5 restores the subagent's progress instead of an
-      // empty Task card.
-      chainSubagentBackup();
-    }
   }
 
   function handleUser(msg: SDKUserMessage): void {
@@ -456,11 +382,25 @@ export async function consumeQueryOutput(active: ActiveSession): Promise<void> {
             inner: { type: 'turn_end', payload: turnEnd },
           };
           broadcastEvent(active, 'subagent_event', payload, sessionManager);
-          // Subagent finished — flush its complete JSONL now (not debounced) so a
-          // F5 between this subagent ending and the main turn ending still
-          // restores the finished subagent in full.
-          chainBackup(backupSubagentsNow);
         }
+        break;
+      }
+      case 'mirror_error': {
+        // The SDK store `append()` failed after bounded retry and dropped a
+        // transcript-mirror batch. The subprocess is unaffected and the turn
+        // continues; surface only (no auto-repair) so the DB store is not
+        // silently incomplete. The local JSONL still holds the dropped frame.
+        const m = msg as SDKMirrorErrorMessage;
+        log.error(
+          { sessionId: active.sessionId, error: m.error, subpath: m.key.subpath ?? null },
+          'session store mirror_error — DB transcript may be missing entries',
+        );
+        const payload: ErrorPayload = {
+          code: 'mirror_error',
+          message: 'Storage mirror interrupted — some transcript may be missing from the server copy.',
+          retryable: false,
+        };
+        broadcastEvent(active, 'error', payload, sessionManager);
         break;
       }
       // task_progress / task_updated / thinking_tokens / permission_denied /
@@ -497,23 +437,9 @@ export async function consumeQueryOutput(active: ActiveSession): Promise<void> {
     broadcastEvent(active, 'turn_end', turnEnd, sessionManager);
     active.turnInProgress = false;
 
-    // Post-turn transcript + subagent backup (fire-and-forget, serialized). The
-    // transcript sync runs the flush barrier on the turn's last main assistant
-    // message, so it only commits once the tail thinking/text line is on disk.
-    if (active.sdkSessionId) {
-      const sdkSessionId = active.sdkSessionId;
-      const cwd = active.workDir;
-      const awaitMessageId = active.lastMainAssistantId;
-      const awaitBlocks = active.lastMainAssistantBlocks;
-      chainBackup(() =>
-        syncTranscript(active.sessionId, sdkSessionId, cwd, { awaitMessageId, awaitBlocks }),
-      );
-      chainBackup(() => backupSubagents(active.sessionId, sdkSessionId, cwd));
-    }
-
-    // Title is read from the freshly backed-up transcript, so wait for the
-    // serialized backup chain to drain before looking for the ai-title entry.
-    await active.backupMutex;
+    // The SDK store mirror owns transcript persistence — nothing to flush here.
+    // Settle the title from the local JSONL the binary just wrote (freshest
+    // source; the store mirror lags it by up to a frame).
     await maybePersistTitle();
   }
 
@@ -560,7 +486,12 @@ export async function consumeQueryOutput(active: ActiveSession): Promise<void> {
     }
     if (row?.titleSource === 'manual') return; // user-set — never overwrite
 
-    const { aiTitle, firstUserText } = await readTranscriptTitleInputs(active.sessionId);
+    // No materialized session id yet ⇒ no local transcript to derive from.
+    if (!active.sdkSessionId) return;
+    const { aiTitle, firstUserText } = await readTranscriptTitleInputs(
+      active.workDir,
+      active.sdkSessionId,
+    );
 
     // Binary's own title wins whenever present: adopt it, overriding a fallback.
     if (aiTitle) {

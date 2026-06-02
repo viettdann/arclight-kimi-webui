@@ -28,6 +28,7 @@
     "zod": "4.4.3"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.4.6",
     "@types/bun": "1.3.14",
     "@types/busboy": "^1.5.4",
     "drizzle-kit": "0.31.10",

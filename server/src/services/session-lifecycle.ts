@@ -1,15 +1,15 @@
 import { eq } from 'drizzle-orm';
 import { type DB, db as defaultDb, schema } from '../db';
 import { logger } from '../lib/logger';
-import { backupSubagents, syncTranscript } from './agent/transcript-store';
+import { clearLocalSession } from './agent/transcript-store';
 import type { ActiveSession, SessionManager } from './session-manager';
 
 // Single source of truth for tearing an in-memory session down. Both the REST
 // `DELETE /api/sessions/:id` route and project deletion funnel through
 // `teardownActiveSession` so concurrency and backup semantics stay identical.
 //
-// Teardown interrupts the live query, flushes the final transcript backup (so
-// the session stays resumable from the DB), kills the subprocess, and frees the
+// Teardown interrupts the live query, kills the subprocess, clears the local
+// scratch JSONL (the DB store already holds the transcript), and frees the
 // in-memory slot. It does NOT delete the row — that is the caller's job. It does
 // NOT close attached WebSocket connections; a single socket may be attached to
 // many sessions, and closing it would kill the others.
@@ -24,13 +24,12 @@ export interface TeardownDeps {
  *   1. Race guard: `manager.tryBeginClose(id)` — atomic claim. Loser bails.
  *   2. Best-effort `query?.interrupt()` — stop the consumer emitting more.
  *   3. `manager.drainPendingRequests(active)` — settle hanging canUseTool
- *      promises so nothing deadlocks while we await the backup mutex.
+ *      promises so nothing deadlocks during teardown.
  *   4. Abort the subprocess + close the input bridge.
- *   5. `await active.backupMutex` — let the last in-flight backup finish.
- *   6. Best-effort final transcript + subagent backup so the session stays
- *      resumable from the DB.
- *   7. Mark the row `status='idle'` (the row itself is kept).
- *   8. `manager.unregister(id)` — free the in-memory slot.
+ *   5. `clearLocalSession` — free the local scratch JSONL (RAM hygiene; the DB
+ *      store already holds the transcript).
+ *   6. Mark the row `status='idle'` (the row itself is kept).
+ *   7. `manager.unregister(id)` — free the in-memory slot.
  *
  * The subprocess is aborted exactly once across concurrent callers because
  * `tryBeginClose` lets only one path through.
@@ -60,31 +59,11 @@ export async function teardownActiveSession(
   active.abortController?.abort();
   active.bridge?.close();
 
-  // Drain backup. Catch defensively — the consumer always reassigns
-  // backupMutex to a never-rejecting promise, but a stale chain shouldn't take
-  // down teardown.
-  try {
-    await active.backupMutex;
-  } catch {
-    // ignore
-  }
-
-  // Final flush so the transcript on disk (which the binary may have appended
-  // past the last backup) is captured before the slot is freed. Skipped when no
-  // SDK session ever materialized — there is nothing on disk to back up.
+  // The SDK store mirror already holds the transcript (eager dual-write), so
+  // there is no final flush. Free the local scratch JSONL as RAM hygiene — the
+  // DB store is the source of truth and a later resume rematerializes from it.
   if (active.sdkSessionId) {
-    try {
-      await syncTranscript(active.sessionId, active.sdkSessionId, active.workDir, {
-        awaitMessageId: active.lastMainAssistantId,
-        awaitBlocks: active.lastMainAssistantBlocks,
-      });
-      await backupSubagents(active.sessionId, active.sdkSessionId, active.workDir);
-    } catch (err) {
-      logger.error(
-        { err, sessionId: active.sessionId },
-        'Failed to flush final transcript backup on teardown',
-      );
-    }
+    await clearLocalSession(active.workDir, active.sdkSessionId);
   }
 
   try {

@@ -146,6 +146,10 @@ function makeRecordingDb(): RecordingDb {
         },
       };
     },
+    // Raw-SQL path used by `deleteStoreEntries` (session_store_entries cleanup on
+    // DELETE). No rows to assert here — just resolve so the route's try/catch
+    // takes the success path.
+    execute: (_q: unknown) => Promise.resolve([] as unknown[]),
   };
 
   return {

@@ -1,49 +1,26 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { env } from '../../src/env';
 import { agentConfigDirFor } from '../../src/services/agent/agent-paths';
-
-// `syncTranscript` is the only DB-touching export under test here; everything
-// else (encodeCwd, transcriptPath, …) is pure. Mock the `db` singleton BEFORE
-// importing the module so the real (lazy) postgres client is never touched. The
-// mock captures the single insert(...).onConflictDoUpdate({set}) write into
-// `written`; syncTranscript passes the same content/byteOffset to both, so `set`
-// is the committed row.
-let written: {
-  content: string;
-  byteOffset: number;
-  sdkSessionId: string;
-  workspaceCwd: string;
-} | null = null;
-const dbMock = () => ({
-  db: {
-    insert: () => ({
-      values: () => ({
-        onConflictDoUpdate: async ({ set }: { set: NonNullable<typeof written> }) => {
-          written = set;
-        },
-      }),
-    }),
-  },
-  schema: {},
-});
-mock.module('../../src/db', dbMock);
-mock.module('../../src/db/index', dbMock);
-
-// Imported after the mock so the module graph binds to the fake db.
-const {
+import {
   aiTitleFromJsonl,
+  clearLocalSession,
   encodeCwd,
   firstUserTextFromJsonl,
   MAX_ENCODED_LEN,
   projectTranscriptDir,
+  readTranscriptTitleInputs,
   subagentDir,
-  syncTranscript,
   transcriptPath,
-} = await import('../../src/services/agent/transcript-store');
+} from '../../src/services/agent/transcript-store';
 
-// Paths are now per-user: `<AGENT_STATE_ROOT>/<userSlug>/projects/<enc(cwd)>`.
+// The module is now db-free: every export reads either pure strings
+// (encodeCwd / *FromJsonl) or the local JSONL on disk (clearLocalSession /
+// readTranscriptTitleInputs). No db mock needed — the SDK store owns DB
+// persistence.
+
+// Paths are per-user: `<AGENT_STATE_ROOT>/<userSlug>/projects/<enc(cwd)>`.
 // `agentConfigDirFor(cwd)` derives the per-user config dir from the cwd's first
 // segment under WORKSPACE_ROOT, so test cwds must live under it (setup.ts sets
 // WORKSPACE_ROOT=/tmp/mtc-webui-test). We assert the composed structure derived
@@ -232,152 +209,80 @@ describe('firstUserTextFromJsonl', () => {
   });
 });
 
-describe('syncTranscript', () => {
-  // Real on-disk JSONL under a per-test cwd; each test cleans up after itself.
+describe('clearLocalSession', () => {
+  // Real on-disk scratch under a per-test cwd; each test cleans up after itself.
   let seq = 0;
   const dirs: string[] = [];
-
-  /** Write `content` to the transcript path for a fresh cwd + sdkSessionId. */
-  async function setupFile(content: string): Promise<{
-    cwd: string;
-    sdkSessionId: string;
-    path: string;
-  }> {
-    seq += 1;
-    const cwd = join(WS, 'dan.le', `sync-test-${seq}`);
-    const sdkSessionId = `sdk-${seq}`;
-    const path = transcriptPath(cwd, sdkSessionId);
-    await mkdir(dirname(path), { recursive: true });
-    await writeFile(path, content);
-    dirs.push(join(projectsRoot(cwd), encodeCwd(cwd)));
-    return { cwd, sdkSessionId, path };
-  }
-
-  const asstLine = (id: string, block: Record<string, unknown>) =>
-    JSON.stringify({ type: 'assistant', message: { id, content: [block] } });
-  const userLine = (content: string) =>
-    JSON.stringify({ type: 'user', message: { role: 'user', content } });
-
-  beforeEach(() => {
-    written = null;
-  });
 
   afterEach(async () => {
     await Promise.all(dirs.map((d) => rm(d, { recursive: true, force: true })));
     dirs.length = 0;
   });
 
-  it('overwrites content verbatim and sets byteOffset to the file BYTE length', async () => {
-    // Vietnamese prompt → byteLength != length, so a char-length offset would be
-    // wrong. The DB content must byte-equal the file.
-    const content = [
-      userLine('Sửa lỗi đăng nhập'),
-      asstLine('msg_1', { type: 'text', text: 'ok' }),
-    ].join('\n');
-    const { cwd, sdkSessionId } = await setupFile(content);
+  it('removes the main jsonl and the session subtree, leaving sibling sessions', async () => {
+    seq += 1;
+    const cwd = join(WS, 'dan.le', `clear-test-${seq}`);
+    const id = `sdk-${seq}`;
+    const sibling = `sdk-${seq}-other`;
+    dirs.push(projectTranscriptDir(cwd));
 
-    await syncTranscript('s1', sdkSessionId, cwd);
+    // The session under deletion: its main jsonl + a subagent transcript.
+    const jsonl = transcriptPath(cwd, id);
+    await mkdir(dirname(jsonl), { recursive: true });
+    await writeFile(jsonl, '{"type":"user"}');
+    const subFile = join(subagentDir(cwd, id), 'agent-x.jsonl');
+    await mkdir(dirname(subFile), { recursive: true });
+    await writeFile(subFile, '{"type":"assistant"}');
 
-    expect(written?.content).toBe(content);
-    expect(written?.byteOffset).toBe(Buffer.byteLength(content, 'utf-8'));
-    expect(written?.byteOffset).not.toBe(content.length); // multi-byte proves bytes, not chars
-    expect(written?.sdkSessionId).toBe(sdkSessionId);
-    expect(written?.workspaceCwd).toBe(cwd);
+    // A sibling session under the SAME cwd must survive the targeted clear.
+    const siblingJsonl = transcriptPath(cwd, sibling);
+    await writeFile(siblingJsonl, '{"type":"user"}');
+
+    await clearLocalSession(cwd, id);
+
+    expect(await Bun.file(jsonl).exists()).toBe(false);
+    expect(await Bun.file(subFile).exists()).toBe(false);
+    expect(await Bun.file(siblingJsonl).exists()).toBe(true);
   });
 
-  it('fully overwrites on fork/truncate — no stale tail from the longer prior content', async () => {
-    const a = asstLine('msg_A', { type: 'text', text: 'first' });
-    const b = asstLine('msg_B', { type: 'text', text: 'second' });
-    const c = asstLine('msg_C', { type: 'text', text: 'STALE-TAIL-MARKER' });
-    const long = [a, b, c].join('\n');
-    const { cwd, sdkSessionId, path } = await setupFile(long);
+  it('is a no-op on a missing session (never throws)', async () => {
+    const cwd = join(WS, 'dan.le', `clear-missing-${seq + 100}`);
+    await expect(clearLocalSession(cwd, 'no-such')).resolves.toBeUndefined();
+  });
+});
 
-    await syncTranscript('s1', sdkSessionId, cwd);
-    expect(written?.content).toBe(long);
+describe('readTranscriptTitleInputs', () => {
+  let seq = 0;
+  const dirs: string[] = [];
 
-    // File replaced by SHORTER content (fork/resume rewrote it).
-    await writeFile(path, a);
-    await syncTranscript('s1', sdkSessionId, cwd);
-
-    expect(written?.content).toBe(a);
-    expect(written?.content.includes('STALE-TAIL-MARKER')).toBe(false);
-    expect(written?.byteOffset).toBe(Buffer.byteLength(a, 'utf-8'));
+  afterEach(async () => {
+    await Promise.all(dirs.map((d) => rm(d, { recursive: true, force: true })));
+    dirs.length = 0;
   });
 
-  it('skips a missing file without writing or throwing', async () => {
-    const cwd = join(WS, 'dan.le', `sync-missing-${seq + 100}`);
-    await syncTranscript('s1', 'no-such-session', cwd);
-    expect(written).toBeNull();
+  it('parses ai-title (last-wins) and first user text from the local jsonl', async () => {
+    seq += 1;
+    const cwd = join(WS, 'dan.le', `title-test-${seq}`);
+    const id = `sdk-title-${seq}`;
+    dirs.push(projectTranscriptDir(cwd));
+    const jsonl = transcriptPath(cwd, id);
+    await mkdir(dirname(jsonl), { recursive: true });
+    const lines = [
+      JSON.stringify({ type: 'user', message: { role: 'user', content: 'Sửa lỗi đăng nhập' } }),
+      JSON.stringify({ type: 'ai-title', aiTitle: 'Fix login bug', sessionId: id }),
+    ];
+    await writeFile(jsonl, lines.join('\n'));
+
+    const { aiTitle, firstUserText } = await readTranscriptTitleInputs(cwd, id);
+    expect(aiTitle).toBe('Fix login bug');
+    expect(firstUserText).toBe('Sửa lỗi đăng nhập');
   });
 
-  it('barrier waits for the tail block to land, then writes the full content', async () => {
-    // The bug scenario: at `result`, the file only has the thinking line of the
-    // last assistant message (1 block) but the anchor expects 2 (thinking+text).
-    // The barrier must NOT stop at 1 — it polls until the text line is on disk.
-    const id = 'msg_TAIL';
-    const thinking = asstLine(id, { type: 'thinking', thinking: 'reason', signature: '' });
-    const text = asstLine(id, { type: 'text', text: 'the answer' });
-    const { cwd, sdkSessionId, path } = await setupFile(thinking); // 1 block on disk
-
-    // The subprocess flushes the tail line a beat later, mid-poll.
-    setTimeout(() => {
-      void writeFile(path, `${thinking}\n${text}`);
-    }, 40);
-
-    await syncTranscript('s-tail', sdkSessionId, cwd, {
-      awaitMessageId: id,
-      awaitBlocks: 2,
-      pollIntervalMs: 10,
-      maxPolls: 100,
+  it('returns nulls when the local file is absent', async () => {
+    const cwd = join(WS, 'dan.le', `title-missing-${seq + 100}`);
+    expect(await readTranscriptTitleInputs(cwd, 'no-such')).toEqual({
+      aiTitle: null,
+      firstUserText: null,
     });
-
-    expect(written?.content).toBe(`${thinking}\n${text}`);
-    expect(written?.content.includes('reason')).toBe(true); // thinking kept
-    expect(written?.content.includes('the answer')).toBe(true); // tail not cut
-  });
-
-  it('does not stop early on a same-id line that lacks the tail block', async () => {
-    // File has only the thinking line for the id; the tail never lands. The
-    // barrier counts BLOCKS (1), not the mere presence of the id, so it polls to
-    // the timeout instead of committing the half-message.
-    const id = 'msg_PARTIAL';
-    const thinking = asstLine(id, { type: 'thinking', thinking: 'reason', signature: '' });
-    const { cwd, sdkSessionId } = await setupFile(thinking);
-
-    await syncTranscript('s-partial', sdkSessionId, cwd, {
-      awaitMessageId: id,
-      awaitBlocks: 2,
-      pollIntervalMs: 5,
-      maxPolls: 3,
-    });
-
-    // Best-effort: it still wrote the content it had (1 block), never threw.
-    expect(written?.content).toBe(thinking);
-  });
-
-  it('barrier timeout writes best-effort current content and never throws', async () => {
-    const id = 'msg_TO';
-    const onlyThinking = asstLine(id, { type: 'thinking', thinking: 'reason', signature: '' });
-    const { cwd, sdkSessionId } = await setupFile(onlyThinking);
-
-    await expect(
-      syncTranscript('s-to', sdkSessionId, cwd, {
-        awaitMessageId: id,
-        awaitBlocks: 5, // never reached
-        pollIntervalMs: 5,
-        maxPolls: 3,
-      }),
-    ).resolves.toBeUndefined();
-
-    expect(written?.content).toBe(onlyThinking);
-  });
-
-  it('no anchor (null awaitMessageId) reads and writes immediately', async () => {
-    const content = asstLine('msg_NA', { type: 'text', text: 'done' });
-    const { cwd, sdkSessionId } = await setupFile(content);
-
-    await syncTranscript('s-na', sdkSessionId, cwd, { awaitMessageId: null, awaitBlocks: 0 });
-
-    expect(written?.content).toBe(content);
   });
 });

@@ -8,6 +8,7 @@ import type { Env } from '../env';
 import { type auditLog as defaultAuditLog, logger } from '../lib/logger';
 import { resolveUserPath } from '../lib/path-guard';
 import { isUnderWorkspace } from './agent/agent-paths';
+import { deleteStoreEntries } from './agent/session-store';
 import { projectTranscriptDir } from './agent/transcript-store';
 import { cloningProjectNamesForUser } from './git/clone-registry';
 import { inspectRepo } from './git/inspect';
@@ -186,9 +187,9 @@ export interface DeleteProjectForUserArgs {
  * Hard-delete a project and every session under it, in a crash-safe order:
  *
  *   1. Tear down any in-memory sessions so the SDK stops writing first.
- *   2. **DB-first**: `DELETE sessions WHERE (userId, projectName)` — one atomic
- *      statement; `session_transcripts` rows go via ON DELETE CASCADE. Past
- *      this point the project can no longer be restored from the DB.
+ *   2. **DB-first**: `DELETE sessions WHERE (userId, projectName)`, then drop the
+ *      sessions' mirrored `session_store_entries` by SDK id. Past this point the
+ *      project can no longer be restored from the DB.
  *   3. Best-effort disk cleanup: each recorded workDir's transcript dir under
  *      `CLAUDE_CONFIG_DIR/projects/<enc(cwd)>`, then the project folder under
  *      the user root (the user's real code).
@@ -229,6 +230,7 @@ export async function deleteProjectForUser({
     .select({
       id: schema.sessions.id,
       workDir: schema.sessions.workDir,
+      sdkSessionId: schema.sessions.sdkSessionId,
     })
     .from(schema.sessions)
     .where(and(eq(schema.sessions.userId, userId), eq(schema.sessions.projectName, projectName)));
@@ -253,11 +255,20 @@ export async function deleteProjectForUser({
     }
   }
 
-  // 2. DB-first authoritative delete. CASCADE removes session_transcripts.
+  // 2. DB-first authoritative delete, then drop each session's mirrored store
+  //    entries (generic table, no FK cascade) keyed by SDK session id.
   if (rows.length > 0) {
     await db
       .delete(schema.sessions)
       .where(and(eq(schema.sessions.userId, userId), eq(schema.sessions.projectName, projectName)));
+    try {
+      await deleteStoreEntries(
+        db,
+        rows.map((r) => r.sdkSessionId).filter((v): v is string => v != null),
+      );
+    } catch (err) {
+      logger.warn({ err, projectName }, 'deleteProject: failed to remove session store entries');
+    }
   }
 
   // 3a. Best-effort: remove the per-cwd transcript dirs the claude binary wrote.

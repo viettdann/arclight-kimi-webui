@@ -2,7 +2,8 @@ import { eq } from 'drizzle-orm';
 import type { ApprovalMode, EffortLevel, SnapshotPayload } from 'shared/types';
 import { type DB, db, schema } from '../db';
 import { getCatalog } from './agent/commands-catalog';
-import { renderTranscript } from './agent/transcript-render';
+import { readSessionEntries } from './agent/session-store';
+import { renderEntries } from './agent/transcript-render';
 import { type SessionManager, sessionManager } from './session-manager';
 
 export interface BuildSnapshotArgs {
@@ -29,22 +30,18 @@ export async function buildSnapshot(args: BuildSnapshotArgs): Promise<SnapshotPa
     .limit(1);
   if (!sessRow) return null;
 
-  const [transcript] = await dbh
-    .select()
-    .from(schema.sessionTranscripts)
-    .where(eq(schema.sessionTranscripts.sessionId, args.sessionId))
-    .limit(1);
-
   // A session absent from the manager (e.g. killed by a restart) is not running
   // a turn, so its dangling tool_calls were interrupted, not still executing.
   const activeSession = manager.peek(args.sessionId);
   const turnInProgress = activeSession?.turnInProgress ?? false;
 
-  const blocks = transcript
-    ? renderTranscript(transcript.content, normalizeSubagents(transcript.subagents), {
-        terminal: !turnInProgress,
-      })
-    : [];
+  // Render from the DB store keyed by the SDK session id (the single source of
+  // truth). Absent until the first turn materializes a session id → empty.
+  let blocks: SnapshotPayload['blocks'] = [];
+  if (sessRow.sdkSessionId) {
+    const { main, subagents } = await readSessionEntries(dbh, sessRow.sdkSessionId);
+    blocks = renderEntries(main, subagents, { terminal: !turnInProgress });
+  }
 
   const pendingPrompt =
     sessRow.pendingPrompt != null && sessRow.pendingEnqueuedAt != null
@@ -90,18 +87,4 @@ export function emptySnapshot(): SnapshotPayload {
       turnInProgress: false,
     },
   };
-}
-
-/**
- * The `subagents` JSONB column stores `{ [filename]: fileContents }`. Coerce
- * the loosely-typed jsonb value into the `Record<string,string>` the renderer
- * expects, dropping any non-string entries defensively.
- */
-function normalizeSubagents(value: unknown): Record<string, string> | null {
-  if (value === null || typeof value !== 'object') return null;
-  const out: Record<string, string> = {};
-  for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
-    if (typeof val === 'string') out[key] = val;
-  }
-  return out;
 }

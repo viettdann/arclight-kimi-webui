@@ -3,5 +3,5 @@ export * from './allowlist';
 export * from './auth';
 export * from './git-credentials';
 export * from './providers';
-export * from './session-transcripts';
+export * from './session-store-entries';
 export * from './sessions';

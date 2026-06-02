@@ -43,8 +43,6 @@ mock.module('../../src/db', () => ({
 let transcriptAiTitle: string | null = null;
 let transcriptFirstUser: string | null = null;
 mock.module('../../src/services/agent/transcript-store', () => ({
-  syncTranscript: async () => {},
-  backupSubagents: async () => {},
   readTranscriptTitleInputs: async () => ({
     aiTitle: transcriptAiTitle,
     firstUserText: transcriptFirstUser,
@@ -93,7 +91,7 @@ function makeSession() {
     providerId: 'p1',
     approvalMode: 'ask',
   });
-  // syncTranscript/backupSubagents only run when an sdkSessionId is known.
+  // maybePersistTitle reads the local transcript only when an sdkSessionId is known.
   active.sdkSessionId = 'sdk-1';
   return active;
 }

@@ -13,6 +13,8 @@ import { agentConfigDirFor, agentHomeFor } from './agent-paths';
 import { buildCanUseTool } from './approval';
 import { buildAgentEnv } from './env';
 import { ensureClaudeOnboarding } from './onboarding';
+import { sessionStore } from './session-store';
+import { clearLocalSession } from './transcript-store';
 
 // Build and launch the live SDK `query` for one in-flight turn. The session's
 // approval mode maps to the SDK permission mode + the `canUseTool` callback;
@@ -75,6 +77,16 @@ export async function startQuery(
   await ensureClaudeOnboarding(configDir);
   const env = buildAgentEnv(provider, { home, configDir });
 
+  // Delete-local-before-resume guard: discard any local scratch JSONL so the
+  // SDK `load()` rematerializes this session from the DB store (the single
+  // source of truth), regardless of whether `agent-state` is tmpfs or a
+  // persistent volume. The subprocess has not started yet, so no concurrent
+  // write races this delete. Only runs on resume (a new session has nothing to
+  // clear and must keep the file the binary is about to create).
+  if (opts.resume) {
+    await clearLocalSession(active.workDir, opts.resume);
+  }
+
   const q = query({
     prompt: opts.prompt,
     options: {
@@ -90,6 +102,11 @@ export async function startQuery(
       includePartialMessages: true,
       toolConfig: { askUserQuestion: { previewFormat: 'markdown' } },
       env,
+      // Dual-write transcript mirror: the subprocess writes local JSONL, the SDK
+      // mirrors each frame to the DB store. `eager` flushes per frame (~100ms) so
+      // a mid-turn reload sees the transcript within ~1 frame of live.
+      sessionStore,
+      sessionStoreFlush: 'eager',
       ...permissionOptions(active.approvalMode),
       ...thinkingOptions(active.thinking),
       ...effortOptions(active.effort),

@@ -23,6 +23,12 @@
 import type { Block, DisplayBlock } from 'shared/types';
 import { toDisplayBlocks } from './display-blocks';
 
+/**
+ * Structural transcript entry — a JSONL line as a POJO. Matches the SDK's
+ * `SessionStoreEntry` without a runtime dependency, keeping this renderer pure.
+ */
+type TranscriptEntry = { type: string; [k: string]: unknown };
+
 // Line types that carry no renderable content — bookkeeping only.
 const IGNORED_LINE_TYPES = new Set([
   'system',
@@ -255,6 +261,56 @@ export function renderTranscript(
 }
 
 /**
+ * SDK subagent-mirror wire format. The `.meta.json` sidecar is mirrored into the
+ * store as a transcript entry tagged with `AGENT_METADATA_TYPE`; `renderEntries`
+ * splits it back out. The `agent-<id>` stem plus the `.jsonl`/`.meta.json`
+ * filename pair are the on-disk shape `attachSubagents` keys on. Kept in one
+ * place so the encode (renderEntries) and decode (attachSubagents) cannot drift.
+ */
+const AGENT_METADATA_TYPE = 'agent_metadata';
+const AGENT_STEM_PREFIX = 'agent-';
+const JSONL_EXT = '.jsonl';
+const META_EXT = '.meta.json';
+
+/**
+ * Render directly from `SessionStore` entries (the store-backed reload path).
+ * Reconstructs the JSONL inputs `renderTranscript` expects:
+ *  - main: each entry serialized back to one JSONL line.
+ *  - subagents: per subpath `subagents/agent-<id>`, split the `agent_metadata`
+ *    entry (the mirrored `.meta.json`, stored as `{type:'agent_metadata',…}`)
+ *    from the transcript entries, rebuilding the `agent-<id>.jsonl` +
+ *    `agent-<id>.meta.json` pair `attachSubagents` keys on.
+ */
+export function renderEntries(
+  mainEntries: TranscriptEntry[],
+  subagents: Map<string, TranscriptEntry[]>,
+  opts: RenderOpts = {},
+): Block[] {
+  const content = mainEntries.map((e) => JSON.stringify(e)).join('\n');
+
+  const subagentFiles: Record<string, string> = {};
+  for (const [subpath, entries] of subagents) {
+    // `subagents/agent-<id>` → `agent-<id>` file stem.
+    const stem = subpath.split('/').pop() ?? subpath;
+    const transcript: TranscriptEntry[] = [];
+    let meta: TranscriptEntry | null = null;
+    for (const e of entries) {
+      if (e.type === AGENT_METADATA_TYPE) meta = e; // last-wins
+      else transcript.push(e);
+    }
+    subagentFiles[`${stem}${JSONL_EXT}`] = transcript.map((e) => JSON.stringify(e)).join('\n');
+    if (meta) {
+      // The SDK mirrored `.meta.json` as `{type:'agent_metadata', ...meta}`;
+      // strip the discriminant to recover the original sidecar object.
+      const { type: _discard, ...metaObj } = meta;
+      subagentFiles[`${stem}${META_EXT}`] = JSON.stringify(metaObj);
+    }
+  }
+
+  return renderTranscript(content, subagentFiles, opts);
+}
+
+/**
  * Terminal-snapshot repair: a turn killed mid-flight (e.g. a server restart)
  * leaves tool_calls with no matching tool_result on disk. The live UI infers
  * "no result ⇒ still running" and spins forever. For each such dangling
@@ -311,7 +367,7 @@ function attachSubagents(
   if (!subagents) return;
 
   for (const [filename, fileContents] of Object.entries(subagents)) {
-    if (!filename.endsWith('.meta.json')) continue;
+    if (!filename.endsWith(META_EXT)) continue;
     let meta: AnyRecord;
     try {
       const parsed = JSON.parse(fileContents);
@@ -321,13 +377,14 @@ function attachSubagents(
       continue;
     }
 
-    const jsonlName = filename.replace(/\.meta\.json$/, '.jsonl');
-    const agentJsonl = subagents[jsonlName];
+    // `agent-<id>.meta.json` → `agent-<id>` (suffix guaranteed by the guard above).
+    const stem = filename.slice(0, -META_EXT.length);
+    const agentJsonl = subagents[`${stem}${JSONL_EXT}`];
     if (typeof agentJsonl !== 'string') continue;
 
-    // `agent-<agentId>.meta.json` → agentId; resolve parent: explicit meta field
-    // first, else the agentId↔tool_result linkage recovered while walking.
-    const agentId = filename.replace(/^agent-/, '').replace(/\.meta\.json$/, '');
+    // `agent-<agentId>` → agentId; resolve parent: explicit meta field first,
+    // else the agentId↔tool_result linkage recovered while walking.
+    const agentId = stem.startsWith(AGENT_STEM_PREFIX) ? stem.slice(AGENT_STEM_PREFIX.length) : stem;
     const toolUseId = asString(meta.toolUseId) || agentIdToParent.get(agentId) || '';
     const nestedBlocks = renderTranscript(agentJsonl, null, opts);
 
@@ -335,7 +392,7 @@ function attachSubagents(
       kind: 'subagent',
       // Without a toolUseId there is no canonical parent id — fall back to the
       // filename's agent id so the block still has a stable, unique id.
-      id: toolUseId ? `subagent:${toolUseId}` : `subagent:${jsonlName}`,
+      id: toolUseId ? `subagent:${toolUseId}` : `subagent:${stem}${JSONL_EXT}`,
       parentToolCallId: toolUseId,
       ...(asString(meta.agentType) ? { subagentType: asString(meta.agentType) } : {}),
       ...(asString(meta.description) ? { description: asString(meta.description) } : {}),

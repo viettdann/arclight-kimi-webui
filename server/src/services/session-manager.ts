@@ -89,28 +89,6 @@ export interface ActiveSession {
   /** Maps tool_use.id → tool name; consumed when the matching tool_result fires. */
   toolNameByCallId: Map<string, string>;
   /**
-   * `message.id` of the LAST main-scope assistant message this turn, with its
-   * total content-block count. Captured by the output consumer; consumed as the
-   * end-of-turn `syncTranscript` flush barrier — the DB only commits once the
-   * file holds that many content-block lines for the id, so the tail
-   * thinking/text line is on disk. Reset to null/0 at each turn start.
-   */
-  lastMainAssistantId: string | null;
-  lastMainAssistantBlocks: number;
-  /**
-   * Per-session mutex chain serializing transcript backups. The output consumer
-   * chains `backupMutex` so concurrent post-block/post-turn flushes cannot
-   * interleave `byteOffset` updates.
-   */
-  backupMutex: Promise<void>;
-  /**
-   * Debounce latch for mid-turn subagent backups. Set while a subagent backup
-   * is queued/in-flight so a burst of streamed subagent messages coalesces into
-   * at most one pending backup beyond the running one. Cleared when that backup
-   * starts. In-memory only — a fresh session starts with no backup queued.
-   */
-  subagentBackupQueued: boolean;
-  /**
    * @internal Synchronous "close in progress" flag. Read/written ONLY through
    * `SessionManager.tryBeginClose`. Pure event-loop semantics — no atomics.
    */
@@ -165,10 +143,6 @@ export class SessionManager {
       lastStatusUpdate: null,
       lastContextUsage: null,
       toolNameByCallId: new Map(),
-      lastMainAssistantId: null,
-      lastMainAssistantBlocks: 0,
-      backupMutex: Promise.resolve(),
-      subagentBackupQueued: false,
       closing: false,
     };
     this.sessions.set(args.sessionId, active);

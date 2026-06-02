@@ -1,9 +1,5 @@
-import { mkdir, readdir } from 'node:fs/promises';
-import { basename, join } from 'node:path';
-import { setTimeout as sleep } from 'node:timers/promises';
-import { eq } from 'drizzle-orm';
-import { db } from '../../db/index';
-import { sessionTranscripts } from '../../db/schema/session-transcripts';
+import { rm } from 'node:fs/promises';
+import { join } from 'node:path';
 import { logger } from '../../lib/logger';
 import { agentConfigDirFor } from './agent-paths';
 
@@ -32,6 +28,9 @@ export const MAX_ENCODED_LEN = 200;
  * 1:1 — no collapsing of consecutive dashes, length is preserved. We only
  * implement the `length <= 200` branch; the hashed-slice fallback never
  * triggers because `WORKSPACE_ROOT` is kept short (enforced at startup).
+ *
+ * This also equals the SDK's `SessionStore` default `projectKey` for the cwd
+ * (same `replace(/[^a-zA-Z0-9]/g,'-')` derivation), so the store key matches.
  */
 export function encodeCwd(cwd: string): string {
   return cwd.replace(/[^a-zA-Z0-9]/g, '-');
@@ -58,171 +57,24 @@ export function projectTranscriptDir(cwd: string): string {
 }
 
 /**
- * Count the content-block lines an assistant `message.id` has on disk. Claude
- * Code splits each content block onto its OWN JSONL line, all sharing the same
- * `message.id`, so the block count for an id is the sum of `message.content.length`
- * over every well-formed `type:'assistant'` line whose `message.id` matches.
- *
- * Parse-match (not substring): a half-written tail line is invalid JSON and is
- * skipped, so it never advances the count. That is exactly the barrier we want —
- * only a complete line counts, so the committed content is always valid JSONL.
+ * Delete a session's local scratch files: the `<sdkSessionId>.jsonl` main
+ * transcript and the `<sdkSessionId>/` subtree (subagent transcripts). Used as
+ * the delete-local-before-resume guard (forces the SDK `load()` to rematerialize
+ * from the DB store, independent of whether `agent-state` is tmpfs or a
+ * persistent volume) and as teardown hygiene. Best-effort; a missing file is a
+ * no-op. Never touches sibling sessions under the same cwd.
  */
-function countAssistantBlocks(content: string, messageId: string): number {
-  let count = 0;
-  for (const line of content.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    let obj: unknown;
-    try {
-      obj = JSON.parse(trimmed);
-    } catch {
-      continue;
-    }
-    if (typeof obj !== 'object' || obj === null) continue;
-    const o = obj as { type?: unknown; message?: { id?: unknown; content?: unknown } };
-    if (o.type !== 'assistant' || o.message?.id !== messageId) continue;
-    const c = o.message?.content;
-    count += Array.isArray(c) ? c.length : 0;
-  }
-  return count;
-}
-
-/** Optional flush-barrier + poll tuning for {@link syncTranscript}. */
-export interface SyncTranscriptOpts {
-  /**
-   * When set, hold the commit until the file carries `awaitBlocks` content-block
-   * lines for this assistant `message.id` — the end-of-turn flush barrier. Null
-   * (or absent) reads-and-writes immediately (mid-turn sync, or a turn that
-   * emitted no assistant message).
-   */
-  awaitMessageId?: string | null;
-  /** Target content-block count for `awaitMessageId` (see anchor in the design). */
-  awaitBlocks?: number;
-  /** Poll interval while the barrier is unmet. Default 25ms. */
-  pollIntervalMs?: number;
-  /** Max poll attempts before a best-effort write. Default 40 (≈ 1s at 25ms). */
-  maxPolls?: number;
-}
-
-/**
- * Full-file resync of the main transcript into the DB. Reads the ENTIRE
- * `<sdkSessionId>.jsonl` and OVERWRITES `session_transcripts.content` with it
- * verbatim, so `DB.content` byte-equals the file — render-from-DB reproduces the
- * exact live block set. Full-overwrite subsumes fork/truncate (new content fully
- * replaces old, no stale tail) and is idempotent (same file → same content).
- *
- * Flush barrier: when `opts.awaitMessageId` is set, the read is retried until the
- * file holds `opts.awaitBlocks` content-block lines for that assistant message.id
- * (each Claude Code content block is its own JSONL line sharing one id). This
- * pins the end-of-turn commit to CONTENT — the tail thinking/text line is on
- * disk — instead of guessing the subprocess's flush timing. On barrier timeout it
- * writes the best-effort current content and warns; it never throws.
- *
- * Serialize via `ActiveSession.backupMutex` so it cannot interleave with
- * `backupSubagents` or teardown. No-op if the file is missing.
- */
-export async function syncTranscript(
-  sessionId: string,
-  sdkSessionId: string,
-  cwd: string,
-  opts: SyncTranscriptOpts = {},
-): Promise<void> {
-  const path = transcriptPath(cwd, sdkSessionId);
-
-  const awaitMessageId = opts.awaitMessageId ?? null;
-  const awaitBlocks = opts.awaitBlocks ?? 0;
-  const pollIntervalMs = opts.pollIntervalMs ?? 25;
-  const maxPolls = opts.maxPolls ?? 40;
-
-  // Read directly and treat a missing file as a skip — avoids the extra
-  // `exists()` stat and the TOCTOU window between the two syscalls.
-  let content: string;
+export async function clearLocalSession(cwd: string, sdkSessionId: string): Promise<void> {
+  const jsonl = transcriptPath(cwd, sdkSessionId);
+  const subtree = join(projectTranscriptDir(cwd), sdkSessionId);
   try {
-    content = await Bun.file(path).text();
+    await Promise.all([
+      rm(jsonl, { force: true }),
+      rm(subtree, { recursive: true, force: true }),
+    ]);
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-      log.debug({ sessionId, path }, 'transcript file not found — skipping sync');
-      return;
-    }
-    throw err;
+    log.warn({ err, sdkSessionId, jsonl }, 'failed to clear local session scratch');
   }
-
-  if (awaitMessageId && awaitBlocks > 0) {
-    let have = countAssistantBlocks(content, awaitMessageId);
-    let polls = 0;
-    while (have < awaitBlocks && polls < maxPolls) {
-      await sleep(pollIntervalMs);
-      content = await Bun.file(path).text();
-      have = countAssistantBlocks(content, awaitMessageId);
-      polls += 1;
-    }
-    if (have < awaitBlocks) {
-      log.warn(
-        { sessionId, awaitMessageId, awaitBlocks, have },
-        'transcript flush barrier timed out — best-effort write',
-      );
-    }
-  }
-
-  const byteOffset = Buffer.byteLength(content, 'utf-8');
-
-  await db
-    .insert(sessionTranscripts)
-    .values({
-      sessionId,
-      sdkSessionId,
-      workspaceCwd: cwd,
-      content,
-      byteOffset,
-    })
-    .onConflictDoUpdate({
-      target: sessionTranscripts.sessionId,
-      set: {
-        content,
-        byteOffset,
-        sdkSessionId,
-        workspaceCwd: cwd,
-        updatedAt: new Date(),
-      },
-    });
-
-  log.debug({ sessionId, bytes: byteOffset }, 'transcript synced');
-}
-
-/**
- * Back up subagent JSONL and metadata files into the `subagents` jsonb column,
- * keyed by basename. Reads every `*.jsonl` / `*.meta.json` under the session's
- * subagent dir and replaces the column with the collected map. No-op if the
- * directory is missing or holds no matching files.
- */
-export async function backupSubagents(
-  sessionId: string,
-  sdkSessionId: string,
-  cwd: string,
-): Promise<void> {
-  const dir = subagentDir(cwd, sdkSessionId);
-
-  let names: string[];
-  try {
-    names = await readdir(dir);
-  } catch {
-    return; // Directory doesn't exist yet.
-  }
-
-  const files = names.filter((f) => f.endsWith('.jsonl') || f.endsWith('.meta.json'));
-  if (files.length === 0) return;
-
-  const data: Record<string, string> = {};
-  for (const file of files) {
-    data[file] = await Bun.file(join(dir, file)).text();
-  }
-
-  await db
-    .update(sessionTranscripts)
-    .set({ subagents: data, updatedAt: new Date() })
-    .where(eq(sessionTranscripts.sessionId, sessionId));
-
-  log.info({ sessionId, fileCount: files.length }, 'subagents backed up');
 }
 
 /**
@@ -303,69 +155,22 @@ export interface TranscriptTitleInputs {
 }
 
 /**
- * Read both title inputs from the persisted transcript in a single DB fetch.
- * Survives restarts and `--watch` reloads, so it is the reliable source for
- * titling a session whose turn ran in an earlier runtime. Returns nulls when
- * there is no transcript yet.
+ * Read both title inputs from the LIVE local transcript JSONL the binary just
+ * wrote (`<sdkSessionId>.jsonl`). The local file is the SDK's primary write —
+ * the store mirror lags it by up to a frame — so reading local at turn end is
+ * the freshest title source and avoids waiting on the mirror. Returns nulls when
+ * the file is absent (no transcript yet) or unreadable.
  */
-export async function readTranscriptTitleInputs(sessionId: string): Promise<TranscriptTitleInputs> {
-  const row = await db.query.sessionTranscripts.findFirst({
-    where: eq(sessionTranscripts.sessionId, sessionId),
-    columns: { content: true },
-  });
-  const content = row?.content;
-  if (!content) return { aiTitle: null, firstUserText: null };
+export async function readTranscriptTitleInputs(
+  cwd: string,
+  sdkSessionId: string,
+): Promise<TranscriptTitleInputs> {
+  const path = transcriptPath(cwd, sdkSessionId);
+  let content: string;
+  try {
+    content = await Bun.file(path).text();
+  } catch {
+    return { aiTitle: null, firstUserText: null };
+  }
   return { aiTitle: aiTitleFromJsonl(content), firstUserText: firstUserTextFromJsonl(content) };
-}
-
-/**
- * Restore the transcript (and any subagent files) from the DB back to the
- * filesystem so the binary can `resume` from them. Recreates the project dir,
- * writes the main JSONL, then writes each subagent entry into the subagent dir.
- *
- * After restore the DB `byteOffset` equals the restored content's byte length.
- * The next `syncTranscript` reads the whole file and overwrites `content`, so the
- * offset is purely the recorded file byte length, kept consistent here when it
- * has drifted from the content.
- */
-export async function restoreTranscript(sessionId: string): Promise<void> {
-  const row = await db.query.sessionTranscripts.findFirst({
-    where: eq(sessionTranscripts.sessionId, sessionId),
-  });
-  if (!row?.sdkSessionId || !row.content) return;
-
-  // The only internal cwd source (from the DB row, not a parameter). Must use
-  // the same per-user projects root as the write path so restore lands where
-  // the next append reads — see invariant in `projectsRoot`.
-  const dir = join(projectsRoot(row.workspaceCwd), encodeCwd(row.workspaceCwd));
-  await mkdir(dir, { recursive: true });
-
-  const path = join(dir, `${row.sdkSessionId}.jsonl`);
-  await Bun.write(path, row.content);
-
-  // Keep byteOffset == restored byte length so the next append reads only the
-  // bytes the binary writes after the restored tail. `content` is text; its
-  // byte length is the UTF-8 size, which is what the binary's file size is.
-  const contentBytes = Buffer.byteLength(row.content, 'utf-8');
-  if (row.byteOffset !== contentBytes) {
-    await db
-      .update(sessionTranscripts)
-      .set({ byteOffset: contentBytes, updatedAt: new Date() })
-      .where(eq(sessionTranscripts.sessionId, sessionId));
-  }
-
-  if (row.subagents && typeof row.subagents === 'object') {
-    const dir2 = join(dir, row.sdkSessionId, 'subagents');
-    await mkdir(dir2, { recursive: true });
-    for (const [name, content] of Object.entries(row.subagents as Record<string, string>)) {
-      // Guard against path escapes from a tampered jsonb map; only write a flat
-      // basename into the subagent dir.
-      await Bun.write(join(dir2, basename(name)), content);
-    }
-  }
-
-  log.info(
-    { sessionId, sdkSessionId: row.sdkSessionId, cwd: row.workspaceCwd },
-    'transcript restored from DB',
-  );
 }
