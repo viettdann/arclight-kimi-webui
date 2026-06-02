@@ -11,7 +11,10 @@ import { createMeRouter } from '../../src/routes/me';
 import { userMemoryPath } from '../../src/services/agent/agent-paths';
 import { makeFakeDb } from '../_helpers';
 
-function buildApp(fakeDb: ReturnType<typeof makeFakeDb>, user: { email: string; role: string }) {
+function buildApp(
+  fakeDb: ReturnType<typeof makeFakeDb>,
+  user: { id?: string; email: string; role: string },
+) {
   const app = new Hono<{ Variables: AuthVariables }>();
   app.use(
     '*',
@@ -222,5 +225,134 @@ describe('GET/PUT /api/me/preferences', () => {
     });
     expect(res.status).toBe(200);
     expect((await readFile(file, 'utf8')).length).toBe(USER_PREFERENCES_MAX_BYTES);
+  });
+});
+
+describe('GET /api/me/project-discovery', () => {
+  it('returns defaults when no row exists', async () => {
+    const fake = makeFakeDb();
+    fake.selectQueue.push([]);
+    const app = buildApp(fake, { id: 'u1', email: 'alice@example.com', role: 'user' });
+
+    const res = await app.request('/project-discovery');
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ entries: [], mode: 'append' });
+  });
+
+  it('returns stored settings when row exists', async () => {
+    const fake = makeFakeDb();
+    fake.selectQueue.push([{ entries: ['custom'], mode: 'override' }]);
+    const app = buildApp(fake, { id: 'u1', email: 'alice@example.com', role: 'user' });
+
+    const res = await app.request('/project-discovery');
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ entries: ['custom'], mode: 'override' });
+  });
+
+  it('returns 401 when no user is set', async () => {
+    const fake = makeFakeDb();
+    const app = new Hono<{ Variables: AuthVariables }>();
+    app.use(
+      '*',
+      createMiddleware(async (c, next) => {
+        c.set('user', null);
+        c.set('authSession', null);
+        await next();
+      }),
+    );
+    app.route('/', createMeRouter({ db: fake.db }));
+    const res = await app.request('/project-discovery');
+    expect(res.status).toBe(401);
+  });
+});
+
+describe('PUT /api/me/project-discovery', () => {
+  it('inserts a new row when none exists', async () => {
+    const fake = makeFakeDb();
+    const app = buildApp(fake, { id: 'u1', email: 'alice@example.com', role: 'user' });
+
+    const res = await app.request('/project-discovery', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ entries: ['foo'], mode: 'append' }),
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ entries: ['foo'], mode: 'append' });
+
+    const inserts = fake.calls.filter((c) => c.op === 'insert');
+    expect(inserts.length).toBe(1);
+    expect(inserts[0]?.values).toEqual({
+      userId: 'u1',
+      entries: ['foo'],
+      mode: 'append',
+    });
+  });
+
+  it('rejects invalid mode', async () => {
+    const fake = makeFakeDb();
+    const app = buildApp(fake, { id: 'u1', email: 'alice@example.com', role: 'user' });
+    const res = await app.request('/project-discovery', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ entries: [], mode: 'invalid' }),
+    });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'invalid_mode' });
+  });
+
+  it('rejects non-array entries', async () => {
+    const fake = makeFakeDb();
+    const app = buildApp(fake, { id: 'u1', email: 'alice@example.com', role: 'user' });
+    const res = await app.request('/project-discovery', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ entries: 'not-array', mode: 'append' }),
+    });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'invalid_entries' });
+  });
+
+  it('rejects entries containing non-strings', async () => {
+    const fake = makeFakeDb();
+    const app = buildApp(fake, { id: 'u1', email: 'alice@example.com', role: 'user' });
+    const res = await app.request('/project-discovery', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ entries: ['ok', 123], mode: 'append' }),
+    });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'invalid_entries' });
+  });
+
+  it('rejects invalid json', async () => {
+    const fake = makeFakeDb();
+    const app = buildApp(fake, { id: 'u1', email: 'alice@example.com', role: 'user' });
+    const res = await app.request('/project-discovery', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: 'not-json',
+    });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'invalid_json' });
+  });
+
+  it('returns 401 when no user is set', async () => {
+    const fake = makeFakeDb();
+    const app = new Hono<{ Variables: AuthVariables }>();
+    app.use(
+      '*',
+      createMiddleware(async (c, next) => {
+        c.set('user', null);
+        c.set('authSession', null);
+        await next();
+      }),
+    );
+    app.route('/', createMeRouter({ db: fake.db }));
+    const res = await app.request('/project-discovery', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ entries: [], mode: 'append' }),
+    });
+    expect(res.status).toBe(401);
   });
 });

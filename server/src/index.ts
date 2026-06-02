@@ -89,6 +89,7 @@ app.use('/api/files/*', requireAllowed);
 app.use('/api/projects/*', requireAllowed);
 app.use('/api/sessions/*', requireAllowed);
 app.use('/api/me/preferences', requireAllowed);
+app.use('/api/me/project-discovery', requireAllowed);
 app.use('/api/git-credentials/*', requireAllowed);
 app.use('/api/me-providers/*', requireAllowed);
 app.use('/api/providers/*', requireAllowed);

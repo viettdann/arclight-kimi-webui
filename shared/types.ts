@@ -540,6 +540,47 @@ export interface UserPreferencesUpdateRequest {
   content: string;
 }
 
+/** Default blacklist entries for project discovery. */
+export const DEFAULT_PROJECT_DISCOVERY_BLACKLIST = [
+  '.git',
+  '.claude',
+  '.vscode',
+  '.idea',
+  'node_modules',
+  '.turbo',
+  '.next',
+  'dist',
+  'build',
+  'target',
+  '.cache',
+  '.pytest_cache',
+  '__pycache__',
+  '.mypy_cache',
+  '.tox',
+  '.egg-info',
+  '.coverage',
+  '.nyc_output',
+  'coverage',
+  '.DS_Store',
+  'Thumbs.db',
+] as const;
+
+/** Valid modes for project discovery blacklist. */
+export const PROJECT_DISCOVERY_MODES = ['append', 'override'] as const;
+export type ProjectDiscoveryMode = (typeof PROJECT_DISCOVERY_MODES)[number];
+
+/** `GET /api/me/project-discovery` — the current user's project discovery blacklist. */
+export interface ProjectDiscoverySettingsResponse {
+  entries: string[];
+  mode: ProjectDiscoveryMode;
+}
+
+/** `PUT /api/me/project-discovery` — update the project discovery blacklist. */
+export interface ProjectDiscoverySettingsUpdateRequest {
+  entries: string[];
+  mode: ProjectDiscoveryMode;
+}
+
 export interface AllowedEmailDTO {
   email: string;
   /** ISO timestamp. */

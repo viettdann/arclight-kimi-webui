@@ -3,6 +3,7 @@ import { ErrorView } from '../components/error-view';
 import { GitCredentialsPanel } from '../components/preferences/git-credentials-panel';
 import { InstructionsPanel } from '../components/preferences/instructions-panel';
 import { PersonalProvidersPanel } from '../components/preferences/personal-providers-panel';
+import { ProjectDiscoverySection } from '../components/settings/project-discovery-section';
 import { RequireAdmin } from '../components/require-admin';
 import { RequireAuth } from '../components/require-auth';
 import { AccessControlPanel } from '../components/settings/access-control-panel';
@@ -60,6 +61,7 @@ export const router = createBrowserRouter([
               { path: 'providers', element: <ProviderPanel /> },
               { path: 'session-defaults', element: <DefaultsPanel /> },
               { path: 'access', element: <AccessControlPanel /> },
+              { path: 'project-discovery', element: <ProjectDiscoverySection /> },
             ],
           },
         ],

@@ -44,7 +44,8 @@ afterEach(async () => {
 describe('listProjectsForUser', () => {
   it('FS empty + DB empty → []', async () => {
     const fake = makeFakeDb();
-    fake.selectQueue.push([]); // selectDistinct
+    fake.selectQueue.push([]); // select projectDiscoverySettings
+    fake.selectQueue.push([]); // selectDistinct projectNames
     const result = await listProjectsForUser({
       userId: USER_ID,
       userEmail: USER_EMAIL,
@@ -56,7 +57,8 @@ describe('listProjectsForUser', () => {
 
   it('mkdir -p userRoot when missing', async () => {
     const fake = makeFakeDb();
-    fake.selectQueue.push([]);
+    fake.selectQueue.push([]); // select projectDiscoverySettings
+    fake.selectQueue.push([]); // selectDistinct projectNames
     await listProjectsForUser({
       userId: USER_ID,
       userEmail: USER_EMAIL,
@@ -73,7 +75,8 @@ describe('listProjectsForUser', () => {
     await mkdir(path.join(userRoot, 'proj-a'), { mode: 0o700 });
 
     const fake = makeFakeDb();
-    fake.selectQueue.push([]);
+    fake.selectQueue.push([]); // select projectDiscoverySettings
+    fake.selectQueue.push([]); // selectDistinct projectNames
 
     const result = await listProjectsForUser({
       userId: USER_ID,
@@ -92,7 +95,8 @@ describe('listProjectsForUser', () => {
     await writeFile(path.join(userRoot, 'stray.txt'), 'ignored');
 
     const fake = makeFakeDb();
-    fake.selectQueue.push([]);
+    fake.selectQueue.push([]); // select projectDiscoverySettings
+    fake.selectQueue.push([]); // selectDistinct projectNames
 
     const result = await listProjectsForUser({
       userId: USER_ID,
@@ -105,7 +109,8 @@ describe('listProjectsForUser', () => {
 
   it('FS empty, DB has session with projectName=alpha → 1 foreign project', async () => {
     const fake = makeFakeDb();
-    fake.selectQueue.push([{ projectName: 'alpha' }]);
+    fake.selectQueue.push([]); // select projectDiscoverySettings
+    fake.selectQueue.push([{ projectName: 'alpha' }]); // selectDistinct projectNames
 
     const result = await listProjectsForUser({
       userId: USER_ID,
@@ -123,7 +128,8 @@ describe('listProjectsForUser', () => {
     await mkdir(path.join(userRoot, 'alpha'), { mode: 0o700 });
 
     const fake = makeFakeDb();
-    fake.selectQueue.push([{ projectName: 'alpha' }]);
+    fake.selectQueue.push([]); // select projectDiscoverySettings
+    fake.selectQueue.push([{ projectName: 'alpha' }]); // selectDistinct projectNames
 
     const result = await listProjectsForUser({
       userId: USER_ID,
@@ -141,7 +147,8 @@ describe('listProjectsForUser', () => {
     await mkdir(path.join(userRoot, 'alpha'), { mode: 0o700 });
 
     const fake = makeFakeDb();
-    fake.selectQueue.push([{ projectName: 'beta' }]);
+    fake.selectQueue.push([]); // select projectDiscoverySettings
+    fake.selectQueue.push([{ projectName: 'beta' }]); // selectDistinct projectNames
 
     const result = await listProjectsForUser({
       userId: USER_ID,
@@ -160,7 +167,8 @@ describe('listProjectsForUser', () => {
     await mkdir(path.join(userRoot, 'b'), { mode: 0o700 });
 
     const fake = makeFakeDb();
-    fake.selectQueue.push([{ projectName: 'a' }]);
+    fake.selectQueue.push([]); // select projectDiscoverySettings
+    fake.selectQueue.push([{ projectName: 'a' }]); // selectDistinct projectNames
 
     const result = await listProjectsForUser({
       userId: USER_ID,
@@ -169,6 +177,83 @@ describe('listProjectsForUser', () => {
       env: { WORKSPACE_ROOT: tmpRoot },
     });
     expect(result.map((p) => `${p.name}:${p.origin}`)).toEqual(['a:foreign', 'b:local']);
+  });
+
+  it('filters out default-blacklisted directories (e.g. .git, node_modules)', async () => {
+    await mkdir(userRoot, { recursive: true, mode: 0o700 });
+    await mkdir(path.join(userRoot, 'real-proj'), { mode: 0o700 });
+    await mkdir(path.join(userRoot, '.git'), { mode: 0o700 });
+    await mkdir(path.join(userRoot, 'node_modules'), { mode: 0o700 });
+
+    const fake = makeFakeDb();
+    fake.selectQueue.push([]); // select projectDiscoverySettings (no row = defaults)
+    fake.selectQueue.push([]); // selectDistinct projectNames
+
+    const result = await listProjectsForUser({
+      userId: USER_ID,
+      userEmail: USER_EMAIL,
+      db: fake.db,
+      env: { WORKSPACE_ROOT: tmpRoot },
+    });
+    expect(result.map((p) => p.name)).toEqual(['real-proj']);
+  });
+
+  it('append mode: custom entries merge with defaults', async () => {
+    await mkdir(userRoot, { recursive: true, mode: 0o700 });
+    await mkdir(path.join(userRoot, 'real-proj'), { mode: 0o700 });
+    await mkdir(path.join(userRoot, 'custom-ignore'), { mode: 0o700 });
+
+    const fake = makeFakeDb();
+    fake.selectQueue.push([
+      { entries: ['custom-ignore'], mode: 'append' },
+    ]); // select projectDiscoverySettings
+    fake.selectQueue.push([]); // selectDistinct projectNames
+
+    const result = await listProjectsForUser({
+      userId: USER_ID,
+      userEmail: USER_EMAIL,
+      db: fake.db,
+      env: { WORKSPACE_ROOT: tmpRoot },
+    });
+    expect(result.map((p) => p.name)).toEqual(['real-proj']);
+  });
+
+  it('override mode: only custom entries are used', async () => {
+    await mkdir(userRoot, { recursive: true, mode: 0o700 });
+    await mkdir(path.join(userRoot, '.git'), { mode: 0o700 });
+    await mkdir(path.join(userRoot, 'real-proj'), { mode: 0o700 });
+
+    const fake = makeFakeDb();
+    fake.selectQueue.push([
+      { entries: ['other-ignore'], mode: 'override' },
+    ]); // select projectDiscoverySettings
+    fake.selectQueue.push([]); // selectDistinct projectNames
+
+    const result = await listProjectsForUser({
+      userId: USER_ID,
+      userEmail: USER_EMAIL,
+      db: fake.db,
+      env: { WORKSPACE_ROOT: tmpRoot },
+    });
+    // .git is NOT blacklisted because override replaces defaults entirely
+    expect(result.map((p) => p.name)).toEqual(['.git', 'real-proj']);
+  });
+
+  it('filters blacklisted foreign project names too', async () => {
+    const fake = makeFakeDb();
+    fake.selectQueue.push([]); // select projectDiscoverySettings (defaults)
+    fake.selectQueue.push([
+      { projectName: 'node_modules' },
+      { projectName: 'real-proj' },
+    ]); // selectDistinct projectNames
+
+    const result = await listProjectsForUser({
+      userId: USER_ID,
+      userEmail: USER_EMAIL,
+      db: fake.db,
+      env: { WORKSPACE_ROOT: tmpRoot },
+    });
+    expect(result.map((p) => p.name)).toEqual(['real-proj']);
   });
 });
 

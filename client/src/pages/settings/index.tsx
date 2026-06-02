@@ -1,4 +1,4 @@
-import { Gauge, Server, Settings2, Users } from 'lucide-react';
+import { FolderX, Gauge, Server, Settings2, Users } from 'lucide-react';
 import { useLocation } from 'react-router';
 import {
   type SettingsNavItem,
@@ -31,6 +31,12 @@ const NAV_ITEMS: SettingsNav[] = [
     icon: <Settings2 />,
     // Saves automatically — the "press Save" config header would lie.
     hideEditChrome: true,
+  },
+  {
+    to: 'project-discovery',
+    label: 'Project discovery',
+    description: 'Control which folders are excluded from the sidebar',
+    icon: <FolderX />,
   },
   {
     to: 'access',
