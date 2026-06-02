@@ -1,3 +1,4 @@
+/// <reference types="vitest" />
 import path from 'node:path';
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
@@ -24,6 +25,11 @@ export default defineConfig(({ mode, command }) => {
         { find: /^shared\/(.*)$/, replacement: `${path.resolve(__dirname, '../shared')}/$1` },
         { find: /^shared$/, replacement: path.resolve(__dirname, '../shared/index.ts') },
       ],
+    },
+    test: {
+      globals: true,
+      environment: 'happy-dom',
+      setupFiles: './src/test/setup.ts',
     },
     server: {
       port: 5173,
