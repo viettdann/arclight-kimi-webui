@@ -14,6 +14,7 @@ import { createGitCredentialsRouter } from './routes/git-credentials';
 import { createMeRouter } from './routes/me';
 import { createMeProvidersRouter } from './routes/me-providers';
 import { createOverviewRouter } from './routes/overview';
+import { createProjectDiscoveryRouter } from './routes/project-discovery';
 import projectsRoutes from './routes/projects';
 import { createProvidersRouter } from './routes/providers';
 import { createProvidersAvailableRouter } from './routes/providers-available';
@@ -89,7 +90,6 @@ app.use('/api/files/*', requireAllowed);
 app.use('/api/projects/*', requireAllowed);
 app.use('/api/sessions/*', requireAllowed);
 app.use('/api/me/preferences', requireAllowed);
-app.use('/api/me/project-discovery', requireAllowed);
 app.use('/api/git-credentials/*', requireAllowed);
 app.use('/api/me-providers/*', requireAllowed);
 app.use('/api/providers/*', requireAllowed);
@@ -109,6 +109,7 @@ app.route('/api/git-credentials', createGitCredentialsRouter({ db }));
 app.route('/api/me-providers', createMeProvidersRouter({ db }));
 app.route('/api/providers', createProvidersAvailableRouter({ db }));
 app.route('/api/admin/providers', createProvidersRouter({ db }));
+app.route('/api/admin/project-discovery', createProjectDiscoveryRouter({ db }));
 
 // SPA mount — registered AFTER all /api routes so API paths match earlier
 // handlers; the catchall only fires for client-side router paths. Assets are

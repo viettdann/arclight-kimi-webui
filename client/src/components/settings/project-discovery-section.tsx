@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
+import { DEFAULT_PROJECT_DISCOVERY_BLACKLIST } from 'shared/types';
 import { Button } from '@/components/ui/button';
 import { SecHead } from '@/components/ui/sec-head';
 import { Section } from '@/components/ui/section';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
-import { DEFAULT_PROJECT_DISCOVERY_BLACKLIST } from 'shared/types';
 import {
   getProjectDiscoverySettings,
   putProjectDiscoverySettings,
@@ -17,9 +17,9 @@ export function ProjectDiscoverySection() {
   const [status, setStatus] = useState<Status>('idle');
   const [loadError, setLoadError] = useState<string | null>(null);
   const [savedEntries, setSavedEntries] = useState<string[]>([]);
-  const [savedMode, setSavedMode] = useState<'append' | 'override'>('append');
+  const [savedOverride, setSavedOverride] = useState(false);
   const [draftEntries, setDraftEntries] = useState('');
-  const [draftMode, setDraftMode] = useState<'append' | 'override'>('append');
+  const [draftOverride, setDraftOverride] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -30,9 +30,9 @@ export function ProjectDiscoverySection() {
         if (cancelled) return;
         const text = res.entries.join('\n');
         setSavedEntries(res.entries);
-        setSavedMode(res.mode);
+        setSavedOverride(res.override);
         setDraftEntries(text);
-        setDraftMode(res.mode);
+        setDraftOverride(res.override);
         setStatus('ready');
       })
       .catch((err: unknown) => {
@@ -45,8 +45,7 @@ export function ProjectDiscoverySection() {
     };
   }, []);
 
-  const dirty =
-    draftEntries !== savedEntries.join('\n') || draftMode !== savedMode;
+  const dirty = draftEntries !== savedEntries.join('\n') || draftOverride !== savedOverride;
 
   async function handleSave() {
     if (!dirty || saving) return;
@@ -58,12 +57,12 @@ export function ProjectDiscoverySection() {
     try {
       const res = await putProjectDiscoverySettings({
         entries,
-        mode: draftMode,
+        override: draftOverride,
       });
       setSavedEntries(res.entries);
-      setSavedMode(res.mode);
+      setSavedOverride(res.override);
       setDraftEntries(res.entries.join('\n'));
-      setDraftMode(res.mode);
+      setDraftOverride(res.override);
       showToast({ message: 'Project discovery settings saved', type: 'info' });
     } catch (err) {
       showToast({
@@ -128,26 +127,19 @@ export function ProjectDiscoverySection() {
         >
           <div className="flex items-center gap-3">
             <Switch
-              checked={draftMode === 'override'}
-              onCheckedChange={(checked) =>
-                setDraftMode(checked ? 'override' : 'append')
-              }
+              checked={draftOverride}
+              onCheckedChange={setDraftOverride}
               id="mode-switch"
               aria-label="Toggle override mode"
             />
-            <label
-              htmlFor="mode-switch"
-              className="cursor-pointer text-sm text-foreground"
-            >
-              {draftMode === 'append'
-                ? 'Append to defaults'
-                : 'Override defaults'}
+            <label htmlFor="mode-switch" className="cursor-pointer text-sm text-foreground">
+              {draftOverride ? 'Override defaults' : 'Append to defaults'}
             </label>
           </div>
           <p className="text-xs text-muted-foreground">
-            {draftMode === 'append'
-              ? 'Your entries are added to the default blacklist below.'
-              : 'Only your entries are used; the default blacklist is ignored.'}
+            {draftOverride
+              ? 'Only your entries are used; the default blacklist is ignored.'
+              : 'Your entries are added to the default blacklist below.'}
           </p>
         </Section>
 

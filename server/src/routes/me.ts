@@ -1,18 +1,16 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { Hono } from 'hono';
-import { eq } from 'drizzle-orm';
 import type {
   MeResponse,
   UserPreferencesResponse,
   UserPreferencesUpdateRequest,
 } from 'shared/types';
-import { PROJECT_DISCOVERY_MODES, USER_PREFERENCES_MAX_BYTES } from 'shared/types';
+import { USER_PREFERENCES_MAX_BYTES } from 'shared/types';
 import { slug } from '../auth';
 import { canUserAccess } from '../auth/access';
 import { type AuthVariables, requireAuth } from '../auth/middleware';
 import type { DB } from '../db';
-import { schema } from '../db';
 import { userMemoryPath } from '../services/agent/agent-paths';
 
 export interface MeRouterDeps {
@@ -90,68 +88,6 @@ export function createMeRouter(deps: MeRouterDeps): Hono<{ Variables: AuthVariab
 
     const body: UserPreferencesResponse = { content: payload.content };
     return c.json(body);
-  });
-
-  // GET /api/me/project-discovery
-  // Returns the user's project discovery blacklist settings.
-  router.get('/project-discovery', async (c) => {
-    const user = c.var.user as NonNullable<AuthVariables['user']>;
-    const rows = await db
-      .select({
-        entries: schema.projectDiscoverySettings.entries,
-        mode: schema.projectDiscoverySettings.mode,
-      })
-      .from(schema.projectDiscoverySettings)
-      .where(eq(schema.projectDiscoverySettings.userId, user.id));
-
-    if (rows.length === 0) {
-      return c.json({ entries: [], mode: 'append' as const });
-    }
-
-    const row = rows[0]!;
-    return c.json({ entries: row.entries, mode: row.mode });
-  });
-
-  // PUT /api/me/project-discovery
-  // Upserts the user's project discovery blacklist settings.
-  router.put('/project-discovery', async (c) => {
-    const user = c.var.user as NonNullable<AuthVariables['user']>;
-    let payload: unknown;
-    try {
-      payload = await c.req.json();
-    } catch {
-      return c.json({ error: 'invalid_json' }, 400);
-    }
-
-    if (typeof payload !== 'object' || payload === null) {
-      return c.json({ error: 'invalid_body' }, 400);
-    }
-
-    const { entries, mode } = payload as Record<string, unknown>;
-
-    // Validate mode
-    if (!PROJECT_DISCOVERY_MODES.includes(mode as 'append' | 'override')) {
-      return c.json({ error: 'invalid_mode' }, 400);
-    }
-
-    // Validate entries
-    if (!Array.isArray(entries) || !entries.every((e) => typeof e === 'string')) {
-      return c.json({ error: 'invalid_entries' }, 400);
-    }
-
-    const validEntries = entries as string[];
-    const validMode = mode as 'append' | 'override';
-
-    // Single-round-trip upsert via ON CONFLICT DO UPDATE.
-    await db
-      .insert(schema.projectDiscoverySettings)
-      .values({ userId: user.id, entries: validEntries, mode: validMode })
-      .onConflictDoUpdate({
-        target: schema.projectDiscoverySettings.userId,
-        set: { entries: validEntries, mode: validMode, updatedAt: new Date() },
-      });
-
-    return c.json({ entries: validEntries, mode: validMode });
   });
 
   return router;

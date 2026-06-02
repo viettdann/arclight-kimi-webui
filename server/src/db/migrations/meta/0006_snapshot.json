@@ -512,35 +512,21 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.project_discovery_settings": {
-      "name": "project_discovery_settings",
+    "public.site_settings": {
+      "name": "site_settings",
       "schema": "",
       "columns": {
-        "id": {
-          "name": "id",
-          "type": "serial",
+        "key": {
+          "name": "key",
+          "type": "text",
           "primaryKey": true,
           "notNull": true
         },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
+        "value": {
+          "name": "value",
+          "type": "jsonb",
           "primaryKey": false,
           "notNull": true
-        },
-        "entries": {
-          "name": "entries",
-          "type": "text[]",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'"
-        },
-        "mode": {
-          "name": "mode",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'append'"
         },
         "updated_at": {
           "name": "updated_at",
@@ -551,31 +537,9 @@
         }
       },
       "indexes": {},
-      "foreignKeys": {
-        "project_discovery_settings_user_id_user_id_fk": {
-          "name": "project_discovery_settings_user_id_user_id_fk",
-          "tableFrom": "project_discovery_settings",
-          "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "project_discovery_settings_user_id_unique": {
-          "name": "project_discovery_settings_user_id_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "user_id"
-          ]
-        }
-      },
+      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false

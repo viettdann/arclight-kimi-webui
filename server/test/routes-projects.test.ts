@@ -28,7 +28,7 @@ function buildApp(opts: BuildOpts): {
   fake: ReturnType<typeof makeFakeDb>;
 } {
   const fake = makeFakeDb();
-  // Seed the projectDiscoverySettings query (no row = use defaults).
+  // Seed the site_settings query (no rows = code defaults).
   fake.selectQueue.push([]);
   // Seed the DISTINCT projectName query so GET / has a deterministic DB side.
   fake.selectQueue.push((opts.dbProjectNames ?? []).map((name) => ({ projectName: name })));
@@ -299,7 +299,7 @@ describe('GET /api/projects', () => {
 
     // Override the seeded empty DB rows for this request.
     fake.selectQueue.length = 0;
-    fake.selectQueue.push([]); // select projectDiscoverySettings
+    fake.selectQueue.push([]); // select site_settings
     fake.selectQueue.push([{ projectName: 'alpha' }, { projectName: 'beta' }]); // selectDistinct projectNames
 
     const res = await app.request('/api/projects');

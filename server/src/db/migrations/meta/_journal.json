@@ -48,7 +48,7 @@
       "idx": 6,
       "version": "7",
       "when": 1780393979575,
-      "tag": "0006_add_project_discovery_settings",
+      "tag": "0006_add_site_settings",
       "breakpoints": true
     }
   ]

@@ -1,7 +1,6 @@
 import { mkdir, readdir, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { and, eq } from 'drizzle-orm';
-import { DEFAULT_PROJECT_DISCOVERY_BLACKLIST } from 'shared/types';
 import type { ProjectStatResponse, ProjectSummary } from 'shared/types';
 import { slug } from '../auth';
 import { type DB, schema } from '../db';
@@ -15,9 +14,7 @@ import { cloningProjectNamesForUser } from './git/clone-registry';
 import { inspectRepo } from './git/inspect';
 import { teardownActiveSession } from './session-lifecycle';
 import type { SessionManager } from './session-manager';
-
-/** Default blacklist for project discovery. */
-const DEFAULT_BLACKLIST = new Set(DEFAULT_PROJECT_DISCOVERY_BLACKLIST);
+import { effectiveBlacklist, getProjectDiscoveryConfig } from './site-settings';
 
 /** Check if a directory name matches any blacklist entry (exact match or prefix with /). */
 function isBlacklisted(name: string, blacklist: Set<string>): boolean {
@@ -26,32 +23,6 @@ function isBlacklisted(name: string, blacklist: Set<string>): boolean {
     if (entry.endsWith('/') && name.startsWith(entry)) return true;
   }
   return false;
-}
-
-/** Build the effective blacklist for a user. */
-async function buildBlacklist(db: DB, userId: string): Promise<Set<string>> {
-  const rows = await db
-    .select({
-      entries: schema.projectDiscoverySettings.entries,
-      mode: schema.projectDiscoverySettings.mode,
-    })
-    .from(schema.projectDiscoverySettings)
-    .where(eq(schema.projectDiscoverySettings.userId, userId));
-
-  if (rows.length === 0) {
-    return new Set(DEFAULT_BLACKLIST);
-  }
-
-  const row = rows[0]!;
-  const entries = row.entries ?? [];
-  const mode = row.mode;
-
-  if (mode === 'override') {
-    return new Set(entries);
-  }
-
-  // append mode: merge defaults + DB entries, deduplicate
-  return new Set([...DEFAULT_BLACKLIST, ...entries]);
 }
 
 export interface ListProjectsForUserArgs {
@@ -70,7 +41,7 @@ export interface ListProjectsForUserArgs {
  * Owns the `mkdir -p userRoot` step so callers don't have to. Output is sorted
  * by `Intl.Collator({ numeric: true })` on `name`.
  *
- * Filters out directories matching the user's project discovery blacklist.
+ * Filters out directories matching the site-wide project discovery blacklist.
  */
 export async function listProjectsForUser({
   userId,
@@ -79,9 +50,9 @@ export async function listProjectsForUser({
   env,
 }: ListProjectsForUserArgs): Promise<ProjectSummary[]> {
   const userRoot = path.join(env.WORKSPACE_ROOT, slug(userEmail));
-  // Build blacklist first (cheap single-row lookup) so the subsequent FS+DB
-  // work can run concurrently.
-  const blacklist = await buildBlacklist(db, userId);
+  // Site-wide blacklist (cheap two-key lookup), read first so the subsequent
+  // FS+DB work can run concurrently.
+  const blacklist = effectiveBlacklist(await getProjectDiscoveryConfig(db));
   // DB query has no FS dependency, so it runs concurrently with mkdir+readdir.
   // readdir still serialises behind mkdir (ENOENT otherwise).
   const dbRowsP = db

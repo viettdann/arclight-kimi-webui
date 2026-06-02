@@ -565,20 +565,23 @@ export const DEFAULT_PROJECT_DISCOVERY_BLACKLIST = [
   'Thumbs.db',
 ] as const;
 
-/** Valid modes for project discovery blacklist. */
-export const PROJECT_DISCOVERY_MODES = ['append', 'override'] as const;
-export type ProjectDiscoveryMode = (typeof PROJECT_DISCOVERY_MODES)[number];
-
-/** `GET /api/me/project-discovery` — the current user's project discovery blacklist. */
+/**
+ * `GET /api/admin/project-discovery` — the site-wide project discovery
+ * blacklist. Admin-managed; applies to every user's sidebar scan.
+ *
+ *   entries   extra directory names to exclude
+ *   override  true → use only `entries`; false → append `entries` to the
+ *             built-in {@link DEFAULT_PROJECT_DISCOVERY_BLACKLIST}
+ */
 export interface ProjectDiscoverySettingsResponse {
   entries: string[];
-  mode: ProjectDiscoveryMode;
+  override: boolean;
 }
 
-/** `PUT /api/me/project-discovery` — update the project discovery blacklist. */
+/** `PUT /api/admin/project-discovery` — update the site-wide blacklist. */
 export interface ProjectDiscoverySettingsUpdateRequest {
   entries: string[];
-  mode: ProjectDiscoveryMode;
+  override: boolean;
 }
 
 export interface AllowedEmailDTO {
