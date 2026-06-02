@@ -8,7 +8,13 @@ import { client, db } from './db';
 import { env } from './env';
 import { auditLog, logger } from './lib/logger';
 import { MAX_PROJECT_NAME_LEN } from './lib/slug';
+import { setAccessControlResolver } from './auth/access';
 import { createAccessRouter } from './routes/access';
+import { createConfigGeneralRouter } from './routes/config-general';
+import { createConfigProvidersRouter } from './routes/config-providers';
+import { createConfigSettingsRouter } from './routes/config-settings';
+import { createConfigSystemRouter } from './routes/config-system';
+import { createConfigUserSettingsRouter } from './routes/config-user-settings';
 import filesRoutes from './routes/files';
 import { createGitCredentialsRouter } from './routes/git-credentials';
 import { createMeRouter } from './routes/me';
@@ -24,6 +30,7 @@ import { ensureClaudeOnboarding } from './services/agent/onboarding';
 import { MAX_ENCODED_LEN } from './services/agent/transcript-store';
 import { reconcileOnStartup } from './services/reconcile';
 import { sessionManager } from './services/session-manager';
+import { resolveAccessControlFromSettings } from './services/site-settings';
 import { SERVICE_VERSION } from './version';
 import { handleMessage } from './ws/handlers';
 import { startWsHeartbeat } from './ws/heartbeat';
@@ -34,6 +41,12 @@ import { handleWsUpgrade, type WSData } from './ws/upgrade';
 // part (before `@`) 1:1 — it never changes the length — and RFC 5321 caps the
 // local part at 64 characters.
 const MAX_USER_SLUG_LEN = 64;
+
+// ─────────────────────────── Bootstrap ───────────────────────────
+
+// Wire up the access control resolver so auth/access.ts reads from site_settings
+// instead of the legacy access_control table.
+setAccessControlResolver(resolveAccessControlFromSettings);
 
 // ─────────────────────────── Startup ───────────────────────────
 
@@ -110,6 +123,20 @@ app.route('/api/me-providers', createMeProvidersRouter({ db }));
 app.route('/api/providers', createProvidersAvailableRouter({ db }));
 app.route('/api/admin/providers', createProvidersRouter({ db }));
 app.route('/api/admin/project-discovery', createProjectDiscoveryRouter({ db }));
+
+// ─── Unified config API (new) ──────────────────────────────────────────────
+// Allowlist gate on user workspace writes (preferences + git-credentials).
+app.use('/api/config/general/preferences', requireAllowed);
+app.use('/api/config/general/git-credentials/*', requireAllowed);
+
+app.route('/api/config', createConfigSettingsRouter({ db }));
+app.route('/api/config/my-settings', createConfigUserSettingsRouter({ db }));
+app.route('/api/config/providers', createConfigProvidersRouter({ db }));
+app.route('/api/config/general', createConfigGeneralRouter({ db }));
+app.route(
+  '/api/config/system',
+  createConfigSystemRouter({ db, manager: sessionManager, wsClientCount: wsClientSize, startedAt }),
+);
 
 // SPA mount — registered AFTER all /api routes so API paths match earlier
 // handlers; the catchall only fires for client-side router paths. Assets are

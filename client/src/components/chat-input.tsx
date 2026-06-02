@@ -7,7 +7,7 @@ import {
   classifyCommand,
   parseSlashCommand,
 } from 'shared/commands';
-import { type ApprovalMode, EFFORT_LEVELS, type EffortLevel } from 'shared/types';
+import { type ApprovalMode, EFFORT_OPTIONS, type EffortLevel, effortLabel } from 'shared/types';
 import { Button } from '@/components/ui/button';
 import { DropdownItem, DropdownMenu, DropdownSeparator } from '@/components/ui/dropdown-menu';
 import { useChatStore } from '../lib/chat-store';
@@ -40,15 +40,6 @@ const ENTER_INSERTS_NEWLINE =
 // capture group is the filter. Any space/newline closes it — the user is typing
 // arguments.
 const SLASH_PICKER_RE = /^\/([\w-]*)$/;
-
-const effortLabel = (value: EffortLevel) => value.charAt(0).toUpperCase() + value.slice(1);
-
-// Effort selector options. `null` renders as "Default" (provider default); the
-// rest derive from EFFORT_LEVELS so the picker never drifts from the wire type.
-const EFFORT_OPTIONS: { value: EffortLevel | null; label: string }[] = [
-  { value: null, label: 'Default' },
-  ...EFFORT_LEVELS.map((value) => ({ value, label: effortLabel(value) })),
-];
 
 // Single source for the two "can't send yet" prompts — shown both as the
 // send-blocked toast and the Model trigger's tooltip so the wording can't drift.
@@ -109,11 +100,13 @@ export function ChatInput() {
   const [bypassConfirmOpen, setBypassConfirmOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Load available providers catalog on mount.
+  // Load available providers catalog + session defaults on mount.
   const { available, status, error, ensureLoaded, load } = useProvidersStore();
   // biome-ignore lint/correctness/useExhaustiveDependencies: one-shot on mount
   useEffect(() => {
     ensureLoaded();
+    const defaults = useSessionDefaultsStore.getState();
+    if (defaults.status === 'idle') void defaults.load();
   }, []);
 
   // Read the session's providerId + model from sessions store.
@@ -127,9 +120,47 @@ export function ChatInput() {
   const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
 
-  // Effective selection — local override wins, else session values.
-  const effectiveProviderId = selectedProviderId ?? sessionProviderId;
-  const effectiveModel = selectedModel ?? sessionModel;
+  // Catalog loaded but both scopes are empty: nothing to send with, so block the
+  // composer until a provider exists.
+  const noModelsAvailable =
+    status === 'ready' &&
+    (available?.builtin.length ?? 0) === 0 &&
+    (available?.personal.length ?? 0) === 0;
+
+  // Catalog has providers but this session has no usable (providerId, model) —
+  // neither pinned on the session nor picked locally, or the pick is orphaned.
+  // The server can't resolve a provider for the send and would reply
+  // `provider_unset`; block the send here and steer the user to the model picker
+  // instead. Distinct from `noModelsAvailable` (catalog empty) so the prompt can
+  // say "pick a model" rather than "configure a provider".
+  const session = useChatStore((s) => (sessionId ? s.sessions[sessionId] : null));
+  const isTurnInProgress = session?.isTurnInProgress ?? false;
+
+  // Draft-mode composer flags. A draft has no chat-store session to mirror, so
+  // the toggles seed from the user's Session Defaults (approval/thinking) and
+  // the provider default for effort (null), held locally until `start_session`
+  // carries them along. Reset when leaving the draft for a real session. Seeds
+  // are read once via lazy initializers — a reactive subscription here would
+  // re-render the composer on any global defaults change for no benefit.
+  const [draftApprovalMode, setDraftApprovalMode] = useState<ApprovalMode>(
+    () => useSessionDefaultsStore.getState().approvalMode,
+  );
+  const [draftThinking, setDraftThinking] = useState<boolean>(
+    () => useSessionDefaultsStore.getState().thinking,
+  );
+  const [draftEffort, setDraftEffort] = useState<EffortLevel | null>(
+    () => useSessionDefaultsStore.getState().effort,
+  );
+  const [draftProviderId, setDraftProviderId] = useState<string | null>(
+    () => useSessionDefaultsStore.getState().providerId,
+  );
+  const [draftModel, setDraftModel] = useState<string | null>(
+    () => useSessionDefaultsStore.getState().model,
+  );
+
+  // Effective selection — local override wins, else draft defaults, else session values.
+  const effectiveProviderId = selectedProviderId ?? draftProviderId ?? sessionProviderId;
+  const effectiveModel = selectedModel ?? draftModel ?? sessionModel;
 
   // A selection is "orphaned" when it points at a provider/model that no longer
   // exists in the catalog (provider deleted or hidden). Only meaningful once the
@@ -146,38 +177,8 @@ export function ChatInput() {
     ? 'Unavailable — reselect'
     : (labelFor(available, effectiveProviderId, effectiveModel) ?? 'Select a model');
 
-  // Catalog loaded but both scopes are empty: nothing to send with, so block the
-  // composer until a provider exists.
-  const noModelsAvailable =
-    status === 'ready' &&
-    (available?.builtin.length ?? 0) === 0 &&
-    (available?.personal.length ?? 0) === 0;
-
-  // Catalog has providers but this session has no usable (providerId, model) —
-  // neither pinned on the session nor picked locally, or the pick is orphaned.
-  // The server can't resolve a provider for the send and would reply
-  // `provider_unset`; block the send here and steer the user to the model picker
-  // instead. Distinct from `noModelsAvailable` (catalog empty) so the prompt can
-  // say "pick a model" rather than "configure a provider".
   const needsSelection =
     status === 'ready' && !noModelsAvailable && (!hasSelection || isUnresolvable);
-
-  const session = useChatStore((s) => (sessionId ? s.sessions[sessionId] : null));
-  const isTurnInProgress = session?.isTurnInProgress ?? false;
-
-  // Draft-mode composer flags. A draft has no chat-store session to mirror, so
-  // the toggles seed from the user's Session Defaults (approval/thinking) and
-  // the provider default for effort (null), held locally until `start_session`
-  // carries them along. Reset when leaving the draft for a real session. Seeds
-  // are read once via lazy initializers — a reactive subscription here would
-  // re-render the composer on any global defaults change for no benefit.
-  const [draftApprovalMode, setDraftApprovalMode] = useState<ApprovalMode>(
-    () => useSessionDefaultsStore.getState().approvalMode,
-  );
-  const [draftThinking, setDraftThinking] = useState<boolean>(
-    () => useSessionDefaultsStore.getState().thinking,
-  );
-  const [draftEffort, setDraftEffort] = useState<EffortLevel | null>(null);
 
   // Approval mode + thinking mirror the true state from the snapshot (survive
   // reload). Changing them → optimistic store update + WS send; applied from the
@@ -258,9 +259,12 @@ export function ChatInput() {
   useEffect(() => {
     setSelectedProviderId(null);
     setSelectedModel(null);
-    setDraftApprovalMode(useSessionDefaultsStore.getState().approvalMode);
-    setDraftThinking(useSessionDefaultsStore.getState().thinking);
-    setDraftEffort(null);
+    const defaults = useSessionDefaultsStore.getState();
+    setDraftApprovalMode(defaults.approvalMode);
+    setDraftThinking(defaults.thinking);
+    setDraftEffort(defaults.effort);
+    setDraftProviderId(defaults.providerId);
+    setDraftModel(defaults.model);
   }, [draftKey]);
 
   const handleInput = useCallback(() => {
@@ -355,10 +359,12 @@ export function ChatInput() {
   const applyApprovalMode = (mode: ApprovalMode) => {
     if (isDraft) {
       setDraftApprovalMode(mode);
+      useSessionDefaultsStore.getState().setApprovalMode(mode);
       return;
     }
     if (!sessionId) return;
     useChatStore.getState().setSessionFlags(sessionId, { approvalMode: mode });
+    useSessionDefaultsStore.getState().setApprovalMode(mode);
   };
 
   // Switching to bypass is gated by a confirm dialog the first time per composer.
@@ -380,20 +386,27 @@ export function ChatInput() {
 
   const toggleThinking = () => {
     if (isDraft) {
-      setDraftThinking((on) => !on);
+      setDraftThinking((on) => {
+        const next = !on;
+        useSessionDefaultsStore.getState().setThinking(next);
+        return next;
+      });
       return;
     }
     if (!sessionId) return;
     useChatStore.getState().setSessionFlags(sessionId, { thinking: !thinking });
+    useSessionDefaultsStore.getState().setThinking(!thinking);
   };
 
   const setEffort = (next: EffortLevel | null) => {
     if (isDraft) {
       setDraftEffort(next);
+      useSessionDefaultsStore.getState().setEffort(next);
       return;
     }
     if (!sessionId) return;
     useChatStore.getState().setSessionFlags(sessionId, { effort: next });
+    useSessionDefaultsStore.getState().setEffort(next);
   };
 
   // Pick a command from the picker: rewrite the composer to `/name ` and place
@@ -532,227 +545,231 @@ export function ChatInput() {
                 </Button>
               }
             >
-            <div className="px-2 pt-1 pb-1.5 text-[11px] text-muted-foreground select-none">
-              Applies from the next message
-            </div>
+              <div className="px-2 pt-1 pb-1.5 text-[11px] text-muted-foreground select-none">
+                Applies from the next message
+              </div>
 
-            <DropdownItem
-              onClick={toggleThinking}
-              closeOnClick={false}
-              trailing={<Switch on={thinking} />}
-            >
-              <span className="flex items-center gap-2">
-                <Brain className="h-3.5 w-3.5" />
-                Thinking
-              </span>
-            </DropdownItem>
-
-            <DropdownSeparator />
-
-            {/* Effort only applies under extended thinking; dim + disable when off. */}
-            <div
-              className={`flex items-center gap-2 px-2 pt-1 pb-0.5 text-[10px] font-semibold uppercase tracking-wider select-none ${
-                thinking ? 'text-muted-foreground' : 'text-muted-foreground/40'
-              }`}
-            >
-              <Gauge className="h-3 w-3" />
-              Effort
-            </div>
-            {EFFORT_OPTIONS.map((opt) => (
               <DropdownItem
-                key={opt.label}
-                disabled={!thinking}
-                onClick={() => setEffort(opt.value)}
-                icon={<Check className={thinking && effort === opt.value ? '' : 'opacity-0'} />}
+                onClick={toggleThinking}
+                closeOnClick={false}
+                trailing={<Switch on={thinking} />}
               >
-                <span>{opt.label}</span>
+                <span className="flex items-center gap-2">
+                  <Brain className="h-3.5 w-3.5" />
+                  Thinking
+                </span>
               </DropdownItem>
-            ))}
-          </DropdownMenu>
+
+              <DropdownSeparator />
+
+              {/* Effort only applies under extended thinking; dim + disable when off. */}
+              <div
+                className={`flex items-center gap-2 px-2 pt-1 pb-0.5 text-[10px] font-semibold uppercase tracking-wider select-none ${
+                  thinking ? 'text-muted-foreground' : 'text-muted-foreground/40'
+                }`}
+              >
+                <Gauge className="h-3 w-3" />
+                Effort
+              </div>
+              {EFFORT_OPTIONS.map((opt) => (
+                <DropdownItem
+                  key={opt.label}
+                  disabled={!thinking}
+                  onClick={() => setEffort(opt.value)}
+                  icon={<Check className={thinking && effort === opt.value ? '' : 'opacity-0'} />}
+                >
+                  <span>{opt.label}</span>
+                </DropdownItem>
+              ))}
+            </DropdownMenu>
           </span>
 
           <div className="flex items-center gap-2">
             <span className="inline-flex items-center rounded-xl border border-border bg-card-2 px-1 transition-colors hover:bg-muted">
-            <DropdownMenu
-              align="end"
-              trigger={
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="xs"
-                  className={`cursor-pointer ${approvalMode === 'bypass' ? 'text-warning' : 'text-muted-foreground'}`}
-                  disabled={!canCompose}
-                  aria-label="Approval mode"
-                  title="Approval mode — applies from the next message"
+              <DropdownMenu
+                align="end"
+                trigger={
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="xs"
+                    className={`cursor-pointer ${approvalMode === 'bypass' ? 'text-warning' : 'text-muted-foreground'}`}
+                    disabled={!canCompose}
+                    aria-label="Approval mode"
+                    title="Approval mode — applies from the next message"
+                  >
+                    {approvalMode === 'bypass' ? (
+                      <Zap className="h-3.5 w-3.5" />
+                    ) : (
+                      <ShieldCheck
+                        className={`h-3.5 w-3.5 ${approvalMode === 'safe' ? 'text-primary' : ''}`}
+                      />
+                    )}
+                    <span className="hidden sm:inline">
+                      {approvalMode === 'bypass'
+                        ? 'Bypass'
+                        : approvalMode === 'safe'
+                          ? 'Safe'
+                          : 'Ask first'}
+                    </span>
+                    <ChevronDown className="h-3.5 w-3.5" />
+                  </Button>
+                }
+              >
+                <div className="px-2 pt-1 pb-1.5 text-[11px] text-muted-foreground select-none">
+                  Applies from the next message
+                </div>
+                <DropdownItem
+                  onClick={() => setApprovalMode('ask')}
+                  icon={<Check className={approvalMode === 'ask' ? '' : 'opacity-0'} />}
                 >
-                  {approvalMode === 'bypass' ? (
-                    <Zap className="h-3.5 w-3.5" />
-                  ) : (
-                    <ShieldCheck
-                      className={`h-3.5 w-3.5 ${approvalMode === 'safe' ? 'text-primary' : ''}`}
-                    />
-                  )}
-                  <span className="hidden sm:inline">
-                    {approvalMode === 'bypass'
-                      ? 'Bypass'
-                      : approvalMode === 'safe'
-                        ? 'Safe'
-                        : 'Ask first'}
+                  <span className="flex flex-col">
+                    <span>Ask first</span>
+                    <span className="text-xs text-muted-foreground">
+                      Approve each tool before it runs
+                    </span>
                   </span>
-                  <ChevronDown className="h-3.5 w-3.5" />
-                </Button>
-              }
-            >
-              <div className="px-2 pt-1 pb-1.5 text-[11px] text-muted-foreground select-none">
-                Applies from the next message
-              </div>
-              <DropdownItem
-                onClick={() => setApprovalMode('ask')}
-                icon={<Check className={approvalMode === 'ask' ? '' : 'opacity-0'} />}
-              >
-                <span className="flex flex-col">
-                  <span>Ask first</span>
-                  <span className="text-xs text-muted-foreground">
-                    Approve each tool before it runs
+                </DropdownItem>
+                <DropdownItem
+                  onClick={() => setApprovalMode('safe')}
+                  icon={<Check className={approvalMode === 'safe' ? '' : 'opacity-0'} />}
+                >
+                  <span className="flex flex-col">
+                    <span className="flex items-center gap-1.5">
+                      Safe · pre-approved tools
+                      <ShieldCheck className="h-3 w-3 text-primary" />
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      Auto-approve read-only tools, ask for the rest
+                    </span>
                   </span>
-                </span>
-              </DropdownItem>
-              <DropdownItem
-                onClick={() => setApprovalMode('safe')}
-                icon={<Check className={approvalMode === 'safe' ? '' : 'opacity-0'} />}
-              >
-                <span className="flex flex-col">
-                  <span className="flex items-center gap-1.5">
-                    Safe · pre-approved tools
-                    <ShieldCheck className="h-3 w-3 text-primary" />
+                </DropdownItem>
+                <DropdownItem
+                  onClick={() => setApprovalMode('bypass')}
+                  icon={<Check className={approvalMode === 'bypass' ? '' : 'opacity-0'} />}
+                >
+                  <span className="flex flex-col">
+                    <span className="flex items-center gap-1.5">
+                      Bypass · YOLO
+                      <Zap className="h-3 w-3 text-warning" />
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      Run every tool without asking
+                    </span>
                   </span>
-                  <span className="text-xs text-muted-foreground">
-                    Auto-approve read-only tools, ask for the rest
-                  </span>
-                </span>
-              </DropdownItem>
-              <DropdownItem
-                onClick={() => setApprovalMode('bypass')}
-                icon={<Check className={approvalMode === 'bypass' ? '' : 'opacity-0'} />}
-              >
-                <span className="flex flex-col">
-                  <span className="flex items-center gap-1.5">
-                    Bypass · YOLO
-                    <Zap className="h-3 w-3 text-warning" />
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    Run every tool without asking
-                  </span>
-                </span>
-              </DropdownItem>
-            </DropdownMenu>
+                </DropdownItem>
+              </DropdownMenu>
             </span>
 
             <span className="inline-flex items-center rounded-xl border border-border bg-card-2 px-1 transition-colors hover:bg-muted">
-            <DropdownMenu
-              align="end"
-              trigger={
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="xs"
-                  className={`cursor-pointer ${needsSelection ? 'text-warning' : 'text-muted-foreground'}`}
-                  disabled={!canCompose}
-                  aria-label="Model"
-                  title={
-                    isUnresolvable
-                      ? MSG_MODEL_UNRESOLVABLE
-                      : needsSelection
-                        ? MSG_SELECT_MODEL
-                        : 'Model — applies from the next message'
-                  }
-                >
-                  <span className="max-w-[16ch] truncate">{modelLabel}</span>
-                  <ChevronDown className="h-3.5 w-3.5" />
-                </Button>
-              }
-            >
-              <div className="px-2 pt-1 pb-1.5 text-[11px] text-muted-foreground select-none truncate max-w-[20ch]">
-                {modelLabel}
-              </div>
-
-              {builtinProviders.length > 0 && (
-                <>
-                  <div className="px-2 pt-1.5 pb-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground select-none">
-                    Built-in
-                  </div>
-                  {builtinProviders.flatMap((provider) =>
-                    provider.models.map((m) => {
-                      const isActive =
-                        effectiveProviderId === provider.id && effectiveModel === m.modelId;
-                      return (
-                        <DropdownItem
-                          key={`${provider.id}/${m.modelId}`}
-                          onClick={() => {
-                            setSelectedProviderId(provider.id);
-                            setSelectedModel(m.modelId);
-                          }}
-                          icon={<Check className={isActive ? '' : 'opacity-0'} />}
-                        >
-                          <span>{`${provider.namespace}/${m.displayName ?? m.modelId}`}</span>
-                        </DropdownItem>
-                      );
-                    }),
-                  )}
-                </>
-              )}
-
-              {personalProviders.length > 0 && (
-                <>
-                  <div className="px-2 pt-1.5 pb-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground select-none">
-                    Personal
-                  </div>
-                  {personalProviders.flatMap((provider) =>
-                    provider.models.map((m) => {
-                      const isActive =
-                        effectiveProviderId === provider.id && effectiveModel === m.modelId;
-                      return (
-                        <DropdownItem
-                          key={`${provider.id}/${m.modelId}`}
-                          onClick={() => {
-                            setSelectedProviderId(provider.id);
-                            setSelectedModel(m.modelId);
-                          }}
-                          icon={<Check className={isActive ? '' : 'opacity-0'} />}
-                        >
-                          <span>{`${provider.namespace}/${m.displayName ?? m.modelId}`}</span>
-                        </DropdownItem>
-                      );
-                    }),
-                  )}
-                </>
-              )}
-
-              {status === 'loading' && (
-                <div className="px-2 py-2 text-xs text-muted-foreground select-none">
-                  Loading providers…
+              <DropdownMenu
+                align="end"
+                trigger={
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="xs"
+                    className={`cursor-pointer ${needsSelection ? 'text-warning' : 'text-muted-foreground'}`}
+                    disabled={!canCompose}
+                    aria-label="Model"
+                    title={
+                      isUnresolvable
+                        ? MSG_MODEL_UNRESOLVABLE
+                        : needsSelection
+                          ? MSG_SELECT_MODEL
+                          : 'Model — applies from the next message'
+                    }
+                  >
+                    <span className="max-w-[16ch] truncate">{modelLabel}</span>
+                    <ChevronDown className="h-3.5 w-3.5" />
+                  </Button>
+                }
+              >
+                <div className="px-2 pt-1 pb-1.5 text-[11px] text-muted-foreground select-none truncate max-w-[20ch]">
+                  {modelLabel}
                 </div>
-              )}
 
-              {status === 'error' && (
-                <DropdownItem onClick={() => void load()}>
-                  <span className="flex flex-col">
-                    <span className="text-warning">Failed to load — retry</span>
-                    {error && (
-                      <span className="text-xs text-muted-foreground truncate">{error}</span>
+                {builtinProviders.length > 0 && (
+                  <>
+                    <div className="px-2 pt-1.5 pb-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground select-none">
+                      Built-in
+                    </div>
+                    {builtinProviders.flatMap((provider) =>
+                      provider.models.map((m) => {
+                        const isActive =
+                          effectiveProviderId === provider.id && effectiveModel === m.modelId;
+                        return (
+                          <DropdownItem
+                            key={`${provider.id}/${m.modelId}`}
+                            onClick={() => {
+                              setSelectedProviderId(provider.id);
+                              setSelectedModel(m.modelId);
+                              useSessionDefaultsStore.getState().setProviderId(provider.id);
+                              useSessionDefaultsStore.getState().setModel(m.modelId);
+                            }}
+                            icon={<Check className={isActive ? '' : 'opacity-0'} />}
+                          >
+                            <span>{`${provider.namespace}/${m.displayName ?? m.modelId}`}</span>
+                          </DropdownItem>
+                        );
+                      }),
                     )}
-                  </span>
-                </DropdownItem>
-              )}
+                  </>
+                )}
 
-              {status === 'ready' &&
-                builtinProviders.length === 0 &&
-                personalProviders.length === 0 && (
+                {personalProviders.length > 0 && (
+                  <>
+                    <div className="px-2 pt-1.5 pb-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground select-none">
+                      Personal
+                    </div>
+                    {personalProviders.flatMap((provider) =>
+                      provider.models.map((m) => {
+                        const isActive =
+                          effectiveProviderId === provider.id && effectiveModel === m.modelId;
+                        return (
+                          <DropdownItem
+                            key={`${provider.id}/${m.modelId}`}
+                            onClick={() => {
+                              setSelectedProviderId(provider.id);
+                              setSelectedModel(m.modelId);
+                              useSessionDefaultsStore.getState().setProviderId(provider.id);
+                              useSessionDefaultsStore.getState().setModel(m.modelId);
+                            }}
+                            icon={<Check className={isActive ? '' : 'opacity-0'} />}
+                          >
+                            <span>{`${provider.namespace}/${m.displayName ?? m.modelId}`}</span>
+                          </DropdownItem>
+                        );
+                      }),
+                    )}
+                  </>
+                )}
+
+                {status === 'loading' && (
                   <div className="px-2 py-2 text-xs text-muted-foreground select-none">
-                    No providers configured
+                    Loading providers…
                   </div>
                 )}
-            </DropdownMenu>
+
+                {status === 'error' && (
+                  <DropdownItem onClick={() => void load()}>
+                    <span className="flex flex-col">
+                      <span className="text-warning">Failed to load — retry</span>
+                      {error && (
+                        <span className="text-xs text-muted-foreground truncate">{error}</span>
+                      )}
+                    </span>
+                  </DropdownItem>
+                )}
+
+                {status === 'ready' &&
+                  builtinProviders.length === 0 &&
+                  personalProviders.length === 0 && (
+                    <div className="px-2 py-2 text-xs text-muted-foreground select-none">
+                      No providers configured
+                    </div>
+                  )}
+              </DropdownMenu>
             </span>
 
             {isTurnInProgress ? (

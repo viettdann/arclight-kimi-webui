@@ -1,7 +1,6 @@
 import {
   ChevronRight,
   ChevronsUpDown,
-  KeyRound,
   LogOut,
   Plus,
   Settings,
@@ -123,22 +122,17 @@ function AuthSection({ onLoginClick, onClose }: { onLoginClick: () => void; onCl
             <p className="truncate text-xs text-muted-foreground">{user?.email}</p>
           </div>
         </div>
-        <DropdownSeparator />
-        <DropdownItem
-          icon={<KeyRound />}
-          trailing={<ChevronRight />}
-          onClick={() => go('/preferences')}
-        >
-          Preferences
-        </DropdownItem>
         {isAdmin && (
-          <DropdownItem
-            icon={<Settings />}
-            trailing={<ChevronRight />}
-            onClick={() => go('/settings')}
-          >
-            Admin settings
-          </DropdownItem>
+          <>
+            <DropdownSeparator />
+            <DropdownItem
+              icon={<Settings />}
+              trailing={<ChevronRight />}
+              onClick={() => go('/settings')}
+            >
+              Admin settings
+            </DropdownItem>
+          </>
         )}
         <DropdownSeparator />
         <DropdownItem destructive icon={<LogOut />} onClick={() => clearSession('manual')}>

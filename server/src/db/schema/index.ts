@@ -6,3 +6,4 @@ export * from './providers';
 export * from './session-store-entries';
 export * from './sessions';
 export * from './site-settings';
+export * from './user-settings';

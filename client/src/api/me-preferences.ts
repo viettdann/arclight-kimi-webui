@@ -1,7 +1,7 @@
 import type { UserPreferencesResponse, UserPreferencesUpdateRequest } from 'shared/types';
 import { authFetch, parseError } from '../lib/auth-fetch';
 
-const BASE = '/api/me/preferences';
+const BASE = '/api/config/general/preferences';
 
 /** Load the current user's global instructions (their `$HOME/.claude/CLAUDE.md`).
  *  `content` is `''` when nothing has been saved yet. */

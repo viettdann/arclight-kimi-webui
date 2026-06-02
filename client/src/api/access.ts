@@ -1,7 +1,7 @@
 import type { AccessControlResponse, AllowedEmailDTO, AllowlistResponse } from 'shared/types';
 import { authFetch, parseError } from '../lib/auth-fetch';
 
-const BASE = '/api/admin/access';
+const BASE = '/api/config/system';
 
 export async function listAllowlist(): Promise<AllowlistResponse> {
   const res = await authFetch(`${BASE}/allowlist`);

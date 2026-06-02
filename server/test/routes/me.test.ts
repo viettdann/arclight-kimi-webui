@@ -6,6 +6,7 @@ import { createMiddleware } from 'hono/factory';
 import type { MeResponse, UserPreferencesResponse } from 'shared/types';
 import { USER_PREFERENCES_MAX_BYTES } from 'shared/types';
 import { slug } from '../../src/auth';
+import { setAccessControlResolver } from '../../src/auth/access';
 import type { AuthVariables } from '../../src/auth/middleware';
 import { createMeRouter } from '../../src/routes/me';
 import { userMemoryPath } from '../../src/services/agent/agent-paths';
@@ -15,6 +16,15 @@ function buildApp(
   fakeDb: ReturnType<typeof makeFakeDb>,
   user: { id?: string; email: string; role: string },
 ) {
+  // Wire mock resolver so resolveAccessControl reads from selectQueue.
+  setAccessControlResolver(async () => {
+    const rows = fakeDb.selectQueue.shift();
+    const raw = rows?.[0]?.enabled;
+    const envDefault = true;
+    const override = typeof raw === 'boolean' ? raw : null;
+    return { override, envDefault, effective: override ?? envDefault };
+  });
+
   const app = new Hono<{ Variables: AuthVariables }>();
   app.use(
     '*',
@@ -27,6 +37,10 @@ function buildApp(
   app.route('/', createMeRouter({ db: fakeDb.db }));
   return app;
 }
+
+afterEach(() => {
+  setAccessControlResolver(null as never);
+});
 
 describe('GET /api/me', () => {
   it('admin is allowed (control on)', async () => {
@@ -114,6 +128,8 @@ describe('GET/PUT /api/me/preferences', () => {
   }
 
   afterEach(async () => {
+    // Clear resolver so tests don't leak.
+    setAccessControlResolver(null as never);
     // Remove each user's `.claude` dir (parent of the memory file) so writes
     // from one case never leak into another.
     await Promise.all(

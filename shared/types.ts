@@ -63,6 +63,17 @@ export const EFFORT_LEVELS = ['low', 'medium', 'high'] as const;
 /** Reasoning effort exposed in the composer. `null` means the provider default. */
 export type EffortLevel = (typeof EFFORT_LEVELS)[number];
 
+/** Human-readable effort label. `null` → "Default". */
+export function effortLabel(value: EffortLevel | null): string {
+  return value ? value.charAt(0).toUpperCase() + value.slice(1) : 'Default';
+}
+
+/** Effort selector options for dropdowns. `null` is the provider default. */
+export const EFFORT_OPTIONS: { value: EffortLevel | null; label: string }[] = [
+  { value: null, label: 'Default' },
+  ...EFFORT_LEVELS.map((value) => ({ value, label: effortLabel(value) })),
+];
+
 export type DisplayBlock =
   | { type: 'shell'; command: string; language: string }
   | { type: 'diff'; path: string; oldText: string; newText: string }

@@ -29,7 +29,7 @@ describe('api wrappers — success paths', () => {
     fetchMock.mockResolvedValue(jsonRes({ credentials: [{ id: 'g1' }] }));
     const out = await listGitCredentials();
 
-    expect(fetchMock.mock.calls[0]![0]).toBe('/api/git-credentials');
+    expect(fetchMock.mock.calls[0]![0]).toBe('/api/config/general/git-credentials');
     expect(fetchMock.mock.calls[0]![1].method).toBeUndefined(); // default GET
     expect(out).toEqual({ credentials: [{ id: 'g1' }] });
   });
@@ -39,7 +39,7 @@ describe('api wrappers — success paths', () => {
     const out = await createGitCredential({ name: 'gh' } as never);
 
     const [url, init] = fetchMock.mock.calls[0]!;
-    expect(url).toBe('/api/git-credentials');
+    expect(url).toBe('/api/config/general/git-credentials');
     expect(init.method).toBe('POST');
     expect(JSON.parse(init.body)).toEqual({ name: 'gh' });
     expect(out).toEqual({ id: 'g2' });
@@ -48,14 +48,14 @@ describe('api wrappers — success paths', () => {
   it('deleteGitCredential DELETEs and resolves void on ok', async () => {
     fetchMock.mockResolvedValue(new Response('', { status: 204 }));
     await expect(deleteGitCredential('g1')).resolves.toBeUndefined();
-    expect(fetchMock.mock.calls[0]![0]).toBe('/api/git-credentials/g1');
+    expect(fetchMock.mock.calls[0]![0]).toBe('/api/config/general/git-credentials/g1');
     expect(fetchMock.mock.calls[0]![1].method).toBe('DELETE');
   });
 
   it('fetchAvailableProviders hits the available catalog', async () => {
     fetchMock.mockResolvedValue(jsonRes({ builtin: [], personal: [] }));
     const out = await fetchAvailableProviders();
-    expect(fetchMock.mock.calls[0]![0]).toBe('/api/providers/available');
+    expect(fetchMock.mock.calls[0]![0]).toBe('/api/config/providers/available');
     expect(out).toEqual({ builtin: [], personal: [] });
   });
 
@@ -63,7 +63,7 @@ describe('api wrappers — success paths', () => {
     fetchMock.mockResolvedValue(jsonRes({ effective: true }));
     await setAccessControl(false);
     const [url, init] = fetchMock.mock.calls[0]!;
-    expect(url).toBe('/api/admin/access/control');
+    expect(url).toBe('/api/config/system/control');
     expect(init.method).toBe('PATCH');
     expect(JSON.parse(init.body)).toEqual({ override: false });
   });

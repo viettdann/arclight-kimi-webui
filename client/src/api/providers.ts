@@ -12,7 +12,7 @@ import { authFetch, parseError } from '../lib/auth-fetch';
 
 // ── Admin / Built-in ────────────────────────────────────────────────────────
 
-const ADMIN_BASE = '/api/admin/providers';
+const ADMIN_BASE = '/api/config/providers/builtin';
 
 export async function listBuiltinProviders(): Promise<ProvidersListResponse> {
   const res = await authFetch(ADMIN_BASE);
@@ -76,7 +76,7 @@ export async function fetchBuiltinProviderModels(
 
 // ── Personal (me) ───────────────────────────────────────────────────────────
 
-const ME_BASE = '/api/me-providers';
+const ME_BASE = '/api/config/providers';
 
 export async function listMyProviders(): Promise<ProvidersListResponse> {
   const res = await authFetch(ME_BASE);
@@ -139,7 +139,7 @@ export async function fetchMyProviderModels(
 // ── Available catalog ───────────────────────────────────────────────────────
 
 export async function fetchAvailableProviders(): Promise<AvailableProvidersResponse> {
-  const res = await authFetch('/api/providers/available');
+  const res = await authFetch('/api/config/providers/available');
   if (!res.ok) throw new Error(await parseError(res));
   return res.json();
 }

@@ -4,7 +4,7 @@ import type {
 } from 'shared/types';
 import { authFetch, parseError } from '../lib/auth-fetch';
 
-const BASE = '/api/admin/project-discovery';
+const BASE = '/api/config/system/project-discovery';
 
 /** Load the site-wide project discovery blacklist settings. */
 export async function getProjectDiscoverySettings(): Promise<ProjectDiscoverySettingsResponse> {

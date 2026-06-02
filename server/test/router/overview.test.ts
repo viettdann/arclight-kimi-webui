@@ -1,9 +1,14 @@
-import { describe, expect, it } from 'bun:test';
+import { afterEach, describe, expect, it } from 'bun:test';
 import { Hono } from 'hono';
 import { createMiddleware } from 'hono/factory';
 import type { OverviewResponse } from 'shared/types';
+import { setAccessControlResolver } from '../../src/auth/access';
 import { createOverviewRouter } from '../../src/routes/overview';
 import { makeFakeDb } from '../_helpers';
+
+afterEach(() => {
+  setAccessControlResolver(null as never);
+});
 
 const adminAuth = createMiddleware(async (c, next) => {
   c.set('user', { id: 'admin-1', email: 'admin@test.com', role: 'admin' } as unknown as never);
@@ -28,6 +33,15 @@ function buildApp(
   authMw: ReturnType<typeof createMiddleware>,
   overrides: { wsClients?: number; sessions?: number; startedAt?: Date } = {},
 ) {
+  // Wire mock resolver so resolveAccessControl reads from selectQueue.
+  setAccessControlResolver(async () => {
+    const rows = fakeDb.selectQueue.shift();
+    const raw = rows?.[0]?.enabled;
+    const envDefault = true;
+    const override = typeof raw === 'boolean' ? raw : null;
+    return { override, envDefault, effective: override ?? envDefault };
+  });
+
   const app = new Hono();
   app.use('*', authMw);
   app.route(
