@@ -18,6 +18,7 @@ logs/
 # Editor
 .vscode/
 .idea/
+.antigravitycli
 
 # Bun — commit `bun.lock` (text) for reproducible installs; ignore legacy binary lockfile.
 bun.lockb
@@ -25,3 +26,9 @@ bun.lockb
 # Certs — whitelist only the CA bundle, ignore everything else (private keys, etc.)
 certs/*
 !certs/ca.crt
+workspace/*
+!workspace/.gitkeep
+
+# Kimi share dir (config.toml, oauth, sessions, logs) — see KIMI_SHARE_DIR
+.kimi/
+.runtime/

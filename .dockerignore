@@ -1,0 +1,46 @@
+# VCS
+.git
+.gitignore
+
+# Deps & caches
+**/node_modules
+**/.turbo
+**/.vite
+**/.cache
+**/*.tsbuildinfo
+
+# Build outputs
+**/dist
+**/build
+coverage
+
+# Tests & dev-only scripts — not needed by `bun build --compile` or migrator
+**/test
+server/scripts
+
+# Secrets & runtime state — never ship in the build context
+.env
+.env.*
+certs
+.kimi
+workspace
+.antigravitycli
+.runtime
+
+# Docs are the user's personal works
+docs
+
+# Editor / OS junk
+.vscode
+.idea
+**/.DS_Store
+**/*.sw?
+**/*.log
+Thumbs.db
+
+# Markdown / meta files
+**/*.md
+compose.yaml
+Dockerfile
+.dockerignore
+docker

@@ -5,8 +5,8 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1777559251232,
-      "tag": "0000_init_auth_and_sessions",
+      "when": 1780043015864,
+      "tag": "0000_genesis",
       "breakpoints": true
     }
   ]

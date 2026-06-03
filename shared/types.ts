@@ -1,6 +1,8 @@
 // Kimi WebUI shared contract — copied from design doc.
 // Server and client must agree on this surface verbatim.
 
+import type { GitProvider } from './types/git-credentials';
+
 // ─────────────────────────── WebSocket envelope ───────────────────────────
 
 export interface WSMessage<T = unknown> {
@@ -27,9 +29,19 @@ export type WSMessageType =
   | 'subagent_event'
   | 'status_update'
   | 'approval_request'
+  | 'approval_response'
+  | 'question_request'
+  | 'step_interrupted'
+  | 'parse_error'
+  | 'compaction_begin'
+  | 'compaction_end'
+  | 'steer_input'
   | 'turn_end'
-  | 'session_state'
+  | 'session_created'
   | 'title_update'
+  | 'project_adopted'
+  | 'slash_commands'
+  | 'clone_progress'
   | 'error'
   // client → server
   | 'subscribe'
@@ -37,34 +49,112 @@ export type WSMessageType =
   | 'resume_session'
   | 'send_message'
   | 'approve_tool'
+  | 'answer_question'
   | 'interrupt_turn'
-  | 'close_session';
+  | 'adopt_project';
 
 // ─────────────────────────── Domain types ───────────────────────────
 
-export type SessionStatus = 'active' | 'idle' | 'closed';
+export const APPROVAL_MODES = ['ask', 'auto', 'yolo'] as const;
+export type ApprovalMode = (typeof APPROVAL_MODES)[number];
 
-export type MessageRole = 'user' | 'assistant' | 'tool-call' | 'tool-result' | 'approval';
+export type DisplayBlock =
+  | { type: 'shell'; command: string; language: string }
+  | { type: 'diff'; path: string; oldText: string; newText: string }
+  | { type: 'todo'; items: { title: string; status: 'pending' | 'in_progress' | 'done' }[] }
+  | { type: 'brief'; text: string }
+  | { type: 'unknown'; rawType: string; raw: Record<string, unknown> };
 
-export interface MessageDTO {
-  id: string;
-  role: MessageRole;
-  content: string | null;
-  toolName: string | null;
-  toolInput: unknown;
-  /** Tool-result rows only; `null` for other roles. */
-  isError: boolean | null;
-  thinking: string | null;
-  createdAt: string;
-}
+export type Block =
+  | { kind: 'user'; id: string; content: string; createdAt: string; status?: 'pending' | 'sent' }
+  | {
+      kind: 'text';
+      id: string;
+      turnIdx: number;
+      stepIdx: number;
+      partIdx: number;
+      content: string;
+      isStreaming: boolean;
+      createdAt: string;
+    }
+  | {
+      kind: 'thinking';
+      id: string;
+      turnIdx: number;
+      stepIdx: number;
+      partIdx: number;
+      content: string;
+      encrypted: boolean;
+      isStreaming: boolean;
+      createdAt: string;
+    }
+  | {
+      kind: 'tool_call';
+      id: string;
+      toolCallId: string;
+      name: string;
+      args: unknown;
+      argsStreaming?: string;
+      isStreaming: boolean;
+      createdAt: string;
+    }
+  | {
+      kind: 'tool_result';
+      id: string;
+      toolCallId: string;
+      toolName: string;
+      output: unknown;
+      message: string | null;
+      displayBlocks: DisplayBlock[];
+      isError: boolean;
+      synthetic?: 'interrupted';
+      createdAt: string;
+    }
+  | {
+      kind: 'subagent';
+      id: string;
+      parentToolCallId: string;
+      blocks: Block[];
+      isStreaming: boolean;
+      createdAt: string;
+    }
+  | {
+      kind: 'approval_request';
+      id: string;
+      requestId: string;
+      toolCallId: string;
+      action: string;
+      description: string;
+      resolution?: 'approve' | 'approve_for_session' | 'reject';
+      createdAt: string;
+    }
+  | {
+      kind: 'question_request';
+      id: string;
+      requestId: string;
+      /** SDK `QuestionRequest.tool_call_id` — used to detect "answered" via matching tool_result. */
+      toolCallId: string;
+      questions: QuestionItemDTO[];
+      /** True once the question's tool_call has resolved (user has answered). */
+      resolved?: boolean;
+      createdAt: string;
+    }
+  | { kind: 'steer'; id: string; content: string; createdAt: string }
+  | { kind: 'error'; id: string; code: string; message: string; createdAt: string };
 
 export interface SessionListItem {
   id: string;
+  /** Cached last-known absolute workDir from the DB. May differ from the local machine path. */
   workDir: string;
+  /** Logical project slug, sourced from the `sessions.projectName` DB column. */
+  projectName: string;
+  /** Server-computed `<WORKSPACE_ROOT>/<userSlug>/<projectName>` for the current machine. */
+  localWorkDir: string;
+  /** `local` when `workDir === localWorkDir`; `foreign` otherwise. */
+  origin: 'local' | 'foreign';
   title: string | null;
   model: string | null;
   thinking: boolean;
-  status: SessionStatus;
   totalTokens: number;
   createdAt: string;
   lastActiveAt: string;
@@ -72,19 +162,73 @@ export interface SessionListItem {
 
 export interface FileEntry {
   name: string;
-  type: 'file' | 'dir';
+  type: 'file' | 'dir' | 'other';
   size: number;
   /** Unix epoch ms. */
   mtime: number;
 }
 
+export interface QuestionOptionDTO {
+  label: string;
+  description?: string;
+}
+
+export interface QuestionItemDTO {
+  question: string;
+  header?: string;
+  options: QuestionOptionDTO[];
+  /** Normalized from SDK snake_case `multi_select`. */
+  multiSelect?: boolean;
+}
+
+/**
+ * One slash command available in a session's workDir, mirroring the SDK
+ * `SlashCommandInfo` (and `InitializeResult.slash_commands`). Surfaced to the
+ * composer picker; sourced from a warm-init ProtocolClient probe keyed by
+ * `(workDir, skillsDir)`, NOT from the live session.
+ */
+export interface SlashCommand {
+  name: string;
+  description: string;
+  aliases: string[];
+}
+
 // ─────────────────────────── Server → Client payloads ───────────────────────────
 
 export interface SnapshotPayload {
-  messages: MessageDTO[];
-  status: SessionStatus;
+  blocks: Block[];
   totalTokens: number;
   title: string | null;
+  pendingPrompt: { text: string; enqueuedAt: string } | null;
+  /**
+   * Per-session agent flags, sourced from the sessions row (re-read on restore).
+   * Carried in the snapshot so the composer's approval/thinking selectors
+   * reflect the true server state after reload — not a stale local default.
+   */
+  thinking: boolean;
+  yoloMode: boolean;
+  approvalMode: ApprovalMode;
+  /**
+   * Slash commands available in this session's workDir. Carried in the snapshot
+   * (not only a one-shot event) so the composer picker survives reload/resume.
+   * Empty when the warm-init probe failed or has not run yet.
+   */
+  slashCommands: SlashCommand[];
+  live: {
+    /** True iff the server still has an in-flight Turn for this session. */
+    turnInProgress: boolean;
+    turnIdx: number | null;
+    stepIdx: number | null;
+    /** Current part index of the in-flight thinking section (per turn+step). */
+    thinkPartIdx: number;
+    /** Current part index of the in-flight text section (per turn+step). */
+    textPartIdx: number;
+  };
+}
+
+/** Server→client push of the workDir's slash commands (also embedded in snapshot). */
+export interface SlashCommandsPayload {
+  commands: SlashCommand[];
 }
 
 export interface ReplayDonePayload {
@@ -101,11 +245,15 @@ export interface StepBeginPayload {
 
 export interface TextDeltaPayload {
   text: string;
+  /** Disambiguates multiple text segments within the same (turnIdx, stepIdx). */
+  partIdx: number;
 }
 
 export interface ThinkingDeltaPayload {
   thinking: string;
   encrypted?: boolean;
+  /** Disambiguates multiple thinking segments within the same (turnIdx, stepIdx). */
+  partIdx: number;
 }
 
 export interface ToolCallPayload {
@@ -142,18 +290,62 @@ export interface ApprovalRequestPayload {
   action: string;
   description: string;
   requestId: string;
+  /**
+   * Shell command this request runs, extracted from the SDK `display` shell
+   * block when present. Used by the `auto` tier to decide whether a shell tool
+   * is read-only and safe to auto-approve. Absent for non-shell tools.
+   */
+  command?: string;
 }
 
-export type TurnEndStatus = 'success' | 'error' | 'interrupted';
+export interface ApprovalResponsePayload {
+  requestId: string;
+  response: 'approve' | 'approve_for_session' | 'reject';
+}
+
+export interface QuestionRequestPayload {
+  /** SDK `QuestionRequest.tool_call_id`. */
+  id: string;
+  /** SDK `QuestionRequest.id` — used to correlate `answer_question`. */
+  requestId: string;
+  questions: QuestionItemDTO[];
+}
+
+export type StepInterruptedPayload = Record<string, never>;
+export type CompactionBeginPayload = Record<string, never>;
+export type CompactionEndPayload = Record<string, never>;
+
+/**
+ * Carries either a SDK `WireEvent` ParseError (envelope decode of one wire
+ * frame failed — `rawType` set) or a top-level `StreamEvent` ParseError
+ * (raw frame text — `raw` set). Both surface to the client as `parse_error`.
+ */
+export interface ParseErrorPayload {
+  code: string;
+  message: string;
+  rawType?: string;
+  raw?: string;
+}
+
+/** Echo of a steer-input from any user — broadcast back to all attached sockets. */
+export interface SteerInputPayload {
+  content: string;
+}
+
+// Mirrors `RunResult.status` from `@moonshot-ai/kimi-agent-sdk`. Pump errors
+// (thrown during iteration) surface via the `error` event, not `turn_end`.
+export type TurnEndStatus = 'finished' | 'cancelled' | 'max_steps_reached';
 
 export interface TurnEndPayload {
   status: TurnEndStatus;
   steps: number;
 }
 
-export interface SessionStatePayload {
-  state: SessionStatus;
-}
+/**
+ * Broadcast when a session is created so other connected clients refresh their
+ * session list. Carries no body — the envelope's `sessionId` is the signal.
+ */
+export type SessionCreatedPayload = Record<string, never>;
 
 export interface TitleUpdatePayload {
   title: string;
@@ -177,6 +369,8 @@ export interface CreateSessionPayload {
   workDir: string;
   model?: string;
   thinking?: boolean;
+  yoloMode?: boolean;
+  approvalMode?: ApprovalMode;
 }
 
 export interface ResumeSessionPayload {
@@ -185,17 +379,43 @@ export interface ResumeSessionPayload {
 
 export interface SendMessagePayload {
   content: string;
+  /**
+   * Per-session agent flags to apply for this prompt onward. The composer's
+   * Thinking/approval toggles are local UI state until the user sends; they
+   * ride along here so a flag change costs no extra message and persists
+   * exactly when it first takes effect. Omitted fields are left unchanged.
+   */
+  thinking?: boolean;
+  yoloMode?: boolean;
+  approvalMode?: ApprovalMode;
 }
 
-export type ApprovalResponse = 'approve' | 'deny' | 'always_allow';
+// Mirrors `ApprovalResponse` from `@moonshot-ai/kimi-agent-sdk`.
+export type ApprovalResponse = 'approve' | 'approve_for_session' | 'reject';
 
 export interface ApproveToolPayload {
   requestId: string;
   response: ApprovalResponse;
 }
 
+export interface AnswerQuestionPayload {
+  requestId: string;
+  answers: Record<string, string>;
+}
+
 export type InterruptTurnPayload = Record<string, never>;
 export type CloseSessionPayload = Record<string, never>;
+
+export interface AdoptProjectPayload {
+  /** Logical project slug; must equal slugifyProjectName(name). */
+  projectName: string;
+}
+
+export interface ProjectAdoptedPayload {
+  projectName: string;
+  workDir: string;
+  sessionCount: number;
+}
 
 // ─────────────────────────── REST DTOs ───────────────────────────
 
@@ -204,11 +424,53 @@ export interface HealthResponse {
   version: string;
 }
 
+// ─────────────────────────── Access control ───────────────────────────
+
+/** `GET /api/me` — the current user's role and whether they may use the app. */
+export interface MeResponse {
+  role: 'admin' | 'user';
+  /** `true` for everyone when access control is off; allowlist result when on. */
+  allowed: boolean;
+}
+
+export interface AllowedEmailDTO {
+  email: string;
+  /** ISO timestamp. */
+  createdAt: string;
+}
+
+export interface AllowlistResponse {
+  emails: AllowedEmailDTO[];
+}
+
+/** `GET`/`PATCH /api/admin/access/control` — the allowlist gate's on/off state. */
+export interface AccessControlResponse {
+  /** Admin override; `null` means "follow the env default". */
+  override: boolean | null;
+  /** Effective value of the `ACCESS_CONTROL_ENABLED` env flag. */
+  envDefault: boolean;
+  /** Resolved gate state: `override ?? envDefault`. */
+  effective: boolean;
+}
+
 export interface FileListResponse {
   entries: FileEntry[];
 }
 
+// Multipart upload field-order convention: clients MUST send the `path` field
+// before the `file` part. The server streams the file straight to disk and
+// rejects with 400 if the file part arrives without a known `path`.
 export interface FileUploadResponse {
+  written: string;
+  size: number;
+}
+
+export interface FileWriteRequest {
+  path: string;
+  content: string;
+}
+
+export interface FileWriteResponse {
   written: string;
   size: number;
 }
@@ -216,3 +478,123 @@ export interface FileUploadResponse {
 export interface SessionListResponse {
   sessions: SessionListItem[];
 }
+
+export interface ProjectSummary {
+  name: string;
+  workDir: string;
+  /**
+   * `local` when the workspace folder exists on the current machine.
+   * `foreign` when only `kimi_sessions` rows reference this projectName.
+   * Foreign projects become local on the first successful adoption
+   * (which mkdir's the folder via `ensureWorkDir`).
+   */
+  origin: 'local' | 'foreign';
+  /** `cloning` while a background `git clone` is still filling the folder
+   *  (server consults the in-flight clone registry); otherwise ready. */
+  status?: 'ready' | 'cloning';
+}
+
+/** Clone source for project creation. Token is supplied either by a saved
+ *  per-user credential (`credentialId`) or inline (`inlineToken` + `provider`). */
+export interface GitCloneSource {
+  type: 'clone';
+  url: string;
+  credentialId?: string; // use a saved credential of the current user
+  inlineToken?: string; // one-shot token (not persisted)
+  provider?: GitProvider; // required when using inlineToken
+}
+
+export interface ProjectCreateRequest {
+  name?: string; // required in blank mode; optional in clone mode (derived from repo)
+  source?: { type: 'blank' } | GitCloneSource; // absent = blank
+}
+
+export type ProjectCreateResponse = ProjectSummary & {
+  /** Clone runs asynchronously: the folder is already claimed, but objects are
+   *  fetched in the background and progress is pushed over WS keyed by this id.
+   *  Absent for blank projects, which are created synchronously. */
+  cloneId?: string;
+  /** `cloning` while a background clone runs; otherwise the project is ready. */
+  status?: 'ready' | 'cloning';
+};
+
+/** Machine-readable clone failure code; mirrors the failing `CloneResult.kind`
+ *  and the `clone_*` keys in the create error map. `clone_canceled` is the
+ *  user-initiated abort — terminal but not an error (no toast). */
+export type CloneErrorCode = 'clone_failed' | 'clone_timeout' | 'clone_canceled';
+
+/** Pushed (user-scoped, not session-scoped) while a background `git clone`
+ *  runs. `cloneId` matches the one returned by `POST /api/projects`. */
+export interface CloneProgressPayload {
+  cloneId: string;
+  projectName: string;
+  /** git phase label, e.g. "Receiving objects", "Resolving deltas". */
+  phase: string;
+  /** 0–100 within the current phase; null before git reports a percentage. */
+  percent: number | null;
+  status: 'cloning' | 'completed' | 'failed';
+  /** Absolute workspace path; carried on every frame so a listener can build or
+   *  register the sidebar row even when the originating modal has been closed
+   *  (clone backgrounded). */
+  workDir: string;
+  /** Human-readable failure detail; set only when `status === 'failed'`. */
+  error?: string;
+  /** Machine code matching the create error map (`clone_failed` | `clone_timeout`). */
+  errorCode?: CloneErrorCode;
+}
+
+export interface ProjectListResponse {
+  projects: ProjectSummary[];
+}
+
+export interface ProjectDeleteResponse {
+  ok: true;
+  /** Number of `kimi_sessions` rows removed for the project. */
+  sessionCount: number;
+}
+
+/** Cheap git snapshot of a project folder, shown in the delete dialog. */
+export interface ProjectGitInfo {
+  branch: string | null;
+  /** Count of `git status --porcelain` entries (uncommitted changes). */
+  dirtyCount: number;
+  remote: string | null;
+}
+
+/** Lazy on-disk snapshot of a local project folder. `exists:false` for
+ *  foreign (not-yet-adopted) projects, where delete is a DB-only operation. */
+export interface ProjectStatResponse {
+  exists: boolean;
+  /** Top-level entry count (non-recursive). */
+  entryCount: number;
+  git: ProjectGitInfo | null;
+}
+
+export interface OverviewResponse {
+  runtime: {
+    startedAt: string;
+    uptimeSec: number;
+    nodeVersion: string;
+    bunVersion: string;
+  };
+  db: {
+    ok: boolean;
+    latencyMs: number | null;
+    error?: string;
+  };
+  ws: {
+    clients: number;
+    sessions: number;
+  };
+  access: {
+    effective: boolean;
+    envDefault: boolean;
+    override: boolean | null;
+    allowlistCount: number;
+  };
+}
+
+// Re-export git-credential types so `shared/types` entrypoint covers everything.
+export * from './types/git-credentials';
+// Re-export kimi-config types so `shared/types` entrypoint covers everything.
+export * from './types/kimi-config';

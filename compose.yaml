@@ -1,0 +1,76 @@
+name: kimi-webui
+x-db-env: &db-env
+  DATABASE_URL: postgres://${POSTGRES_USER:-kimi}:${POSTGRES_PASSWORD:-kimi}@database:5432/${POSTGRES_DB:-kimi}
+  PGSSLROOTCERT: ""
+services:
+  database:
+    image: postgres:18
+    container_name: kimi-webui-database
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-kimi}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-kimi}
+      POSTGRES_DB: ${POSTGRES_DB:-kimi}
+    volumes:
+      - kimi-webui-db-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-kimi} -d $${POSTGRES_DB:-kimi}"]
+      interval: 10s
+      timeout: 3s
+      start_period: 10s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - kimi-webui
+  migrator:
+    container_name: kimi-webui-migrator
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: migrator
+    environment:
+      <<: *db-env
+    depends_on:
+      database:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - kimi-webui
+  app:
+    image: kimi-webui:latest
+    container_name: kimi-webui-app
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - path: .env
+        required: true
+    environment:
+      NODE_ENV: production
+      <<: *db-env
+    volumes:
+      - kimi-webui-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${PORT:-3000}/api/health"]
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+    depends_on:
+      database:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    networks:
+      - kimi-webui
+
+volumes:
+  kimi-webui-db-data:
+    name: kimi-webui-db-data
+  kimi-webui-data:
+    name: kimi-webui-data
+
+networks:
+  kimi-webui:
+    name: kimi-webui
+    driver: bridge
