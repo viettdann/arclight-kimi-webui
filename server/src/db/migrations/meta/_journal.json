@@ -50,6 +50,13 @@
       "when": 1780416491396,
       "tag": "0006_add_key_value_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1780507948966,
+      "tag": "0007_add_project_git_metadata",
+      "breakpoints": true
     }
   ]
 }

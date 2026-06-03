@@ -32,6 +32,8 @@ function buildApp(opts: BuildOpts): {
   fake.selectQueue.push([]);
   // Seed the DISTINCT projectName query so GET / has a deterministic DB side.
   fake.selectQueue.push((opts.dbProjectNames ?? []).map((name) => ({ projectName: name })));
+  // Seed projectGitMetadata query (empty by default).
+  fake.selectQueue.push([]);
 
   const app = new Hono<{ Variables: AuthVariables }>();
   app.use('*', async (c, next) => {
@@ -301,6 +303,7 @@ describe('GET /api/projects', () => {
     fake.selectQueue.length = 0;
     fake.selectQueue.push([]); // select site_settings
     fake.selectQueue.push([{ projectName: 'alpha' }, { projectName: 'beta' }]); // selectDistinct projectNames
+    fake.selectQueue.push([]); // select projectGitMetadata
 
     const res = await app.request('/api/projects');
     expect(res.status).toBe(200);
@@ -349,7 +352,7 @@ describe('DELETE /api/projects/:name', () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true, sessionCount: 1 });
 
-    expect(fake.calls.filter((c) => c.op === 'delete')).toHaveLength(1);
+    expect(fake.calls.filter((c) => c.op === 'delete')).toHaveLength(2); // sessions + projectGitMetadata
 
     expect(audit).toContainEqual({
       userId: 'u1',

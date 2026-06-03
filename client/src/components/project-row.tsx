@@ -22,6 +22,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { DropdownItem, DropdownMenu } from '@/components/ui/dropdown-menu';
+import { fetchProjectGitMetadata } from '../api/git';
+import { authFetch } from '../lib/auth-fetch';
 import { useNewSessionStore } from '../lib/new-session-store';
 import { useProjectsStore } from '../lib/projects-store';
 import { useSessionsStore } from '../lib/sessions-store';
@@ -49,6 +51,8 @@ export function ProjectRow({ project, sessions, isActive }: ProjectRowProps) {
   const isForeign = project.origin === 'foreign';
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [metadata, setMetadata] = useState<Awaited<ReturnType<typeof fetchProjectGitMetadata>>>(null);
+  const [checking, setChecking] = useState(false);
   const requestNewSession = useNewSessionStore((s) => s.request);
 
   const handleNewTask = (e: React.MouseEvent) => {
@@ -56,9 +60,18 @@ export function ProjectRow({ project, sessions, isActive }: ProjectRowProps) {
     requestNewSession(project);
   };
 
-  const handleRestoreClick = (e: React.MouseEvent) => {
+  const handleRestoreClick = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    setConfirmOpen(true);
+    setChecking(true);
+    try {
+      const meta = await fetchProjectGitMetadata(project.name);
+      setMetadata(meta);
+    } catch {
+      setMetadata(null);
+    } finally {
+      setChecking(false);
+      setConfirmOpen(true);
+    }
   };
 
   const handleOpenFiles = (e: React.MouseEvent) => {
@@ -69,6 +82,21 @@ export function ProjectRow({ project, sessions, isActive }: ProjectRowProps) {
   const confirmRestore = () => {
     sendWS('adopt_project', { projectName: project.name });
     setConfirmOpen(false);
+    setMetadata(null);
+  };
+
+  const confirmReclone = async () => {
+    try {
+      await authFetch(`/api/projects/${encodeURIComponent(project.name)}/reclone`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      showToast({ message: `Re-cloning '${project.name}'…`, type: 'info' });
+    } catch {
+      showToast({ message: `Failed to re-clone '${project.name}'`, type: 'error' });
+    }
+    setConfirmOpen(false);
+    setMetadata(null);
   };
 
   const handleConfirmDelete = async () => {
@@ -175,24 +203,47 @@ export function ProjectRow({ project, sessions, isActive }: ProjectRowProps) {
       <Dialog
         open={confirmOpen}
         onOpenChange={(open) => {
-          if (!open) setConfirmOpen(false);
+          if (!open) {
+            setConfirmOpen(false);
+            setMetadata(null);
+          }
         }}
       >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Restore project</DialogTitle>
             <DialogDescription>
-              Restore '{project.name}'? {sessions.length} session
-              {sessions.length === 1 ? '' : 's'} will be moved to this machine.
+              {metadata?.remoteUrl ? (
+                <>
+                  Project này có remote <code className="rounded bg-muted px-1 text-xs">{metadata.remoteUrl}</code>.
+                  Bạn muốn clone về hay chỉ tạo thư mục rỗng?
+                </>
+              ) : (
+                <>
+                  Restore '{project.name}'? {sessions.length} session
+                  {sessions.length === 1 ? '' : 's'} will be moved to this machine.
+                </>
+              )}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setConfirmOpen(false)}>
+            <Button type="button" variant="outline" onClick={() => { setConfirmOpen(false); setMetadata(null); }}>
               Cancel
             </Button>
-            <Button type="button" onClick={confirmRestore}>
-              Restore
-            </Button>
+            {metadata?.remoteUrl ? (
+              <>
+                <Button type="button" variant="outline" onClick={confirmRestore}>
+                  Chỉ tạo thư mục
+                </Button>
+                <Button type="button" onClick={confirmReclone} disabled={checking}>
+                  Clone về
+                </Button>
+              </>
+            ) : (
+              <Button type="button" onClick={confirmRestore} disabled={checking}>
+                Restore
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

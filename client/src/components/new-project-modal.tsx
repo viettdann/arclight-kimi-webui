@@ -34,6 +34,7 @@ export function NewProjectModal({ isOpen, onClose }: NewProjectModalProps) {
   const [mode, setMode] = useState<Mode>('blank');
   const [name, setName] = useState('');
   const [url, setUrl] = useState('');
+  const [branch, setBranch] = useState('');
   const [credentialId, setCredentialId] = useState('');
   const [credDialogOpen, setCredDialogOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -51,6 +52,7 @@ export function NewProjectModal({ isOpen, onClose }: NewProjectModalProps) {
     setMode('blank');
     setName('');
     setUrl('');
+    setBranch('');
     setCredentialId('');
     setCredDialogOpen(false);
     setError(null);
@@ -122,7 +124,7 @@ export function NewProjectModal({ isOpen, onClose }: NewProjectModalProps) {
     try {
       const res = await create({
         name: name.trim() || undefined,
-        source: { type: 'clone', url: trimmedUrl, credentialId },
+        source: { type: 'clone', url: trimmedUrl, credentialId, branch: branch.trim() || undefined },
       });
       if (res.status === 'cloning' && res.cloneId) {
         // Hand off to the progress view. Seed the store so the project name shows
@@ -231,6 +233,19 @@ export function NewProjectModal({ isOpen, onClose }: NewProjectModalProps) {
                       onChange={(e) => setUrl(e.target.value)}
                       placeholder="https://github.com/owner/repo.git"
                       autoFocus
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="clone-branch">
+                      Branch <span className="text-muted-foreground">(optional)</span>
+                    </Label>
+                    <Input
+                      id="clone-branch"
+                      type="text"
+                      value={branch}
+                      onChange={(e) => setBranch(e.target.value)}
+                      placeholder="main"
                     />
                   </div>
 

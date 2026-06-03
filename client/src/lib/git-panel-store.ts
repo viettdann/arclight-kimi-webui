@@ -1,0 +1,267 @@
+import type {
+  GitBranchResponse,
+  GitCommandResponse,
+  GitLogResponse,
+  GitStatusResponse,
+  GitSubcommand,
+} from 'shared/types/git-credentials';
+import { toast } from 'sonner';
+import { create } from 'zustand';
+import {
+  executeGitCommand,
+  fetchGitBranches,
+  fetchGitLog,
+  fetchGitStatus,
+  fetchProjectGitMetadata,
+  linkGitCredential,
+  NotGitRepoError,
+} from '../api/git';
+
+interface CommandResult {
+  type: 'success' | 'error';
+  message: string;
+}
+
+interface GitPanelState {
+  /** Currently scoped project. */
+  projectName: string | null;
+  status: 'idle' | 'loading' | 'ready' | 'error' | 'not_git_repo';
+  error: string | null;
+
+  // Cached data
+  statusData: GitStatusResponse | null;
+  branchData: GitBranchResponse | null;
+  logData: GitLogResponse | null;
+
+  /** Credential persisted as linked to this project (auto-injected on remote ops). */
+  linkedCredentialId: string | null;
+
+  // Command result
+  commandResult: CommandResult | null;
+  /** True while a command is executing. */
+  isBusy: boolean;
+
+  // Auth prompt state
+  authRequired: boolean;
+  authCommand: GitSubcommand | null;
+  authArgs: string[] | null;
+
+  // Actions
+  setProject: (name: string | null) => void;
+  refreshStatus: () => Promise<void>;
+  refreshBranches: () => Promise<void>;
+  refreshLog: () => Promise<void>;
+  loadMetadata: () => Promise<void>;
+  /** Persist (or clear) the linked credential for the active project. */
+  linkCredential: (credentialId: string | null) => Promise<void>;
+  executeCommand: (
+    command: GitSubcommand,
+    args?: string[],
+    credentialId?: string,
+  ) => Promise<GitCommandResponse>;
+  dismissAuth: () => void;
+  clear: () => void;
+}
+
+const initialState = {
+  projectName: null,
+  status: 'idle' as const,
+  error: null,
+  statusData: null,
+  branchData: null,
+  logData: null,
+  linkedCredentialId: null,
+  commandResult: null,
+  isBusy: false,
+  authRequired: false,
+  authCommand: null,
+  authArgs: null,
+};
+
+// Remote-touching commands trigger a status+branch refresh and may persist auth.
+const REFRESH_AFTER: GitSubcommand[] = ['push', 'pull', 'fetch', 'checkout'];
+
+// Friendly one-line label per command when git has nothing terse to say.
+const SUCCESS_LABEL: Partial<Record<GitSubcommand, string>> = {
+  pull: 'Pull complete',
+  push: 'Push complete',
+  fetch: 'Fetch complete',
+  checkout: 'Branch switched',
+};
+
+// Collapse git's (often multi-line) output to a single short line for a toast —
+// dumping a full `git pull` summary makes a giant, hard-to-dismiss notification.
+function firstLine(...texts: string[]): string {
+  for (const t of texts) {
+    const line = t
+      .split('\n')
+      .map((s) => s.trim())
+      .find(Boolean);
+    if (line) return line.length > 90 ? `${line.slice(0, 90)}…` : line;
+  }
+  return '';
+}
+
+export const useGitPanelStore = create<GitPanelState>((set, get) => ({
+  ...initialState,
+
+  setProject: (name) => {
+    const current = get().projectName;
+    if (current === name) return;
+    set({ ...initialState, projectName: name });
+    if (!name) return;
+    void get().refreshStatus();
+    void get().refreshBranches();
+    void get().refreshLog();
+    void get().loadMetadata();
+  },
+
+  refreshStatus: async () => {
+    const { projectName } = get();
+    if (!projectName) return;
+    set({ status: 'loading', error: null });
+    try {
+      const data = await fetchGitStatus(projectName);
+      set({ statusData: data, status: 'ready', error: null });
+    } catch (e) {
+      if (e instanceof NotGitRepoError) {
+        set({ status: 'not_git_repo', statusData: null });
+      } else {
+        set({
+          status: 'error',
+          error: e instanceof Error ? e.message : 'Failed to fetch status',
+        });
+      }
+    }
+  },
+
+  refreshBranches: async () => {
+    const { projectName } = get();
+    if (!projectName) return;
+    try {
+      const data = await fetchGitBranches(projectName);
+      set({ branchData: data });
+    } catch (e) {
+      // Not-a-repo is surfaced via refreshStatus; only report other failures.
+      if (e instanceof NotGitRepoError) return;
+      set({
+        commandResult: {
+          type: 'error',
+          message: e instanceof Error ? e.message : 'Failed to fetch branches',
+        },
+      });
+    }
+  },
+
+  refreshLog: async () => {
+    const { projectName } = get();
+    if (!projectName) return;
+    try {
+      const data = await fetchGitLog(projectName);
+      // Guard against a project switch mid-flight.
+      if (get().projectName !== projectName) return;
+      set({ logData: data });
+    } catch {
+      // Log is best-effort decoration; a not-a-repo / failure just leaves the
+      // history section hidden. Errors are surfaced via refreshStatus.
+    }
+  },
+
+  loadMetadata: async () => {
+    const { projectName } = get();
+    if (!projectName) return;
+    try {
+      const meta = await fetchProjectGitMetadata(projectName);
+      // Guard against a project switch mid-flight.
+      if (get().projectName !== projectName) return;
+      set({ linkedCredentialId: meta?.credentialId ?? null });
+    } catch {
+      // Metadata is best-effort; absence just means "not linked yet".
+    }
+  },
+
+  linkCredential: async (credentialId) => {
+    const { projectName } = get();
+    if (!projectName) return;
+    const prev = get().linkedCredentialId;
+    set({ linkedCredentialId: credentialId }); // optimistic
+    try {
+      await linkGitCredential(projectName, credentialId);
+    } catch (e) {
+      set({ linkedCredentialId: prev }); // revert
+      toast.error(e instanceof Error ? e.message : 'Failed to link credential');
+    }
+  },
+
+  executeCommand: async (command, args, credentialId) => {
+    const { projectName } = get();
+    if (!projectName) throw new Error('no project');
+
+    set({ isBusy: true, commandResult: null });
+    try {
+      const result = await executeGitCommand({
+        projectName,
+        command,
+        args: args ?? [],
+        credentialId,
+      });
+
+      if (result.requiresAuth) {
+        set({
+          authRequired: true,
+          authCommand: command,
+          authArgs: args ?? [],
+          isBusy: false,
+        });
+        return result;
+      }
+
+      const isSuccess = result.exitCode === 0;
+      const message = isSuccess
+        ? firstLine(result.stdout, result.stderr) ||
+          SUCCESS_LABEL[command] ||
+          `${command} completed`
+        : firstLine(result.stderr, result.stdout) || `${command} failed`;
+
+      set({
+        commandResult: { type: isSuccess ? 'success' : 'error', message },
+        isBusy: false,
+        // Any clean run dismisses a pending auth prompt.
+        ...(isSuccess ? { authRequired: false, authCommand: null, authArgs: null } : {}),
+      });
+
+      if (isSuccess) {
+        toast.success(message);
+        // A remote op that succeeded with an explicitly-chosen credential means
+        // the user just resolved an auth prompt — persist it so next time the
+        // server auto-injects and no prompt appears.
+        if (credentialId && (command === 'pull' || command === 'push' || command === 'fetch')) {
+          void get().linkCredential(credentialId);
+        }
+      } else {
+        toast.error(message);
+      }
+
+      if (REFRESH_AFTER.includes(command)) {
+        void get().refreshStatus();
+        void get().refreshBranches();
+        void get().refreshLog();
+      }
+
+      return result;
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Command failed';
+      set({ commandResult: { type: 'error', message }, isBusy: false });
+      toast.error(message);
+      throw e;
+    }
+  },
+
+  dismissAuth: () => {
+    set({ authRequired: false, authCommand: null, authArgs: null });
+  },
+
+  clear: () => {
+    set(initialState);
+  },
+}));

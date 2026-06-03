@@ -36,7 +36,7 @@ function makeProgress() {
 function buildApp(
   cloneRepo: CloneStub,
   notify?: (userId: string, payload: CloneProgressPayload) => void,
-): Hono<{ Variables: AuthVariables }> {
+): { app: Hono<{ Variables: AuthVariables }>; fake: ReturnType<typeof makeFakeDb> } {
   const fake = makeFakeDb();
   const app = new Hono<{ Variables: AuthVariables }>();
   app.use('*', async (c, next) => {
@@ -56,7 +56,7 @@ function buildApp(
       notifyCloneProgress: notify,
     }),
   );
-  return app;
+  return { app, fake };
 }
 
 async function exists(p: string): Promise<boolean> {
@@ -93,7 +93,7 @@ afterEach(async () => {
 describe('POST /api/projects clone flow', () => {
   it('accepts the clone, returns a cloneId, then completes in the background', async () => {
     const prog = makeProgress();
-    const app = buildApp(async () => ({ ok: true }), prog.notify);
+    const { app } = buildApp(async () => ({ ok: true }), prog.notify);
     const res = await app.request('/api/projects', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -126,7 +126,7 @@ describe('POST /api/projects clone flow', () => {
 
   it('forwards git progress frames before the terminal frame', async () => {
     const prog = makeProgress();
-    const app = buildApp(async (args: CloneRepoArgs) => {
+    const { app } = buildApp(async (args: CloneRepoArgs) => {
       args.onProgress?.({ phase: 'Receiving objects', percent: 42 });
       return { ok: true };
     }, prog.notify);
@@ -143,7 +143,7 @@ describe('POST /api/projects clone flow', () => {
 
   it('rolls back the dir and reports clone_failed in the background', async () => {
     const prog = makeProgress();
-    const app = buildApp(
+    const { app } = buildApp(
       async () => ({ ok: false, kind: 'clone_failed', error: 'boom' }),
       prog.notify,
     );
@@ -162,7 +162,7 @@ describe('POST /api/projects clone flow', () => {
 
   it('rolls back the dir and reports clone_timeout in the background', async () => {
     const prog = makeProgress();
-    const app = buildApp(
+    const { app } = buildApp(
       async () => ({ ok: false, kind: 'clone_timeout', error: 't/o' }),
       prog.notify,
     );
@@ -182,7 +182,7 @@ describe('POST /api/projects clone flow', () => {
   it('cancels an in-flight clone and reports clone_canceled', async () => {
     const prog = makeProgress();
     // A clone that only settles once its signal is aborted.
-    const app = buildApp(
+    const { app } = buildApp(
       (args: CloneRepoArgs) =>
         new Promise<CloneResult>((resolve) => {
           args.signal?.addEventListener('abort', () =>
@@ -209,14 +209,14 @@ describe('POST /api/projects clone flow', () => {
   });
 
   it('returns 404 cancelling when nothing is cloning', async () => {
-    const app = buildApp(async () => ({ ok: true }));
+    const { app } = buildApp(async () => ({ ok: true }));
     const res = await app.request('/api/projects/ghost/clone', { method: 'DELETE' });
     expect(res.status).toBe(404);
   });
 
   it('uses an explicit slugified name over the derived one', async () => {
     const prog = makeProgress();
-    const app = buildApp(async () => ({ ok: true }), prog.notify);
+    const { app } = buildApp(async () => ({ ok: true }), prog.notify);
     const res = await app.request('/api/projects', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -228,8 +228,25 @@ describe('POST /api/projects clone flow', () => {
     await prog.terminal;
   });
 
+  it('forwards branch to cloneRepo when provided', async () => {
+    const prog = makeProgress();
+    let capturedArgs: CloneRepoArgs | undefined;
+    const { app } = buildApp(async (args: CloneRepoArgs) => {
+      capturedArgs = args;
+      return { ok: true };
+    }, prog.notify);
+    const res = await app.request('/api/projects', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: cloneBody({ branch: 'develop' }),
+    });
+    expect(res.status).toBe(201);
+    await prog.terminal;
+    expect(capturedArgs?.branch).toBe('develop');
+  });
+
   it('rejects an scp-style url with 400 invalid_url', async () => {
-    const app = buildApp(async () => ({ ok: true }));
+    const { app } = buildApp(async () => ({ ok: true }));
     const res = await app.request('/api/projects', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -240,7 +257,7 @@ describe('POST /api/projects clone flow', () => {
   });
 
   it('rejects an ssh:// url with 400 unsupported_scheme', async () => {
-    const app = buildApp(async () => ({ ok: true }));
+    const { app } = buildApp(async () => ({ ok: true }));
     const res = await app.request('/api/projects', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -254,7 +271,7 @@ describe('POST /api/projects clone flow', () => {
 describe('POST /api/projects blank flow (no regression)', () => {
   it('creates a blank project without invoking cloneRepo', async () => {
     let cloneCalled = false;
-    const app = buildApp(async () => {
+    const { app } = buildApp(async () => {
       cloneCalled = true;
       return { ok: true };
     });

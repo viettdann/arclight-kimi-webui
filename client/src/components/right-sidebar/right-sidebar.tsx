@@ -1,25 +1,18 @@
-import { type ComponentType, useEffect } from 'react';
+import { useEffect } from 'react';
 import { useChatStore } from '../../lib/chat-store';
 import { useRightSidebarStore } from '../../lib/right-sidebar-store';
 import { sendWS } from '../../lib/ws-send';
 import { ContextPanel } from './context-panel';
+import { GitPanel } from './git-panel';
 import { TodoPanel } from './todo-panel';
-
-interface PanelProps {
-  sessionId: string | undefined;
-}
-
-// Config-driven panel list. Add a panel here to surface it without touching the
-// container layout.
-const PANELS: { id: string; Component: ComponentType<PanelProps> }[] = [
-  { id: 'todo', Component: TodoPanel },
-  { id: 'context', Component: ContextPanel },
-];
 
 interface RightSidebarProps {
   sessionId: string | undefined;
 }
 
+// Stacked, always-open panels (Todo → Context → Git). No accordion/disclosure:
+// every panel renders inline and the column scrolls when content runs long.
+// Git renders nothing for non-git projects, so it never adds an empty block.
 export function RightSidebar({ sessionId }: RightSidebarProps) {
   const open = useRightSidebarStore((s) => s.open);
   const close = useRightSidebarStore((s) => s.close);
@@ -58,9 +51,9 @@ export function RightSidebar({ sessionId }: RightSidebarProps) {
         }`}
       >
         <div className="flex flex-1 flex-col divide-y divide-border overflow-y-auto">
-          {PANELS.map(({ id, Component }) => (
-            <Component key={id} sessionId={sessionId} />
-          ))}
+          <TodoPanel sessionId={sessionId} />
+          <ContextPanel sessionId={sessionId} />
+          <GitPanel sessionId={sessionId} />
         </div>
       </aside>
 
