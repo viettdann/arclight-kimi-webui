@@ -1,3 +1,5 @@
+import type { GitProvider } from 'shared/types/git-credentials';
+
 export class CloneUrlError extends Error {
   readonly code: 'invalid_url' | 'unsupported_scheme';
   constructor(code: 'invalid_url' | 'unsupported_scheme') {
@@ -42,4 +44,20 @@ export function deriveRepoName(url: string): string | null {
   if (last.endsWith('.git')) last = last.slice(0, -'.git'.length);
   if (last.length === 0) return null;
   return last;
+}
+
+// Infer the credential provider from a remote URL's host. Returns null for
+// hosts we don't recognise (caller stores null and reclone stays unavailable
+// until the user supplies provider another way).
+export function inferProvider(remoteUrl: string): GitProvider | null {
+  let parsed: URL;
+  try {
+    parsed = parseCloneUrl(remoteUrl);
+  } catch {
+    return null;
+  }
+  const host = parsed.host.toLowerCase();
+  if (host === 'github.com' || host.endsWith('.github.com')) return 'github';
+  if (host === 'dev.azure.com' || host.endsWith('.visualstudio.com')) return 'azure_devops';
+  return null;
 }

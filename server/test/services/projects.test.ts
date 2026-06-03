@@ -50,6 +50,7 @@ describe('listProjectsForUser', () => {
     const fake = makeFakeDb();
     fake.selectQueue.push([]); // select site_settings
     fake.selectQueue.push([]); // selectDistinct projectNames
+    fake.selectQueue.push([]); // select projectGitMetadata
     const result = await listProjectsForUser({
       userId: USER_ID,
       userEmail: USER_EMAIL,
@@ -63,6 +64,7 @@ describe('listProjectsForUser', () => {
     const fake = makeFakeDb();
     fake.selectQueue.push([]); // select site_settings
     fake.selectQueue.push([]); // selectDistinct projectNames
+    fake.selectQueue.push([]); // select projectGitMetadata
     await listProjectsForUser({
       userId: USER_ID,
       userEmail: USER_EMAIL,
@@ -81,6 +83,7 @@ describe('listProjectsForUser', () => {
     const fake = makeFakeDb();
     fake.selectQueue.push([]); // select site_settings
     fake.selectQueue.push([]); // selectDistinct projectNames
+    fake.selectQueue.push([]); // select projectGitMetadata
 
     const result = await listProjectsForUser({
       userId: USER_ID,
@@ -101,6 +104,7 @@ describe('listProjectsForUser', () => {
     const fake = makeFakeDb();
     fake.selectQueue.push([]); // select site_settings
     fake.selectQueue.push([]); // selectDistinct projectNames
+    fake.selectQueue.push([]); // select projectGitMetadata
 
     const result = await listProjectsForUser({
       userId: USER_ID,
@@ -115,6 +119,7 @@ describe('listProjectsForUser', () => {
     const fake = makeFakeDb();
     fake.selectQueue.push([]); // select site_settings
     fake.selectQueue.push([{ projectName: 'alpha' }]); // selectDistinct projectNames
+    fake.selectQueue.push([]); // select projectGitMetadata
 
     const result = await listProjectsForUser({
       userId: USER_ID,
@@ -134,6 +139,7 @@ describe('listProjectsForUser', () => {
     const fake = makeFakeDb();
     fake.selectQueue.push([]); // select site_settings
     fake.selectQueue.push([{ projectName: 'alpha' }]); // selectDistinct projectNames
+    fake.selectQueue.push([]); // select projectGitMetadata
 
     const result = await listProjectsForUser({
       userId: USER_ID,
@@ -153,6 +159,7 @@ describe('listProjectsForUser', () => {
     const fake = makeFakeDb();
     fake.selectQueue.push([]); // select site_settings
     fake.selectQueue.push([{ projectName: 'beta' }]); // selectDistinct projectNames
+    fake.selectQueue.push([]); // select projectGitMetadata
 
     const result = await listProjectsForUser({
       userId: USER_ID,
@@ -173,6 +180,7 @@ describe('listProjectsForUser', () => {
     const fake = makeFakeDb();
     fake.selectQueue.push([]); // select site_settings
     fake.selectQueue.push([{ projectName: 'a' }]); // selectDistinct projectNames
+    fake.selectQueue.push([]); // select projectGitMetadata
 
     const result = await listProjectsForUser({
       userId: USER_ID,
@@ -192,6 +200,7 @@ describe('listProjectsForUser', () => {
     const fake = makeFakeDb();
     fake.selectQueue.push([]); // select site_settings (no rows = defaults)
     fake.selectQueue.push([]); // selectDistinct projectNames
+    fake.selectQueue.push([]); // select projectGitMetadata
 
     const result = await listProjectsForUser({
       userId: USER_ID,
@@ -213,6 +222,7 @@ describe('listProjectsForUser', () => {
       { key: OVERRIDE_KEY, value: false },
     ]); // select site_settings (append)
     fake.selectQueue.push([]); // selectDistinct projectNames
+    fake.selectQueue.push([]); // select projectGitMetadata
 
     const result = await listProjectsForUser({
       userId: USER_ID,
@@ -237,6 +247,7 @@ describe('listProjectsForUser', () => {
       { key: OVERRIDE_KEY, value: true },
     ]); // select site_settings (override)
     fake.selectQueue.push([]); // selectDistinct projectNames
+    fake.selectQueue.push([]); // select projectGitMetadata
 
     const result = await listProjectsForUser({
       userId: USER_ID,
@@ -261,6 +272,7 @@ describe('listProjectsForUser', () => {
       { key: OVERRIDE_KEY, value: true },
     ]); // select site_settings (override, empty)
     fake.selectQueue.push([]); // selectDistinct projectNames
+    fake.selectQueue.push([]); // select projectGitMetadata
 
     const result = await listProjectsForUser({
       userId: USER_ID,
@@ -275,6 +287,7 @@ describe('listProjectsForUser', () => {
     const fake = makeFakeDb();
     fake.selectQueue.push([]); // select site_settings (no rows = defaults)
     fake.selectQueue.push([{ projectName: 'node_modules' }, { projectName: 'real-proj' }]); // selectDistinct projectNames
+    fake.selectQueue.push([]); // select projectGitMetadata
 
     const result = await listProjectsForUser({
       userId: USER_ID,
@@ -283,6 +296,26 @@ describe('listProjectsForUser', () => {
       env: { WORKSPACE_ROOT: tmpRoot },
     });
     expect(result.map((p) => p.name)).toEqual(['real-proj']);
+  });
+
+  it('sets hasGit=true when a projectGitMetadata row exists', async () => {
+    await mkdir(userRoot, { recursive: true, mode: 0o700 });
+    await mkdir(path.join(userRoot, 'alpha'), { mode: 0o700 });
+
+    const fake = makeFakeDb();
+    fake.selectQueue.push([]); // select site_settings
+    fake.selectQueue.push([{ projectName: 'alpha' }]); // selectDistinct projectNames
+    fake.selectQueue.push([{ projectName: 'alpha' }]); // select projectGitMetadata
+
+    const result = await listProjectsForUser({
+      userId: USER_ID,
+      userEmail: USER_EMAIL,
+      db: fake.db,
+      env: { WORKSPACE_ROOT: tmpRoot },
+    });
+    expect(result).toEqual([
+      { name: 'alpha', workDir: path.join(userRoot, 'alpha'), origin: 'local', status: 'ready', hasGit: true },
+    ]);
   });
 });
 
@@ -436,7 +469,7 @@ describe('deleteProjectForUser', () => {
     expect(result).toEqual({ sessionCount: 1 });
     await expect(stat(localWorkDir)).rejects.toBeDefined();
 
-    expect(fake.calls.filter((c) => c.op === 'delete')).toHaveLength(1);
+    expect(fake.calls.filter((c) => c.op === 'delete')).toHaveLength(2); // sessions + projectGitMetadata
 
     expect(audit).toContainEqual({
       userId: USER_ID,
@@ -461,7 +494,7 @@ describe('deleteProjectForUser', () => {
     });
 
     expect(result).toEqual({ sessionCount: 1 });
-    expect(fake.calls.filter((c) => c.op === 'delete')).toHaveLength(1);
+    expect(fake.calls.filter((c) => c.op === 'delete')).toHaveLength(2); // sessions + projectGitMetadata
   });
 
   it("returns 'not_found' when neither DB rows nor folder exist", async () => {
@@ -502,6 +535,6 @@ describe('deleteProjectForUser', () => {
 
     expect(result).toEqual({ sessionCount: 0 });
     await expect(stat(localWorkDir)).rejects.toBeDefined();
-    expect(fake.calls.filter((c) => c.op === 'delete')).toHaveLength(0);
+    expect(fake.calls.filter((c) => c.op === 'delete')).toHaveLength(1); // projectGitMetadata best-effort
   });
 });

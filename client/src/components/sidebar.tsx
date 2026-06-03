@@ -159,6 +159,7 @@ export function Sidebar({ isOpen, onClose, onLoginClick }: SidebarProps) {
   const sessions = useSessionsStore((s) => s.sessions);
   const fetchSessions = useSessionsStore((s) => s.fetch);
   const filesOpen = useSidebarViewStore((s) => s.filesOpen);
+  const filesProjectName = useSidebarViewStore((s) => s.filesProjectName);
 
   const [skillsOpen, setSkillsOpen] = useState(false);
   const launchNewTask = useProjectLaunchStore((s) => s.launch);
@@ -169,9 +170,7 @@ export function Sidebar({ isOpen, onClose, onLoginClick }: SidebarProps) {
     return sessions.find((s) => s.id === openSessionId)?.projectName ?? null;
   }, [openSessionId, sessions]);
 
-  // `filesOpen` is intent only; the project shown is always the active one.
-  // If the user navigates away (no active project), the files panel hides.
-  const showFiles = filesOpen && activeProjectName !== null;
+  const showFiles = filesOpen && filesProjectName !== null;
 
   // Auto-open the active session's project once when it becomes active. Idempotent
   // `expand` leaves a later manual fold alone — it only re-fires when the active
@@ -179,6 +178,15 @@ export function Sidebar({ isOpen, onClose, onLoginClick }: SidebarProps) {
   useEffect(() => {
     if (activeProjectName) useProjectsStore.getState().expand(activeProjectName);
   }, [activeProjectName]);
+
+  // When the user switches to a different session while the files panel is open,
+  // the panel should follow the active project. If the user wants a different
+  // project they must explicitly pick it from the overflow menu.
+  useEffect(() => {
+    if (filesOpen && activeProjectName) {
+      useSidebarViewStore.setState({ filesProjectName: activeProjectName });
+    }
+  }, [filesOpen, activeProjectName]);
 
   // Initial load when authenticated.
   useEffect(() => {
@@ -323,8 +331,8 @@ export function Sidebar({ isOpen, onClose, onLoginClick }: SidebarProps) {
           </Button>
         </nav>
 
-        {showFiles && activeProjectName ? (
-          <FileManagementView projectName={activeProjectName} />
+        {showFiles && filesProjectName ? (
+          <FileManagementView projectName={filesProjectName} />
         ) : (
           <div className="flex flex-1 flex-col px-3 py-2 min-h-0">
             <div className="mb-2 px-3">

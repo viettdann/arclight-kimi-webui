@@ -20,6 +20,8 @@ export interface CloneRepoArgs {
   signal?: AbortSignal;
   /** Invoked as git reports progress; deduped so it only fires on real change. */
   onProgress?: (p: ClonePhaseProgress) => void;
+  /** Specific branch to clone instead of the remote's default. */
+  branch?: string;
 }
 
 // git writes `--progress` lines to stderr as "<Phase>: NN% (...)", overwriting
@@ -56,7 +58,7 @@ function makeProgressParser(onProgress: (p: ClonePhaseProgress) => void): (chunk
 }
 
 export type CloneResult =
-  | { ok: true }
+  | { ok: true; defaultBranch?: string }
   | { ok: false; kind: 'clone_failed' | 'clone_timeout'; error: string };
 
 export interface TestRemoteArgs {
@@ -81,7 +83,7 @@ function trimStderr(stderr: string, fallback: string): string {
 
 // Build the shared `git -c ...` prefix args plus the child env that carries the
 // auth header out-of-band (so the token never appears in argv).
-function buildGitContext(
+export function buildGitContext(
   url: string,
   provider: GitProvider,
   token: string,
@@ -100,7 +102,7 @@ function buildGitContext(
 }
 
 export async function cloneRepo(args: CloneRepoArgs): Promise<CloneResult> {
-  const { url, targetDir, provider, token, username, timeoutMs, signal } = args;
+  const { url, targetDir, provider, token, username, timeoutMs, signal, branch } = args;
 
   let baseArgs: string[];
   let childEnv: Record<string, string>;
@@ -110,7 +112,13 @@ export async function cloneRepo(args: CloneRepoArgs): Promise<CloneResult> {
     return { ok: false, kind: 'clone_failed', error: 'invalid url' };
   }
 
-  const r = await runGit([...baseArgs, 'clone', '--no-tags', '--progress', url, targetDir], {
+  const cloneArgs = [...baseArgs, 'clone', '--no-tags', '--progress'];
+  if (branch != null && branch.length > 0) {
+    cloneArgs.push('--branch', branch);
+  }
+  cloneArgs.push(url, targetDir);
+
+  const r = await runGit(cloneArgs, {
     env: childEnv,
     timeoutMs,
     signal,

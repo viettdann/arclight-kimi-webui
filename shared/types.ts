@@ -662,6 +662,8 @@ export interface ProjectSummary {
   /** `cloning` while a background `git clone` is still filling the folder
    *  (server consults the in-flight clone registry); otherwise ready. */
   status?: 'ready' | 'cloning';
+  /** True when this project has a `project_git_metadata` row (was cloned). */
+  hasGit?: boolean;
 }
 
 /** Clone source for project creation. Token is supplied either by a saved
@@ -672,6 +674,7 @@ export interface GitCloneSource {
   credentialId?: string; // use a saved credential of the current user
   inlineToken?: string; // one-shot token (not persisted)
   provider?: GitProvider; // required when using inlineToken
+  branch?: string; // optional branch to clone instead of the remote default
 }
 
 export interface ProjectCreateRequest {

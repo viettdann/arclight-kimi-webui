@@ -31,7 +31,7 @@ export function TodoPanel({ sessionId }: TodoPanelProps) {
     <div className="space-y-3 p-4">
       <h4 className="text-base font-semibold text-foreground">Todo</h4>
       {!items || items.length === 0 ? (
-        <div className="flex flex-col items-center gap-3 py-8 text-center">
+        <div className="flex flex-col items-center gap-3 py-6 text-center">
           <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-muted text-muted-foreground">
             <BulletListIcon className="h-5 w-5" />
           </div>
@@ -43,7 +43,7 @@ export function TodoPanel({ sessionId }: TodoPanelProps) {
           </div>
         </div>
       ) : (
-        <ul className="space-y-2">
+        <ul className="max-h-72 space-y-2 overflow-y-auto">
           {items.map((item, index) => (
             <li
               // biome-ignore lint/suspicious/noArrayIndexKey: positional checklist, items keyed by order

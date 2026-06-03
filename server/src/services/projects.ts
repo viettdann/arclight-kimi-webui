@@ -67,10 +67,15 @@ export async function listProjectsForUser({
     .selectDistinct({ projectName: schema.sessions.projectName })
     .from(schema.sessions)
     .where(eq(schema.sessions.userId, userId));
+  const gitMetaP = db
+    .select({ projectName: schema.projectGitMetadata.projectName })
+    .from(schema.projectGitMetadata)
+    .where(eq(schema.projectGitMetadata.userId, userId));
   await mkdir(userRoot, { recursive: true, mode: 0o700 });
-  const [dirents, dbRows] = await Promise.all([
+  const [dirents, dbRows, gitMetaRows] = await Promise.all([
     readdir(userRoot, { withFileTypes: true }),
     dbRowsP,
+    gitMetaP,
   ]);
 
   const byName = new Map<string, ProjectSummary>();
@@ -98,6 +103,12 @@ export async function listProjectsForUser({
       workDir: path.join(userRoot, name),
       origin: 'foreign',
     });
+  }
+
+  // Augment with git metadata presence.
+  for (const row of gitMetaRows) {
+    const p = byName.get(row.projectName);
+    if (p) p.hasGit = true;
   }
 
   const collator = new Intl.Collator(undefined, { numeric: true });
@@ -324,6 +335,16 @@ export async function deleteProjectForUser({
       'deleteProject: failed to remove project folder',
     );
   }
+
+  // Delete git metadata row (best-effort; no FK, safe to run even if absent).
+  await db
+    .delete(schema.projectGitMetadata)
+    .where(
+      and(
+        eq(schema.projectGitMetadata.userId, userId),
+        eq(schema.projectGitMetadata.projectName, projectName),
+      ),
+    );
 
   auditLog({ userId, action: 'project_delete', path: projectName, bytes: 0 });
   return { sessionCount: rows.length };

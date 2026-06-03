@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { and, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import type {
   CloneErrorCode,
@@ -16,6 +17,7 @@ import { type GitProvider, isGitProvider } from 'shared/types/git-credentials';
 import { slug } from '../auth';
 import { type AuthVariables, requireAuth } from '../auth/middleware';
 import { type DB, db as defaultDb } from '../db';
+import { schema } from '../db';
 import { env as defaultEnv, type Env } from '../env';
 import { auditLog as defaultAuditLog } from '../lib/logger';
 import { resolveUserPath } from '../lib/path-guard';
@@ -28,7 +30,7 @@ import {
   unregisterClone,
 } from '../services/git/clone-registry';
 import { CloneUrlError, deriveRepoName, parseCloneUrl } from '../services/git/url';
-import { getOwned } from '../services/git-credentials/repo';
+import * as credentialRepo from '../services/git-credentials/repo';
 import {
   deleteProjectForUser,
   listProjectsForUser,
@@ -143,7 +145,7 @@ export function createProjectsRoutes(deps: ProjectsRoutesDeps): Hono<{ Variables
       let provider: GitProvider;
       let token: string;
       if (cs.credentialId) {
-        const row = await getOwned(db, user.id, cs.credentialId);
+        const row = await credentialRepo.getOwned(db, user.id, cs.credentialId);
         if (!row) return c.json({ error: 'credential_not_found' }, 400);
         if (!isGitProvider(row.provider)) return c.json({ error: 'invalid_provider' }, 400);
         provider = row.provider;
@@ -208,6 +210,7 @@ export function createProjectsRoutes(deps: ProjectsRoutesDeps): Hono<{ Variables
             token,
             timeoutMs,
             signal: controller.signal,
+            branch: cs.branch,
             onProgress: ({ phase, percent }) => notify({ phase, percent, status: 'cloning' }),
           });
           if (!result.ok) {
@@ -220,6 +223,14 @@ export function createProjectsRoutes(deps: ProjectsRoutesDeps): Hono<{ Variables
             return;
           }
           auditLog({ userId, action: 'project_create', path: finalSlug, bytes: 0 });
+          await db.insert(schema.projectGitMetadata).values({
+            userId,
+            projectName: finalSlug,
+            remoteUrl: cs.url,
+            provider,
+            defaultBranch: result.defaultBranch ?? null,
+            credentialId: cs.credentialId ?? null,
+          });
           notify({ phase: 'Done', percent: 100, status: 'completed' });
         } catch (err) {
           await failClone(
@@ -317,6 +328,143 @@ export function createProjectsRoutes(deps: ProjectsRoutesDeps): Hono<{ Variables
     const canceled = cancelCloneForProject(user.id, c.req.param('name'));
     if (!canceled) return c.json({ error: 'not_found' }, 404);
     return c.json({ ok: true });
+  });
+
+  // ─────────────────────────── GET /:name/git-metadata ───────────────────────────
+
+  projects.get('/:name/git-metadata', async (c) => {
+    const user = c.var.user;
+    if (user == null) return c.json({ error: 'unauthorized' }, 401);
+
+    const projectName = c.req.param('name');
+    const rows = await db
+      .select()
+      .from(schema.projectGitMetadata)
+      .where(
+        and(
+          eq(schema.projectGitMetadata.userId, user.id),
+          eq(schema.projectGitMetadata.projectName, projectName),
+        ),
+      )
+      .limit(1);
+
+    if (rows.length === 0) return c.json({ error: 'not_found' }, 404);
+    return c.json(rows[0]);
+  });
+
+  // ─────────────────────────── POST /:name/reclone ───────────────────────────
+  // Re-clone a project from its stored metadata. Removes existing dir content
+  // first, then runs the same clone flow as POST / with the stored remoteUrl,
+  // provider, and linked credential.
+
+  projects.post('/:name/reclone', async (c) => {
+    const user = c.var.user;
+    if (user == null) return c.json({ error: 'unauthorized' }, 401);
+
+    const projectName = c.req.param('name');
+    const metaRows = await db
+      .select()
+      .from(schema.projectGitMetadata)
+      .where(
+        and(
+          eq(schema.projectGitMetadata.userId, user.id),
+          eq(schema.projectGitMetadata.projectName, projectName),
+        ),
+      )
+      .limit(1);
+
+    if (metaRows.length === 0) return c.json({ error: 'not_found' }, 404);
+    const meta = metaRows[0]!;
+    if (!meta.remoteUrl || !meta.provider) {
+      return c.json({ error: 'invalid_metadata' }, 400);
+    }
+
+    let token: string;
+    if (meta.credentialId) {
+      const cred = await credentialRepo.getOwned(db, user.id, meta.credentialId);
+      if (!cred) return c.json({ error: 'credential_not_found' }, 400);
+      token = cred.token;
+    } else {
+      return c.json({ error: 'credential_not_found' }, 400);
+    }
+
+    const userRoot = path.join(env.WORKSPACE_ROOT, slug(user.email ?? ''));
+    await mkdir(userRoot, { recursive: true, mode: 0o700 });
+    let workDir: string;
+    try {
+      workDir = await resolveUserPath(userRoot, projectName);
+    } catch {
+      return c.json({ error: 'forbidden' }, 403);
+    }
+
+    // Remove existing content so clone gets a clean target.
+    await rm(workDir, { recursive: true, force: true }).catch(() => {});
+    await mkdir(workDir, { recursive: false, mode: 0o700 });
+
+    const cloneId = randomUUID();
+    const userId = user.id;
+    const notify = (p: Omit<CloneProgressPayload, 'cloneId' | 'projectName' | 'workDir'>) =>
+      notifyCloneProgress(userId, { cloneId, projectName, workDir, ...p });
+
+    const failClone = async (error: string, errorCode: CloneErrorCode) => {
+      await rm(workDir, { recursive: true, force: true }).catch(() => {});
+      notify({ phase: 'Failed', percent: null, status: 'failed', error, errorCode });
+    };
+
+    const controller = new AbortController();
+    registerClone(cloneId, { controller, userId, projectName, workDir });
+    const markerPath = path.join(path.dirname(workDir), `.cloning-${projectName}`);
+    await writeFile(markerPath, '').catch(() => {});
+
+    void (async () => {
+      try {
+        const result = await cloneRepo({
+          url: meta.remoteUrl!,
+          targetDir: workDir,
+          provider: meta.provider as GitProvider,
+          token,
+          timeoutMs,
+          signal: controller.signal,
+          onProgress: ({ phase, percent }) => notify({ phase, percent, status: 'cloning' }),
+        });
+        if (!result.ok) {
+          await failClone(
+            result.error,
+            controller.signal.aborted ? 'clone_canceled' : result.kind,
+          );
+          return;
+        }
+        await db
+          .update(schema.projectGitMetadata)
+          .set({ defaultBranch: result.defaultBranch ?? null })
+          .where(
+            and(
+              eq(schema.projectGitMetadata.userId, userId),
+              eq(schema.projectGitMetadata.projectName, projectName),
+            ),
+          );
+        notify({ phase: 'Done', percent: 100, status: 'completed' });
+      } catch (err) {
+        await failClone(
+          err instanceof Error ? err.message : 'clone failed',
+          controller.signal.aborted ? 'clone_canceled' : 'clone_failed',
+        );
+      } finally {
+        unregisterClone(cloneId);
+        await rm(markerPath, { force: true }).catch(() => {});
+      }
+    })();
+
+    return c.json(
+      {
+        name: projectName,
+        workDir,
+        origin: 'local',
+        cloneId,
+        status: 'cloning',
+      } satisfies ProjectCreateResponse,
+      202,
+    );
   });
 
   // ─────────────────────────── DELETE /:name ───────────────────────────

@@ -46,3 +46,78 @@ export interface GitCredentialTestResponse {
   ok: boolean;
   error?: string;
 }
+
+/** Shared error code for "not a git repository" responses. */
+export const GIT_ERROR_NOT_REPO = 'not_a_git_repo' as const;
+
+// ─────────────────────────── Git panel types ───────────────────────────
+
+export type GitSubcommand =
+  | 'status'
+  | 'log'
+  | 'diff'
+  | 'add'
+  | 'commit'
+  | 'push'
+  | 'pull'
+  | 'fetch'
+  | 'branch'
+  | 'checkout'
+  | 'stash';
+
+export interface GitCommandRequest {
+  projectName: string;
+  command: GitSubcommand;
+  args?: string[];
+  /** Use a saved credential for remote auth. */
+  credentialId?: string;
+  /** One-shot token (not persisted). */
+  inlineToken?: string;
+  /** Required when using inlineToken. */
+  provider?: GitProvider;
+}
+
+export interface GitCommandResponse {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  timedOut: boolean;
+  /** True when the failure was an auth failure — client should prompt for PAT. */
+  requiresAuth?: boolean;
+}
+
+export interface GitStatusEntry {
+  /** porcelain v2 XY codes, e.g. '1 .M', '1 M.', '? '. */
+  statusCode: string;
+  path: string;
+}
+
+export interface GitStatusResponse {
+  branch: string | null;
+  entries: GitStatusEntry[];
+  ahead: number;
+  behind: number;
+}
+
+export interface GitLogEntry {
+  hash: string;
+  message: string;
+  author: string;
+  date: string;
+}
+
+export interface GitLogResponse {
+  entries: GitLogEntry[];
+  currentBranch: string | null;
+}
+
+export interface GitBranchEntry {
+  name: string;
+  isCurrent: boolean;
+  isRemote: boolean;
+}
+
+export interface GitBranchResponse {
+  branches: GitBranchEntry[];
+  currentBranch: string | null;
+}
