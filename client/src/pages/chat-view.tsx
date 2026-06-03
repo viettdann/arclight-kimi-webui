@@ -136,14 +136,21 @@ export function ChatView() {
             </div>
           </>
         ) : (
-          // Welcome: hero + cards + input live in ONE vertically-centered
-          // stack. Keeping the input as a bottom-pinned sibling left a dead
-          // gap in the middle; grouping it under the cards mirrors the
-          // reference layout and reads as a single balanced unit.
-          <div className="flex flex-1 flex-col justify-start md:justify-center overflow-y-auto">
-            <WelcomeScreen />
-            <ChatInput />
-          </div>
+          // Welcome: hero + cards scroll in the flex-1 region; the composer is
+          // pinned at the bottom as a shrink-0 sibling so it stays reachable on
+          // mobile. The scroll region centers its content vertically (no dead
+          // top-gap); `my-auto` on the child keeps it centered when short and
+          // top-anchored (scrollable, not clipped) when it overflows.
+          <>
+            <div className="flex flex-1 flex-col overflow-y-auto">
+              <div className="my-auto w-full">
+                <WelcomeScreen />
+              </div>
+            </div>
+            <div className="shrink-0">
+              <ChatInput />
+            </div>
+          </>
         )}
       </div>
 
