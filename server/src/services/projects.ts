@@ -16,8 +16,16 @@ import { teardownActiveSession } from './session-lifecycle';
 import type { SessionManager } from './session-manager';
 import { effectiveBlacklist, getProjectDiscoveryConfig } from './site-settings';
 
-/** Check if a directory name matches any blacklist entry (exact match or prefix with /). */
+/**
+ * Check if a directory name should be skipped during project discovery.
+ *
+ * Dot-folders are always skipped: a real project is never a `.`-prefixed
+ * directory (`.git`, `.cache`, `.venv`, `.svelte-kit`, …), so this one rule
+ * covers every current and future tool dir without enumerating them. The
+ * blacklist then only needs non-dot entries (build output, deps).
+ */
 function isBlacklisted(name: string, blacklist: Set<string>): boolean {
+  if (name.startsWith('.')) return true;
   for (const entry of blacklist) {
     if (name === entry) return true;
     if (entry.endsWith('/') && name.startsWith(entry)) return true;

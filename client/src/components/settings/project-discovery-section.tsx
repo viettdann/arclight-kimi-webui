@@ -116,7 +116,7 @@ export function ProjectDiscoverySection() {
           <Textarea
             value={draftEntries}
             onChange={(e) => setDraftEntries(e.target.value)}
-            placeholder="e.g. node_modules&#10;.git&#10;dist"
+            placeholder="e.g. node_modules&#10;dist&#10;build"
             rows={10}
             spellCheck={false}
             className="font-mono text-xs leading-[1.6] resize-y min-h-[12rem]"
@@ -149,6 +149,12 @@ export function ProjectDiscoverySection() {
           title="Default blacklist"
           description="These entries are always active unless you switch to Override mode."
         >
+          <p className="mb-2 text-xs text-muted-foreground">
+            Any folder starting with <code className="font-mono">.</code> (e.g.{' '}
+            <code className="font-mono">.git</code>, <code className="font-mono">.cache</code>,{' '}
+            <code className="font-mono">.venv</code>) is always skipped — even in Override mode — so
+            you never need to list dot-folders here.
+          </p>
           <div className="rounded-md border border-border bg-muted/40 px-3 py-2.5">
             <ul className="space-y-0.5 font-mono text-xs text-muted-foreground">
               {DEFAULT_PROJECT_DISCOVERY_BLACKLIST.map((entry) => (
