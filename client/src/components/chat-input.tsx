@@ -32,7 +32,7 @@ import { useDraftStore } from '../lib/draft-store';
 import { useProjectLaunchStore } from '../lib/project-launch-store';
 import { isResolvable, labelFor, useProvidersStore } from '../lib/providers-store';
 import { DRAFT_WORKDIR_PARAM } from '../lib/router';
-import { useSessionDefaultsStore } from '../lib/session-defaults-store';
+import { useSessionDefaultsStore, withSilentSave } from '../lib/session-defaults-store';
 import { useSessionsStore } from '../lib/sessions-store';
 import { sendWS } from '../lib/ws-send';
 import { ConfirmBypassDialog } from './confirm-bypass-dialog';
@@ -391,12 +391,12 @@ export function ChatInput() {
   const applyApprovalMode = (mode: ApprovalMode) => {
     if (isDraft) {
       setDraftApprovalMode(mode);
-      useSessionDefaultsStore.getState().setApprovalMode(mode);
+      withSilentSave(() => useSessionDefaultsStore.getState().setApprovalMode(mode));
       return;
     }
     if (!sessionId) return;
     useChatStore.getState().setSessionFlags(sessionId, { approvalMode: mode });
-    useSessionDefaultsStore.getState().setApprovalMode(mode);
+    withSilentSave(() => useSessionDefaultsStore.getState().setApprovalMode(mode));
   };
 
   // Switching to bypass is gated by a confirm dialog the first time per composer.
@@ -420,25 +420,25 @@ export function ChatInput() {
     if (isDraft) {
       setDraftThinking((on) => {
         const next = !on;
-        useSessionDefaultsStore.getState().setThinking(next);
+        withSilentSave(() => useSessionDefaultsStore.getState().setThinking(next));
         return next;
       });
       return;
     }
     if (!sessionId) return;
     useChatStore.getState().setSessionFlags(sessionId, { thinking: !thinking });
-    useSessionDefaultsStore.getState().setThinking(!thinking);
+    withSilentSave(() => useSessionDefaultsStore.getState().setThinking(!thinking));
   };
 
   const setEffort = (next: EffortLevel | null) => {
     if (isDraft) {
       setDraftEffort(next);
-      useSessionDefaultsStore.getState().setEffort(next);
+      withSilentSave(() => useSessionDefaultsStore.getState().setEffort(next));
       return;
     }
     if (!sessionId) return;
     useChatStore.getState().setSessionFlags(sessionId, { effort: next });
-    useSessionDefaultsStore.getState().setEffort(next);
+    withSilentSave(() => useSessionDefaultsStore.getState().setEffort(next));
   };
 
   // Pick a command from the picker: rewrite the composer to `/name ` and place
@@ -713,8 +713,10 @@ export function ChatInput() {
                           onClick={() => {
                             setSelectedProviderId(provider.id);
                             setSelectedModel(m.modelId);
-                            useSessionDefaultsStore.getState().setProviderId(provider.id);
-                            useSessionDefaultsStore.getState().setModel(m.modelId);
+                            withSilentSave(() => {
+                              useSessionDefaultsStore.getState().setProviderId(provider.id);
+                              useSessionDefaultsStore.getState().setModel(m.modelId);
+                            });
                           }}
                           icon={<Check className={isActive ? '' : 'opacity-0'} />}
                         >
@@ -741,8 +743,10 @@ export function ChatInput() {
                           onClick={() => {
                             setSelectedProviderId(provider.id);
                             setSelectedModel(m.modelId);
-                            useSessionDefaultsStore.getState().setProviderId(provider.id);
-                            useSessionDefaultsStore.getState().setModel(m.modelId);
+                            withSilentSave(() => {
+                              useSessionDefaultsStore.getState().setProviderId(provider.id);
+                              useSessionDefaultsStore.getState().setModel(m.modelId);
+                            });
                           }}
                           icon={<Check className={isActive ? '' : 'opacity-0'} />}
                         >
