@@ -13,6 +13,10 @@ const stubs: Record<string, string> = {
   AZURE_AD_CLIENT_SECRET: 'test-secret',
   AZURE_AD_TENANT_ID: 'test-tenant',
   WORKSPACE_ROOT: '/tmp/mtc-webui-test',
+  // Test-login backdoor enabled in the test env with a fixed token so suites
+  // exercising it parse env consistently. Never set in real .env files.
+  TEST_LOGIN_ENABLED: 'true',
+  TEST_LOGIN_TOKEN: 'test-login-token-fixed',
 };
 
 for (const [key, value] of Object.entries(stubs)) {

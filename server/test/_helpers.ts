@@ -49,11 +49,14 @@ export interface DbCall {
   values?: unknown;
 }
 
+/** A primed query result: one row set, each row an open record. */
+export type FakeRows = Record<string, unknown>[];
+
 export interface FakeDb {
   db: DB;
   calls: DbCall[];
   /** Override the next `select(...).from(...).where(...).limit(...)` result. */
-  selectQueue: unknown[][];
+  selectQueue: FakeRows[];
 }
 
 /** Resolve a Drizzle table's SQL name via the library's public accessor. */
@@ -81,7 +84,7 @@ function tableName(table: object | undefined): string | undefined {
  */
 export function makeFakeDb(): FakeDb {
   const calls: DbCall[] = [];
-  const selectQueue: unknown[][] = [];
+  const selectQueue: FakeRows[] = [];
 
   const makeSelectChain = (): unknown => {
     const chain: Record<string, unknown> = {};
@@ -91,7 +94,7 @@ export function makeFakeDb(): FakeDb {
     chain.innerJoin = () => chain;
     chain.leftJoin = () => chain;
     // biome-ignore lint/suspicious/noThenProperty: drizzle-shape thenable test fake.
-    chain.then = (onF: (v: unknown[]) => unknown, onR: (e: unknown) => unknown) => {
+    chain.then = (onF: (v: FakeRows) => unknown, onR: (e: unknown) => unknown) => {
       const rows = selectQueue.shift() ?? [];
       return Promise.resolve(rows).then(onF, onR);
     };
