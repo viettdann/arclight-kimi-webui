@@ -18,6 +18,13 @@ const envSchema = z.object({
   // `access_control` table takes precedence; read here as `=== 'true'`.
   ACCESS_CONTROL_ENABLED: z.enum(['true', 'false']).default('true'),
 
+  // Test-only login backdoor. Double-guarded: the `/api/auth/test-login`
+  // endpoint opens only when ENABLED === 'true' AND a non-empty TOKEN is set AND
+  // the request carries the matching `x-test-login` header. Default 'false' /
+  // unset keeps it fully closed in production.
+  TEST_LOGIN_ENABLED: z.enum(['true', 'false']).default('false'),
+  TEST_LOGIN_TOKEN: z.string().optional(),
+
   BETTER_AUTH_SECRET: z.string().min(32),
   BETTER_AUTH_URL: z.string().url(),
   AZURE_AD_CLIENT_ID: z.string().min(1),

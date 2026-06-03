@@ -3,12 +3,13 @@ import { Hono } from 'hono';
 import { serveStatic } from 'hono/bun';
 import type { HealthResponse } from 'shared/types';
 import { auth } from './auth';
+import { setAccessControlResolver } from './auth/access';
 import { type AuthVariables, requireAllowed, sessionMiddleware } from './auth/middleware';
+import { createTestLoginRouter } from './auth/test-login';
 import { client, db } from './db';
 import { env } from './env';
 import { auditLog, logger } from './lib/logger';
 import { MAX_PROJECT_NAME_LEN } from './lib/slug';
-import { setAccessControlResolver } from './auth/access';
 import { createAccessRouter } from './routes/access';
 import { createConfigGeneralRouter } from './routes/config-general';
 import { createConfigProvidersRouter } from './routes/config-providers';
@@ -87,6 +88,11 @@ if (worstCaseWorkDirLen > MAX_ENCODED_LEN) {
 const app = new Hono<{ Variables: AuthVariables }>();
 
 app.use('*', sessionMiddleware);
+// Test-only login backdoor — must mount BEFORE the `/api/auth/*` wildcard,
+// which is first-match-wins and would otherwise swallow this path into
+// `auth.handler`. Self-guards via the `x-test-login` token; no-op in prod
+// (TEST_LOGIN_ENABLED defaults to 'false').
+app.route('/api/auth/test-login', createTestLoginRouter({ db, env }));
 app.on(['GET', 'POST'], '/api/auth/*', (c) => auth.handler(c.req.raw));
 
 app.get('/api/health', (c) => {

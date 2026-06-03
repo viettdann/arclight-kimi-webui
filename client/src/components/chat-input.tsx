@@ -97,8 +97,9 @@ export function ChatInput() {
   // Composer is interactive when bound to a real session OR a draft.
   const canCompose = Boolean(sessionId) || isDraft;
   // Welcome/landing: no session and no draft yet. The composer can't send until
-  // a project is chosen, so it shows a "Select repo" control that opens the
-  // new-task flow (which navigates to the draft route and unlocks composing).
+  // a project is chosen, so it shows a "Select Project" control that opens the
+  // picker so the user can choose, then navigates to the draft route and
+  // unlocks composing.
   const isWelcome = !sessionId && !isDraft;
   const authStatus = useAuthStore((s) => s.status);
   const launchNewTask = useProjectLaunchStore((s) => s.launch);
@@ -557,7 +558,7 @@ export function ChatInput() {
               }
             >
               <FolderGit2 className="h-3.5 w-3.5" />
-              Select repo…
+              Select Project
             </Button>
           </div>
         )}

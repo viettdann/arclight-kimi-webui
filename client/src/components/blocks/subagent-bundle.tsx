@@ -2,6 +2,7 @@ import { AlertTriangle, Bot, ChevronDown, ChevronRight, Loader2 } from 'lucide-r
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Block } from 'shared/types';
 import { BlockRegistry } from './block-registry';
+import { SubagentResult } from './subagent-result';
 import { ActivityTimeline } from './timeline/activity-timeline';
 import { groupRailSegments } from './timeline/group-rail-segments';
 import { parseArgs } from './timeline/types';
@@ -104,9 +105,11 @@ export function SubagentBundle({ toolCall, subagent, toolResult }: SubagentBundl
         )}
       </button>
 
-      {/* Body — nested transcript + final result */}
+      {/* Activity log — collapsible, lives off the main flow. The result is NOT
+          in here: it sits below as its own section so reading the subagent's
+          answer never requires expanding this and scrolling past every turn. */}
       {isOpen && (
-        <div className="border-t border-primary/15 bg-background/30">
+        <div className="border-t border-primary/15 bg-card">
           {/* Nested events */}
           <div className="pl-4 pr-3 py-3 max-h-[36rem] overflow-y-auto scrollbar-thin">
             {nestedBlocks.length === 0 ? (
@@ -129,18 +132,32 @@ export function SubagentBundle({ toolCall, subagent, toolResult }: SubagentBundl
               </div>
             )}
           </div>
-
-          {/* Final tool_result (subagent's return) */}
-          {toolResult && (
-            <div className="border-t border-primary/15 px-4 py-3 bg-muted/10">
-              <div className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground mb-2">
-                Subagent Result
-              </div>
-              <BlockRegistry block={toolResult} />
-            </div>
-          )}
         </div>
       )}
+
+      {/* Final tool_result (subagent's return) — its own fold, independent of the
+          activity accordion above so it stays one click away after auto-collapse.
+          Rich display blocks (rare for subagents) keep their dedicated renderers;
+          the common text return folds into a markdown-rendered section. */}
+      {toolResult &&
+        (toolResult.displayBlocks && toolResult.displayBlocks.length > 0 ? (
+          <div className="border-t border-primary/15 px-4 py-3 bg-muted/10">
+            <div className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground mb-2">
+              Subagent Result
+            </div>
+            <BlockRegistry block={toolResult} />
+          </div>
+        ) : (
+          <div className="border-t border-primary/15 bg-muted/10">
+            <SubagentResult
+              toolName={toolResult.toolName}
+              output={toolResult.output}
+              message={toolResult.message}
+              isError={toolResult.isError}
+              synthetic={toolResult.synthetic}
+            />
+          </div>
+        ))}
     </div>
   );
 }

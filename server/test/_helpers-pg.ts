@@ -1,18 +1,16 @@
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import type { SessionStore } from '@anthropic-ai/claude-agent-sdk';
 import { PGlite } from '@electric-sql/pglite';
 import { sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import {
-  createSessionStore,
-  type SqlExecutor,
-} from '../src/services/agent/session-store';
-import type { SessionStore } from '@anthropic-ai/claude-agent-sdk';
+import { createSessionStore, type SqlExecutor } from '../src/services/agent/session-store';
 
-/** Absolute path to `server/src/db/migrations`, resolved from this test file. */
-function migrationsFolder(): string {
-  const here = typeof import.meta.dir === 'string' ? import.meta.dir : dirname(fileURLToPath(import.meta.url));
+/** Absolute path to `server/src/db/migrations`, resolved from this file's location. */
+export function migrationsFolder(): string {
+  const here =
+    typeof import.meta.dir === 'string' ? import.meta.dir : dirname(fileURLToPath(import.meta.url));
   // server/test → server/src/db/migrations
   return join(here, '..', 'src', 'db', 'migrations');
 }
