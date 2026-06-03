@@ -27,21 +27,24 @@ describe('useRightSidebarStore', () => {
 
 describe('useSidebarViewStore', () => {
   beforeEach(() => {
-    useSidebarViewStore.setState({ filesOpen: false });
+    useSidebarViewStore.setState({ filesOpen: false, filesProjectName: null });
   });
 
   it('starts on the tasks view', () => {
     expect(useSidebarViewStore.getState().filesOpen).toBe(false);
+    expect(useSidebarViewStore.getState().filesProjectName).toBeNull();
   });
 
-  it('openFiles switches to the files view', () => {
-    useSidebarViewStore.getState().openFiles();
+  it('openFiles switches to the files view with project name', () => {
+    useSidebarViewStore.getState().openFiles('my-project');
     expect(useSidebarViewStore.getState().filesOpen).toBe(true);
+    expect(useSidebarViewStore.getState().filesProjectName).toBe('my-project');
   });
 
-  it('backToTasks switches back', () => {
-    useSidebarViewStore.getState().openFiles();
+  it('backToTasks switches back and clears project name', () => {
+    useSidebarViewStore.getState().openFiles('my-project');
     useSidebarViewStore.getState().backToTasks();
     expect(useSidebarViewStore.getState().filesOpen).toBe(false);
+    expect(useSidebarViewStore.getState().filesProjectName).toBeNull();
   });
 });

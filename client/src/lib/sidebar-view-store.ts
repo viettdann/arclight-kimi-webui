@@ -2,12 +2,14 @@ import { create } from 'zustand';
 
 interface SidebarViewState {
   filesOpen: boolean;
-  openFiles: () => void;
+  filesProjectName: string | null;
+  openFiles: (projectName: string) => void;
   backToTasks: () => void;
 }
 
 export const useSidebarViewStore = create<SidebarViewState>((set) => ({
   filesOpen: false,
-  openFiles: () => set({ filesOpen: true }),
-  backToTasks: () => set({ filesOpen: false }),
+  filesProjectName: null,
+  openFiles: (projectName: string) => set({ filesOpen: true, filesProjectName: projectName }),
+  backToTasks: () => set({ filesOpen: false, filesProjectName: null }),
 }));

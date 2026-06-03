@@ -76,7 +76,7 @@ export function ProjectRow({ project, sessions, isActive }: ProjectRowProps) {
 
   const handleOpenFiles = (e: React.MouseEvent) => {
     e.stopPropagation();
-    openFiles();
+    openFiles(project.name);
   };
 
   const confirmRestore = () => {
@@ -154,7 +154,7 @@ export function ProjectRow({ project, sessions, isActive }: ProjectRowProps) {
               </Button>
             }
           >
-            {isActive && !isForeign && (
+            {!isForeign && (
               <DropdownItem icon={<FolderTree />} onClick={handleOpenFiles}>
                 File management
               </DropdownItem>
