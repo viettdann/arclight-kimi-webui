@@ -49,12 +49,15 @@ export function refreshComposerCatalog(): void {
 /**
  * Find a human-readable label for a (providerId, modelId) pair.
  * Returns `"namespace/displayName"` when the pair resolves; null otherwise.
+ * Pass `compact` to drop the namespace and return just the model name — used
+ * on narrow viewports where `namespace/model` overflows the model pill.
  * Call with the store's `available` snapshot — does not subscribe.
  */
 export function labelFor(
   available: AvailableProvidersResponse | null,
   providerId: string | null,
   modelId: string | null,
+  compact = false,
 ): string | null {
   if (!available || !providerId || !modelId) return null;
   const all = [...available.builtin, ...available.personal];
@@ -62,7 +65,8 @@ export function labelFor(
   if (!provider) return null;
   const model = provider.models.find((m) => m.modelId === modelId);
   if (!model) return null;
-  return `${provider.namespace}/${model.displayName ?? model.modelId}`;
+  const name = model.displayName ?? model.modelId;
+  return compact ? name : `${provider.namespace}/${name}`;
 }
 
 /**
