@@ -10,6 +10,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-mtc}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mtc}
       POSTGRES_DB: ${POSTGRES_DB:-mtc}
+      TZ: ${TZ:-Asia/Ho_Chi_Minh}
     volumes:
       - mtc-webui-db-data:/var/lib/postgresql
     healthcheck:
@@ -41,16 +42,19 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    ports: ["3000:3000"]
     env_file:
       - path: .env
         required: true
     environment:
       NODE_ENV: production
+      TZ: ${TZ:-Asia/Ho_Chi_Minh}
       <<: *db-env
     volumes:
       - mtc-webui-data:/data
+    tmpfs:
+      - ${CLAUDE_CONFIG_DIR:-/data/agent-state}:uid=1000,gid=1000,mode=0711,size=256m
     healthcheck:
+      # test: ["CMD", "bun", "-e", "fetch('http://localhost:'+(process.env.PORT||3000)+'/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
       test: ["CMD", "curl", "-f", "http://localhost:${PORT:-3000}/api/health"]
       interval: 30s
       timeout: 3s

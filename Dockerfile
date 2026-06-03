@@ -35,15 +35,17 @@ COPY server/src/db/migrations ./migrations
 CMD ["bunx", "drizzle-kit", "migrate", "--config=drizzle.config.ts"]
 
 FROM base AS runtime
+
+ARG DEBIAN_FRONTEND=noninteractive
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     rm -f /etc/apt/apt.conf.d/docker-clean && \
     echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache && \
     apt-get update && \
     apt-get install -y --no-install-recommends \
-        ca-certificates git ripgrep bubblewrap socat dumb-init
+    curl ca-certificates git ripgrep bubblewrap socat dumb-init wget zip jq less openssh-client procps findutils openssl sed gawk tzdata
 
-RUN mkdir -p /data/workspace /data/claude-config && chown -R bun:bun /data
+RUN mkdir -p /data/workspace /data/agent-state && chown -R bun:bun /data
 
 COPY --from=prod-deps --chown=bun:bun /app/node_modules ./node_modules
 COPY --from=prod-deps --chown=bun:bun /app/server/node_modules ./server/node_modules
