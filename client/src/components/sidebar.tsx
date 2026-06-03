@@ -5,14 +5,12 @@ import type { WSMessageType } from 'shared/types';
 import { Button } from '@/components/ui/button';
 import { DropdownItem, DropdownMenu, DropdownSeparator } from '@/components/ui/dropdown-menu';
 import { useAuthStore } from '../lib/auth-store';
-import { useNewSessionStore } from '../lib/new-session-store';
+import { useProjectLaunchStore } from '../lib/project-launch-store';
 import { useProjectsStore } from '../lib/projects-store';
 import { groupByProject, useSessionsStore } from '../lib/sessions-store';
 import { useSidebarViewStore } from '../lib/sidebar-view-store';
 import { wsClient } from '../lib/ws-client';
 import { FileManagementView } from './file-management-view';
-import { NewProjectModal } from './new-project-modal';
-import { ProjectPickerModal } from './project-picker-modal';
 import { CloningProjectRow, ProjectRow } from './project-row';
 import { SkillsModal } from './skills-modal';
 import { showToast } from './toast-provider';
@@ -153,6 +151,7 @@ const REFRESH_RAW_HINTS = [
 
 export function Sidebar({ isOpen, onClose, onLoginClick }: SidebarProps) {
   const { id: openSessionId } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const status = useAuthStore((s) => s.status);
   const projects = useProjectsStore((s) => s.projects);
   const projectsStatus = useProjectsStore((s) => s.status);
@@ -161,9 +160,9 @@ export function Sidebar({ isOpen, onClose, onLoginClick }: SidebarProps) {
   const fetchSessions = useSessionsStore((s) => s.fetch);
   const filesOpen = useSidebarViewStore((s) => s.filesOpen);
 
-  const [newProjectOpen, setNewProjectOpen] = useState(false);
   const [skillsOpen, setSkillsOpen] = useState(false);
-  const [pickerOpen, setPickerOpen] = useState(false);
+  const launchNewTask = useProjectLaunchStore((s) => s.launch);
+  const openNewProject = useProjectLaunchStore((s) => s.openNewProject);
 
   const activeProjectName = useMemo(() => {
     if (!openSessionId) return null;
@@ -251,24 +250,16 @@ export function Sidebar({ isOpen, onClose, onLoginClick }: SidebarProps) {
       onLoginClick();
       return;
     }
-    const list = useProjectsStore.getState().projects;
-    const locals = list.filter((p) => p.origin === 'local');
-    const hasForeign = list.some((p) => p.origin === 'foreign');
-    if (locals.length === 0) {
-      setNewProjectOpen(true);
-      showToast({
-        message: hasForeign ? 'Adopt a session or create a new project' : 'Create a project first',
-        type: 'info',
-      });
-      return;
-    }
-    if (locals.length === 1) {
-      const only = locals[0];
-      if (only) useNewSessionStore.getState().request(only);
-      return;
-    }
-    setPickerOpen(true);
-  }, [onClose, status, onLoginClick]);
+    launchNewTask({
+      onNoLocalProjects: (hasForeign) =>
+        showToast({
+          message: hasForeign
+            ? 'Adopt a session or create a new project'
+            : 'Create a project first',
+          type: 'info',
+        }),
+    });
+  }, [onClose, status, onLoginClick, launchNewTask]);
 
   // Memoize so ProjectRow receives a stable bucket reference per project name
   // and bails out of unrelated re-renders (modal open/close, auth churn).
@@ -286,13 +277,22 @@ export function Sidebar({ isOpen, onClose, onLoginClick }: SidebarProps) {
           isOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-        {/* Logo */}
-        <div className="flex items-center gap-2 px-4 py-3">
-          <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground font-bold text-sm">
+        {/* Logo — back to home. Closes the drawer on mobile when tapped. */}
+        <button
+          type="button"
+          onClick={() => {
+            onClose?.();
+            navigate('/');
+          }}
+          aria-label="Go to home"
+          title="More Than Code — home"
+          className="flex items-center gap-2 px-4 py-3 text-left transition-opacity hover:opacity-80 cursor-pointer"
+        >
+          <span className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground font-bold text-sm">
             M
-          </div>
+          </span>
           <span className="text-sm font-semibold">More Than Code</span>
-        </div>
+        </button>
 
         {/* Nav items */}
         <nav className="flex flex-col gap-0.5 px-3 py-2">
@@ -341,7 +341,7 @@ export function Sidebar({ isOpen, onClose, onLoginClick }: SidebarProps) {
                 type="button"
                 onClick={() => {
                   onClose?.();
-                  setNewProjectOpen(true);
+                  openNewProject();
                 }}
                 className="mb-2 w-full gap-2"
               >
@@ -436,13 +436,7 @@ export function Sidebar({ isOpen, onClose, onLoginClick }: SidebarProps) {
         />
       )}
 
-      <NewProjectModal isOpen={newProjectOpen} onClose={() => setNewProjectOpen(false)} />
       <SkillsModal isOpen={skillsOpen} onClose={() => setSkillsOpen(false)} />
-      <ProjectPickerModal
-        isOpen={pickerOpen}
-        onClose={() => setPickerOpen(false)}
-        projects={projects}
-      />
     </>
   );
 }

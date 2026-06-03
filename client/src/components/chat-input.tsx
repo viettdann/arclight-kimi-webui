@@ -1,4 +1,14 @@
-import { Brain, Check, ChevronDown, Gauge, Send, ShieldCheck, Square, Zap } from 'lucide-react';
+import {
+  Brain,
+  Check,
+  ChevronDown,
+  FolderGit2,
+  Gauge,
+  Send,
+  ShieldCheck,
+  Square,
+  Zap,
+} from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router';
 import {
@@ -9,13 +19,20 @@ import {
 } from 'shared/commands';
 import { type ApprovalMode, EFFORT_OPTIONS, type EffortLevel, effortLabel } from 'shared/types';
 import { Button } from '@/components/ui/button';
-import { DropdownItem, DropdownMenu, DropdownSeparator } from '@/components/ui/dropdown-menu';
+import {
+  DropdownItem,
+  DropdownMenu,
+  DropdownSeparator,
+  DropdownSubmenu,
+} from '@/components/ui/dropdown-menu';
+import { useAuthStore } from '../lib/auth-store';
 import { useChatStore } from '../lib/chat-store';
 import { useCommandStore } from '../lib/command-store';
 import { useDraftStore } from '../lib/draft-store';
+import { useProjectLaunchStore } from '../lib/project-launch-store';
 import { isResolvable, labelFor, useProvidersStore } from '../lib/providers-store';
 import { DRAFT_WORKDIR_PARAM } from '../lib/router';
-import { useSessionDefaultsStore } from '../lib/session-defaults-store';
+import { useSessionDefaultsStore, withSilentSave } from '../lib/session-defaults-store';
 import { useSessionsStore } from '../lib/sessions-store';
 import { sendWS } from '../lib/ws-send';
 import { ConfirmBypassDialog } from './confirm-bypass-dialog';
@@ -79,6 +96,16 @@ export function ChatInput() {
   const isDraft = !sessionId && draftWorkDir != null;
   // Composer is interactive when bound to a real session OR a draft.
   const canCompose = Boolean(sessionId) || isDraft;
+  // Welcome/landing: no session and no draft yet. The composer can't send until
+  // a project is chosen, so it shows a "Select repo" control that opens the
+  // new-task flow (which navigates to the draft route and unlocks composing).
+  const isWelcome = !sessionId && !isDraft;
+  const authStatus = useAuthStore((s) => s.status);
+  const launchNewTask = useProjectLaunchStore((s) => s.launch);
+  const selectProject = useCallback(() => {
+    if (authStatus !== 'authenticated') return;
+    launchNewTask();
+  }, [authStatus, launchNewTask]);
   // Storage key for the persisted draft text: the session id once one exists,
   // else a workDir-scoped key so a reload of the draft route restores the text.
   const draftKey = sessionId ?? (draftWorkDir ? `new:${draftWorkDir}` : null);
@@ -173,9 +200,14 @@ export function ChatInput() {
 
   // Human-readable label for the current selection. An orphaned selection shows
   // a reselect prompt; otherwise the resolved label or the empty-state prompt.
+  // `modelLabel` keeps the `namespace/model` form (desktop); `modelLabelCompact`
+  // drops the namespace so the pill stays short on narrow viewports.
   const modelLabel = isUnresolvable
     ? 'Unavailable — reselect'
     : (labelFor(available, effectiveProviderId, effectiveModel) ?? 'Select a model');
+  const modelLabelCompact = isUnresolvable
+    ? 'Unavailable'
+    : (labelFor(available, effectiveProviderId, effectiveModel, true) ?? 'Select a model');
 
   const needsSelection =
     status === 'ready' && !noModelsAvailable && (!hasSelection || isUnresolvable);
@@ -359,12 +391,12 @@ export function ChatInput() {
   const applyApprovalMode = (mode: ApprovalMode) => {
     if (isDraft) {
       setDraftApprovalMode(mode);
-      useSessionDefaultsStore.getState().setApprovalMode(mode);
+      withSilentSave(() => useSessionDefaultsStore.getState().setApprovalMode(mode));
       return;
     }
     if (!sessionId) return;
     useChatStore.getState().setSessionFlags(sessionId, { approvalMode: mode });
-    useSessionDefaultsStore.getState().setApprovalMode(mode);
+    withSilentSave(() => useSessionDefaultsStore.getState().setApprovalMode(mode));
   };
 
   // Switching to bypass is gated by a confirm dialog the first time per composer.
@@ -388,25 +420,25 @@ export function ChatInput() {
     if (isDraft) {
       setDraftThinking((on) => {
         const next = !on;
-        useSessionDefaultsStore.getState().setThinking(next);
+        withSilentSave(() => useSessionDefaultsStore.getState().setThinking(next));
         return next;
       });
       return;
     }
     if (!sessionId) return;
     useChatStore.getState().setSessionFlags(sessionId, { thinking: !thinking });
-    useSessionDefaultsStore.getState().setThinking(!thinking);
+    withSilentSave(() => useSessionDefaultsStore.getState().setThinking(!thinking));
   };
 
   const setEffort = (next: EffortLevel | null) => {
     if (isDraft) {
       setDraftEffort(next);
-      useSessionDefaultsStore.getState().setEffort(next);
+      withSilentSave(() => useSessionDefaultsStore.getState().setEffort(next));
       return;
     }
     if (!sessionId) return;
     useChatStore.getState().setSessionFlags(sessionId, { effort: next });
-    useSessionDefaultsStore.getState().setEffort(next);
+    withSilentSave(() => useSessionDefaultsStore.getState().setEffort(next));
   };
 
   // Pick a command from the picker: rewrite the composer to `/name ` and place
@@ -507,6 +539,28 @@ export function ChatInput() {
             onHover={setActiveIndex}
           />
         )}
+        {/* Welcome only: pick/clone a project to start in. Choosing one routes to
+            the draft composer, which unlocks the textarea below. */}
+        {isWelcome && (
+          <div className="px-3 pt-3">
+            <Button
+              type="button"
+              variant="outline"
+              size="xs"
+              onClick={selectProject}
+              disabled={authStatus !== 'authenticated'}
+              className="cursor-pointer rounded-xl"
+              title={
+                authStatus === 'authenticated'
+                  ? 'Pick a project or clone a repo to start'
+                  : 'Log in to start a task'
+              }
+            >
+              <FolderGit2 className="h-3.5 w-3.5" />
+              Select repo…
+            </Button>
+          </div>
+        )}
         <textarea
           ref={textareaRef}
           value={text}
@@ -517,13 +571,18 @@ export function ChatInput() {
           disabled={!canCompose || noModelsAvailable}
           aria-label="Chat input"
           rows={1}
-          className="w-full resize-none bg-transparent px-4 pt-3.5 pb-2 text-sm outline-none placeholder:text-muted-foreground/60 disabled:cursor-not-allowed"
+          className="w-full resize-none bg-transparent px-4 pt-3.5 pb-3 text-sm outline-none placeholder:text-muted-foreground/60 disabled:cursor-not-allowed"
           style={{ minHeight: '44px', maxHeight: '144px' }}
         />
+      </div>
 
-        <div className="flex items-center justify-between px-3 pb-2.5">
-          {/* Reasoning — Thinking toggle + reasoning effort, grouped together. */}
-          <span className="inline-flex items-center rounded-xl border border-border bg-card-2 px-1 transition-colors hover:bg-muted">
+      {/* Send controls live BELOW the input box (outside its border): Approval +
+          Model (reasoning nested) on the left, Send/Stop on the right. Project
+          selection (Welcome) stays inside the box above; these are message
+          attributes, not context. */}
+      <div className="flex items-center justify-between gap-2 px-1 pt-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="inline-flex min-w-0 items-center rounded-xl border border-border bg-card-2 px-1 transition-colors hover:bg-muted">
             <DropdownMenu
               align="start"
               trigger={
@@ -531,15 +590,24 @@ export function ChatInput() {
                   type="button"
                   variant="ghost"
                   size="xs"
-                  className={`cursor-pointer ${thinking ? 'text-primary' : 'text-muted-foreground'}`}
+                  className={`cursor-pointer ${approvalMode === 'bypass' ? 'text-warning' : 'text-muted-foreground'}`}
                   disabled={!canCompose}
-                  aria-label="Reasoning"
-                  title="Thinking & reasoning effort — applies from the next message"
+                  aria-label="Approval mode"
+                  title="Approval mode — applies from the next message"
                 >
-                  <Brain className="h-3.5 w-3.5" />
-                  <span>
-                    {thinking ? 'Thinking' : 'Thinking off'}
-                    {thinking && effort ? ` · ${effortLabel(effort)}` : ''}
+                  {approvalMode === 'bypass' ? (
+                    <Zap className="h-3.5 w-3.5" />
+                  ) : (
+                    <ShieldCheck
+                      className={`h-3.5 w-3.5 ${approvalMode === 'safe' ? 'text-primary' : ''}`}
+                    />
+                  )}
+                  <span className="hidden sm:inline">
+                    {approvalMode === 'bypass'
+                      ? 'Bypass'
+                      : approvalMode === 'safe'
+                        ? 'Safe'
+                        : 'Ask first'}
                   </span>
                   <ChevronDown className="h-3.5 w-3.5" />
                 </Button>
@@ -548,257 +616,234 @@ export function ChatInput() {
               <div className="px-2 pt-1 pb-1.5 text-[11px] text-muted-foreground select-none">
                 Applies from the next message
               </div>
-
               <DropdownItem
-                onClick={toggleThinking}
-                closeOnClick={false}
-                trailing={<Switch on={thinking} />}
+                onClick={() => setApprovalMode('ask')}
+                icon={<Check className={approvalMode === 'ask' ? '' : 'opacity-0'} />}
               >
-                <span className="flex items-center gap-2">
-                  <Brain className="h-3.5 w-3.5" />
-                  Thinking
+                <span className="flex flex-col">
+                  <span>Ask first</span>
+                  <span className="text-xs text-muted-foreground">
+                    Approve each tool before it runs
+                  </span>
                 </span>
               </DropdownItem>
-
-              <DropdownSeparator />
-
-              {/* Effort only applies under extended thinking; dim + disable when off. */}
-              <div
-                className={`flex items-center gap-2 px-2 pt-1 pb-0.5 text-[10px] font-semibold uppercase tracking-wider select-none ${
-                  thinking ? 'text-muted-foreground' : 'text-muted-foreground/40'
-                }`}
+              <DropdownItem
+                onClick={() => setApprovalMode('safe')}
+                icon={<Check className={approvalMode === 'safe' ? '' : 'opacity-0'} />}
               >
-                <Gauge className="h-3 w-3" />
-                Effort
-              </div>
-              {EFFORT_OPTIONS.map((opt) => (
-                <DropdownItem
-                  key={opt.label}
-                  disabled={!thinking}
-                  onClick={() => setEffort(opt.value)}
-                  icon={<Check className={thinking && effort === opt.value ? '' : 'opacity-0'} />}
-                >
-                  <span>{opt.label}</span>
-                </DropdownItem>
-              ))}
+                <span className="flex flex-col">
+                  <span className="flex items-center gap-1.5">
+                    Safe · pre-approved tools
+                    <ShieldCheck className="h-3 w-3 text-primary" />
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    Auto-approve read-only tools, ask for the rest
+                  </span>
+                </span>
+              </DropdownItem>
+              <DropdownItem
+                onClick={() => setApprovalMode('bypass')}
+                icon={<Check className={approvalMode === 'bypass' ? '' : 'opacity-0'} />}
+              >
+                <span className="flex flex-col">
+                  <span className="flex items-center gap-1.5">
+                    Bypass · YOLO
+                    <Zap className="h-3 w-3 text-warning" />
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    Run every tool without asking
+                  </span>
+                </span>
+              </DropdownItem>
             </DropdownMenu>
           </span>
 
-          <div className="flex items-center gap-2">
-            <span className="inline-flex items-center rounded-xl border border-border bg-card-2 px-1 transition-colors hover:bg-muted">
-              <DropdownMenu
-                align="end"
-                trigger={
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="xs"
-                    className={`cursor-pointer ${approvalMode === 'bypass' ? 'text-warning' : 'text-muted-foreground'}`}
-                    disabled={!canCompose}
-                    aria-label="Approval mode"
-                    title="Approval mode — applies from the next message"
-                  >
-                    {approvalMode === 'bypass' ? (
-                      <Zap className="h-3.5 w-3.5" />
-                    ) : (
-                      <ShieldCheck
-                        className={`h-3.5 w-3.5 ${approvalMode === 'safe' ? 'text-primary' : ''}`}
-                      />
-                    )}
-                    <span className="hidden sm:inline">
-                      {approvalMode === 'bypass'
-                        ? 'Bypass'
-                        : approvalMode === 'safe'
-                          ? 'Safe'
-                          : 'Ask first'}
-                    </span>
-                    <ChevronDown className="h-3.5 w-3.5" />
-                  </Button>
-                }
-              >
-                <div className="px-2 pt-1 pb-1.5 text-[11px] text-muted-foreground select-none">
-                  Applies from the next message
-                </div>
-                <DropdownItem
-                  onClick={() => setApprovalMode('ask')}
-                  icon={<Check className={approvalMode === 'ask' ? '' : 'opacity-0'} />}
+          <span className="inline-flex min-w-0 items-center rounded-xl border border-border bg-card-2 px-1 transition-colors hover:bg-muted">
+            <DropdownMenu
+              align="end"
+              trigger={
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="xs"
+                  className={`cursor-pointer ${needsSelection ? 'text-warning' : 'text-muted-foreground'}`}
+                  disabled={!canCompose}
+                  aria-label="Model"
+                  title={
+                    isUnresolvable
+                      ? MSG_MODEL_UNRESOLVABLE
+                      : needsSelection
+                        ? MSG_SELECT_MODEL
+                        : 'Model — applies from the next message'
+                  }
                 >
-                  <span className="flex flex-col">
-                    <span>Ask first</span>
-                    <span className="text-xs text-muted-foreground">
-                      Approve each tool before it runs
+                  {/* Mobile drops the provider namespace (compact); desktop
+                        keeps the full `namespace/model` form. */}
+                  <span className="max-w-[16ch] truncate sm:hidden">{modelLabelCompact}</span>
+                  <span className="hidden max-w-[16ch] truncate sm:inline">{modelLabel}</span>
+                  {/* Reasoning rolled into the model pill (ref composer style):
+                        show the effort initial only when a level is chosen and
+                        thinking is on; Default/off stays clean. */}
+                  {thinking && effort ? (
+                    <span className="font-semibold uppercase text-primary">
+                      {' · '}
+                      {effort.charAt(0)}
                     </span>
-                  </span>
-                </DropdownItem>
-                <DropdownItem
-                  onClick={() => setApprovalMode('safe')}
-                  icon={<Check className={approvalMode === 'safe' ? '' : 'opacity-0'} />}
-                >
-                  <span className="flex flex-col">
-                    <span className="flex items-center gap-1.5">
-                      Safe · pre-approved tools
-                      <ShieldCheck className="h-3 w-3 text-primary" />
-                    </span>
-                    <span className="text-xs text-muted-foreground">
-                      Auto-approve read-only tools, ask for the rest
-                    </span>
-                  </span>
-                </DropdownItem>
-                <DropdownItem
-                  onClick={() => setApprovalMode('bypass')}
-                  icon={<Check className={approvalMode === 'bypass' ? '' : 'opacity-0'} />}
-                >
-                  <span className="flex flex-col">
-                    <span className="flex items-center gap-1.5">
-                      Bypass · YOLO
-                      <Zap className="h-3 w-3 text-warning" />
-                    </span>
-                    <span className="text-xs text-muted-foreground">
-                      Run every tool without asking
-                    </span>
-                  </span>
-                </DropdownItem>
-              </DropdownMenu>
-            </span>
+                  ) : null}
+                  <ChevronDown className="h-3.5 w-3.5" />
+                </Button>
+              }
+            >
+              <div className="px-2 pt-1 pb-1.5 text-[11px] text-muted-foreground select-none truncate max-w-[20ch]">
+                {modelLabel}
+              </div>
 
-            <span className="inline-flex items-center rounded-xl border border-border bg-card-2 px-1 transition-colors hover:bg-muted">
-              <DropdownMenu
-                align="end"
-                trigger={
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="xs"
-                    className={`cursor-pointer ${needsSelection ? 'text-warning' : 'text-muted-foreground'}`}
-                    disabled={!canCompose}
-                    aria-label="Model"
-                    title={
-                      isUnresolvable
-                        ? MSG_MODEL_UNRESOLVABLE
-                        : needsSelection
-                          ? MSG_SELECT_MODEL
-                          : 'Model — applies from the next message'
-                    }
-                  >
-                    <span className="max-w-[16ch] truncate">{modelLabel}</span>
-                    <ChevronDown className="h-3.5 w-3.5" />
-                  </Button>
-                }
-              >
-                <div className="px-2 pt-1 pb-1.5 text-[11px] text-muted-foreground select-none truncate max-w-[20ch]">
-                  {modelLabel}
-                </div>
-
-                {builtinProviders.length > 0 && (
-                  <>
-                    <div className="px-2 pt-1.5 pb-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground select-none">
-                      Built-in
-                    </div>
-                    {builtinProviders.flatMap((provider) =>
-                      provider.models.map((m) => {
-                        const isActive =
-                          effectiveProviderId === provider.id && effectiveModel === m.modelId;
-                        return (
-                          <DropdownItem
-                            key={`${provider.id}/${m.modelId}`}
-                            onClick={() => {
-                              setSelectedProviderId(provider.id);
-                              setSelectedModel(m.modelId);
+              {builtinProviders.length > 0 && (
+                <>
+                  <div className="px-2 pt-1.5 pb-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground select-none">
+                    Built-in
+                  </div>
+                  {builtinProviders.flatMap((provider) =>
+                    provider.models.map((m) => {
+                      const isActive =
+                        effectiveProviderId === provider.id && effectiveModel === m.modelId;
+                      return (
+                        <DropdownItem
+                          key={`${provider.id}/${m.modelId}`}
+                          onClick={() => {
+                            setSelectedProviderId(provider.id);
+                            setSelectedModel(m.modelId);
+                            withSilentSave(() => {
                               useSessionDefaultsStore.getState().setProviderId(provider.id);
                               useSessionDefaultsStore.getState().setModel(m.modelId);
-                            }}
-                            icon={<Check className={isActive ? '' : 'opacity-0'} />}
-                          >
-                            <span>{`${provider.namespace}/${m.displayName ?? m.modelId}`}</span>
-                          </DropdownItem>
-                        );
-                      }),
-                    )}
-                  </>
-                )}
+                            });
+                          }}
+                          icon={<Check className={isActive ? '' : 'opacity-0'} />}
+                        >
+                          <span>{`${provider.namespace}/${m.displayName ?? m.modelId}`}</span>
+                        </DropdownItem>
+                      );
+                    }),
+                  )}
+                </>
+              )}
 
-                {personalProviders.length > 0 && (
-                  <>
-                    <div className="px-2 pt-1.5 pb-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground select-none">
-                      Personal
-                    </div>
-                    {personalProviders.flatMap((provider) =>
-                      provider.models.map((m) => {
-                        const isActive =
-                          effectiveProviderId === provider.id && effectiveModel === m.modelId;
-                        return (
-                          <DropdownItem
-                            key={`${provider.id}/${m.modelId}`}
-                            onClick={() => {
-                              setSelectedProviderId(provider.id);
-                              setSelectedModel(m.modelId);
+              {personalProviders.length > 0 && (
+                <>
+                  <div className="px-2 pt-1.5 pb-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground select-none">
+                    Personal
+                  </div>
+                  {personalProviders.flatMap((provider) =>
+                    provider.models.map((m) => {
+                      const isActive =
+                        effectiveProviderId === provider.id && effectiveModel === m.modelId;
+                      return (
+                        <DropdownItem
+                          key={`${provider.id}/${m.modelId}`}
+                          onClick={() => {
+                            setSelectedProviderId(provider.id);
+                            setSelectedModel(m.modelId);
+                            withSilentSave(() => {
                               useSessionDefaultsStore.getState().setProviderId(provider.id);
                               useSessionDefaultsStore.getState().setModel(m.modelId);
-                            }}
-                            icon={<Check className={isActive ? '' : 'opacity-0'} />}
-                          >
-                            <span>{`${provider.namespace}/${m.displayName ?? m.modelId}`}</span>
-                          </DropdownItem>
-                        );
-                      }),
-                    )}
-                  </>
-                )}
+                            });
+                          }}
+                          icon={<Check className={isActive ? '' : 'opacity-0'} />}
+                        >
+                          <span>{`${provider.namespace}/${m.displayName ?? m.modelId}`}</span>
+                        </DropdownItem>
+                      );
+                    }),
+                  )}
+                </>
+              )}
 
-                {status === 'loading' && (
+              {status === 'loading' && (
+                <div className="px-2 py-2 text-xs text-muted-foreground select-none">
+                  Loading providers…
+                </div>
+              )}
+
+              {status === 'error' && (
+                <DropdownItem onClick={() => void load()}>
+                  <span className="flex flex-col">
+                    <span className="text-warning">Failed to load — retry</span>
+                    {error && (
+                      <span className="text-xs text-muted-foreground truncate">{error}</span>
+                    )}
+                  </span>
+                </DropdownItem>
+              )}
+
+              {status === 'ready' &&
+                builtinProviders.length === 0 &&
+                personalProviders.length === 0 && (
                   <div className="px-2 py-2 text-xs text-muted-foreground select-none">
-                    Loading providers…
+                    No providers configured
                   </div>
                 )}
 
-                {status === 'error' && (
-                  <DropdownItem onClick={() => void load()}>
-                    <span className="flex flex-col">
-                      <span className="text-warning">Failed to load — retry</span>
-                      {error && (
-                        <span className="text-xs text-muted-foreground truncate">{error}</span>
-                      )}
-                    </span>
+              <DropdownSeparator />
+
+              {/* Reasoning lives under the model pill (ref composer): a nested
+                    Effort submenu whose own footer toggles Thinking. Effort only
+                    bites under extended thinking, so it's disabled when off. */}
+              <DropdownSubmenu
+                icon={<Gauge className="h-3.5 w-3.5" />}
+                label="Effort"
+                value={thinking ? effortLabel(effort) : 'Off'}
+              >
+                {EFFORT_OPTIONS.map((opt) => (
+                  <DropdownItem
+                    key={opt.label}
+                    disabled={!thinking}
+                    onClick={() => setEffort(opt.value)}
+                    icon={<Check className={thinking && effort === opt.value ? '' : 'opacity-0'} />}
+                  >
+                    <span>{opt.label}</span>
                   </DropdownItem>
-                )}
-
-                {status === 'ready' &&
-                  builtinProviders.length === 0 &&
-                  personalProviders.length === 0 && (
-                    <div className="px-2 py-2 text-xs text-muted-foreground select-none">
-                      No providers configured
-                    </div>
-                  )}
-              </DropdownMenu>
-            </span>
-
-            {isTurnInProgress ? (
-              <Button
-                type="button"
-                size="icon-sm"
-                variant="destructive"
-                onClick={handlePrimaryAction}
-                disabled={!canCompose}
-                aria-label="Stop turn"
-                title="Stop the running agent"
-                className="cursor-pointer"
-              >
-                <Square />
-              </Button>
-            ) : (
-              <Button
-                type="button"
-                size="icon-sm"
-                onClick={handlePrimaryAction}
-                disabled={!text.trim() || !canCompose || noModelsAvailable || needsSelection}
-                aria-label="Send message"
-                className="cursor-pointer"
-              >
-                <Send />
-              </Button>
-            )}
-          </div>
+                ))}
+                <DropdownSeparator />
+                <DropdownItem
+                  onClick={toggleThinking}
+                  closeOnClick={false}
+                  trailing={<Switch on={thinking} />}
+                >
+                  <span className="flex items-center gap-2">
+                    <Brain className="h-3.5 w-3.5" />
+                    Thinking
+                  </span>
+                </DropdownItem>
+              </DropdownSubmenu>
+            </DropdownMenu>
+          </span>
         </div>
+
+        {isTurnInProgress ? (
+          <Button
+            type="button"
+            size="icon-sm"
+            variant="destructive"
+            onClick={handlePrimaryAction}
+            disabled={!canCompose}
+            aria-label="Stop turn"
+            title="Stop the running agent"
+            className="cursor-pointer"
+          >
+            <Square />
+          </Button>
+        ) : (
+          <Button
+            type="button"
+            size="icon-sm"
+            onClick={handlePrimaryAction}
+            disabled={!text.trim() || !canCompose || noModelsAvailable || needsSelection}
+            aria-label="Send message"
+            className="cursor-pointer"
+          >
+            <Send />
+          </Button>
+        )}
       </div>
 
       <ConfirmBypassDialog

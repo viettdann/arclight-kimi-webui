@@ -51,6 +51,29 @@ interface SessionDefaultsState {
   load: () => Promise<void>;
 }
 
+// Auto-saves triggered from the chat composer (model/approval/thinking/effort
+// pills) must persist silently — the composer flips these constantly and a
+// "Saved" toast each time is noise the user neither needs nor asked for. The
+// Settings panel still saves through the toast lifecycle (that's where the
+// confirmation matters). A module-level depth counter scopes the silent window
+// so nested/overlapping calls (e.g. setProviderId + setModel) compose. Saves
+// still happen and `saveFailed` is still tracked; only the toast is suppressed.
+let silentDepth = 0;
+
+/**
+ * Run `fn` with session-defaults saves suppressed from the toast lifecycle.
+ * The debounced flush is captured against the current silent state, so call
+ * the setters synchronously inside `fn`.
+ */
+export function withSilentSave<T>(fn: () => T): T {
+  silentDepth += 1;
+  try {
+    return fn();
+  } finally {
+    silentDepth -= 1;
+  }
+}
+
 function isApprovalMode(v: unknown): v is ApprovalMode {
   return typeof v === 'string' && (APPROVAL_MODES as readonly string[]).includes(v);
 }
@@ -63,7 +86,16 @@ export const useSessionDefaultsStore = create<SessionDefaultsState>((set) => {
   let flushTimer: ReturnType<typeof setTimeout> | null = null;
   let pending: Record<string, unknown> = {};
 
-  function persist(changes: { key: string; value: unknown }[]) {
+  function persist(changes: { key: string; value: unknown }[], silent: boolean) {
+    if (silent) {
+      // Save without the toast lifecycle, but keep tracking save failures so the
+      // Settings close-lock / error state still reflects reality.
+      void putMySettings(changes).then(
+        () => set({ saveFailed: false }),
+        () => set({ saveFailed: true }),
+      );
+      return;
+    }
     saveWithToast(() => putMySettings(changes), {
       error: 'Failed to save defaults',
       onSettled: (failed) => set({ saveFailed: failed }),
@@ -72,11 +104,15 @@ export const useSessionDefaultsStore = create<SessionDefaultsState>((set) => {
 
   function scheduleFlush() {
     if (flushTimer) clearTimeout(flushTimer);
+    // Capture the silent state at queue time: the chat composer's setters run
+    // inside `withSilentSave`, so a flush they schedule must stay silent even
+    // though it fires after the synchronous call has returned.
+    const silent = silentDepth > 0;
     flushTimer = setTimeout(() => {
       const changes = Object.entries(pending).map(([key, value]) => ({ key, value }));
       pending = {};
       if (changes.length === 0) return;
-      persist(changes);
+      persist(changes, silent);
     }, DEBOUNCE_MS);
   }
 

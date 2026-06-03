@@ -223,9 +223,12 @@ describe('listProjectsForUser', () => {
     expect(result.map((p) => p.name)).toEqual(['real-proj']);
   });
 
-  it('override mode: only custom entries are used', async () => {
+  it('override mode: only custom entries are used (non-default names still scan)', async () => {
     await mkdir(userRoot, { recursive: true, mode: 0o700 });
-    await mkdir(path.join(userRoot, '.git'), { mode: 0o700 });
+    // `node_modules` is a default-only entry; under override it's dropped from
+    // the blacklist, so it scans as a project again.
+    await mkdir(path.join(userRoot, 'node_modules'), { mode: 0o700 });
+    await mkdir(path.join(userRoot, 'other-ignore'), { mode: 0o700 });
     await mkdir(path.join(userRoot, 'real-proj'), { mode: 0o700 });
 
     const fake = makeFakeDb();
@@ -241,8 +244,31 @@ describe('listProjectsForUser', () => {
       db: fake.db,
       env: { WORKSPACE_ROOT: tmpRoot },
     });
-    // .git is NOT blacklisted because override replaces defaults entirely
-    expect(result.map((p) => p.name)).toEqual(['.git', 'real-proj']);
+    // node_modules scans (not in custom entries); other-ignore is filtered.
+    expect(result.map((p) => p.name)).toEqual(['node_modules', 'real-proj']);
+  });
+
+  it('dot-folders are always skipped, even in override mode', async () => {
+    await mkdir(userRoot, { recursive: true, mode: 0o700 });
+    await mkdir(path.join(userRoot, '.git'), { mode: 0o700 });
+    await mkdir(path.join(userRoot, '.some-future-tool'), { mode: 0o700 });
+    await mkdir(path.join(userRoot, 'real-proj'), { mode: 0o700 });
+
+    const fake = makeFakeDb();
+    // Override with an empty blacklist — the dot rule is independent of it.
+    fake.selectQueue.push([
+      { key: ENTRIES_KEY, value: [] },
+      { key: OVERRIDE_KEY, value: true },
+    ]); // select site_settings (override, empty)
+    fake.selectQueue.push([]); // selectDistinct projectNames
+
+    const result = await listProjectsForUser({
+      userId: USER_ID,
+      userEmail: USER_EMAIL,
+      db: fake.db,
+      env: { WORKSPACE_ROOT: tmpRoot },
+    });
+    expect(result.map((p) => p.name)).toEqual(['real-proj']);
   });
 
   it('filters blacklisted foreign project names too', async () => {

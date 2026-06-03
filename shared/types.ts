@@ -551,28 +551,36 @@ export interface UserPreferencesUpdateRequest {
   content: string;
 }
 
-/** Default blacklist entries for project discovery. */
+/**
+ * Default blacklist entries for project discovery.
+ *
+ * Dot-folders (`.git`, `.cache`, `.venv`, …) are skipped unconditionally by the
+ * scanner — a project is never a dot-prefixed directory — so they are NOT listed
+ * here. This list only needs non-dot build output and dependency directories.
+ */
 export const DEFAULT_PROJECT_DISCOVERY_BLACKLIST = [
-  '.git',
-  '.claude',
-  '.vscode',
-  '.idea',
+  // JS / TS deps + build output
   'node_modules',
-  '.turbo',
-  '.next',
+  'bower_components',
   'dist',
   'build',
-  'target',
-  '.cache',
-  '.pytest_cache',
-  '__pycache__',
-  '.mypy_cache',
-  '.tox',
-  '.egg-info',
-  '.coverage',
-  '.nyc_output',
+  'out',
+  'output',
   'coverage',
-  '.DS_Store',
+  // dotnet build output
+  'bin',
+  'obj',
+  // JVM / Rust build output
+  'target',
+  // PHP / Go vendored deps
+  'vendor',
+  // Python
+  '__pycache__',
+  // iOS / macOS tooling
+  'Pods',
+  'DerivedData',
+  // misc
+  'tmp',
   'Thumbs.db',
 ] as const;
 

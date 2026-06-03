@@ -95,7 +95,7 @@ export function ProjectRow({ project, sessions, isActive }: ProjectRowProps) {
           variant="ghost"
           onClick={() => toggleExpanded(project.name)}
           className={cn(
-            'w-full justify-start gap-1.5 px-2 pr-9 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground',
+            'w-full justify-start gap-1.5 px-2 pr-8 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground',
             isActive && 'bg-transparent',
           )}
         >
@@ -109,47 +109,10 @@ export function ProjectRow({ project, sessions, isActive }: ProjectRowProps) {
           <span className="truncate font-medium">{project.name}</span>
         </Button>
 
-        {/* Trailing actions: hidden on desktop until hover/focus, always shown on
-            touch. Mirrors SessionRow so projects and sessions feel consistent. */}
-        <div className="absolute right-1.5 flex items-center gap-0.5 opacity-100 transition-opacity md:opacity-0 md:group-focus-within/project-row:opacity-100 md:group-hover/project-row:opacity-100">
-          {isActive && !isForeign && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-xs"
-              onClick={handleOpenFiles}
-              aria-label={`File management for ${project.name}`}
-              title="File Management"
-              className="text-success hover:bg-sidebar-accent"
-            >
-              <FolderTree />
-            </Button>
-          )}
-          {isForeign ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-xs"
-              onClick={handleRestoreClick}
-              aria-label={`Restore project ${project.name}`}
-              title={`Restore '${project.name}' to this machine`}
-              className="hover:bg-sidebar-accent"
-            >
-              <CloudDownload />
-            </Button>
-          ) : (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-xs"
-              onClick={handleNewTask}
-              aria-label={`New task in ${project.name}`}
-              title={`New task in ${project.name}`}
-              className="hover:bg-sidebar-accent"
-            >
-              <Plus />
-            </Button>
-          )}
+        {/* Mọi hành động gom vào một menu overflow duy nhất. Trước đây ba nút
+            (file management + new task + more) xếp cạnh nhau và đè lên tên
+            project dài; một nút cố định giữ row gọn trên cả desktop lẫn touch. */}
+        <div className="absolute right-1.5 flex items-center">
           <DropdownMenu
             trigger={
               <Button
@@ -163,6 +126,20 @@ export function ProjectRow({ project, sessions, isActive }: ProjectRowProps) {
               </Button>
             }
           >
+            {isActive && !isForeign && (
+              <DropdownItem icon={<FolderTree />} onClick={handleOpenFiles}>
+                File management
+              </DropdownItem>
+            )}
+            {isForeign ? (
+              <DropdownItem icon={<CloudDownload />} onClick={handleRestoreClick}>
+                Restore to this machine
+              </DropdownItem>
+            ) : (
+              <DropdownItem icon={<Plus />} onClick={handleNewTask}>
+                New task
+              </DropdownItem>
+            )}
             <DropdownItem destructive icon={<Trash2 />} onClick={() => setConfirmDeleteOpen(true)}>
               Delete project
             </DropdownItem>
