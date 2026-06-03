@@ -123,9 +123,22 @@
     }
   body {
     @apply bg-background text-foreground;
+    /* Khóa chiều cao vào dynamic viewport: trên mobile, khi address bar
+       ẩn/hiện, body không bao giờ cao hơn vùng nhìn thấy nên trang không
+       scroll được — composer luôn dính đáy thay vì bị đẩy lên. */
+    height: 100dvh;
+    overflow: hidden;
+    /* Chặn pull-to-refresh / overscroll bounce khi kéo quá đáy/đỉnh, vốn
+       làm cả layout (kể cả composer) xê dịch trên mobile. */
+    overscroll-behavior: none;
     }
   html {
     @apply font-sans;
+    height: 100%;
+    overscroll-behavior: none;
+    }
+  #root {
+    height: 100%;
     }
 }
 

@@ -94,14 +94,14 @@ export function Shell() {
   }
 
   return (
-    <div className="flex min-h-screen bg-background">
+    <div className="flex h-dvh overflow-hidden bg-background">
       <ToastProvider />
       <Sidebar
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
         onLoginClick={() => setIsModalOpen(true)}
       />
-      <main className="flex flex-1 flex-col pl-0 md:pl-[300px] h-dvh overflow-hidden">
+      <main className="flex min-h-0 flex-1 flex-col pl-0 md:pl-[300px] h-full overflow-hidden">
         {/* Shared top header (desktop + mobile). Left: title + session
             create-time. Right: right-sidebar (Todo/Context) toggle. The
             hamburger only shows on mobile — desktop has the fixed left rail. */}

@@ -1,4 +1,5 @@
 import { Menu } from '@base-ui/react/menu';
+import { ChevronRight } from 'lucide-react';
 import type { MouseEvent, ReactElement, ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 
@@ -90,4 +91,68 @@ export function DropdownItem({
 /** Full-bleed divider between groups inside a dropdown popup. */
 export function DropdownSeparator() {
   return <div className="-mx-1 my-1 h-px bg-border" aria-hidden />;
+}
+
+interface DropdownSubmenuProps {
+  /** Left-aligned glyph shown in the trigger row. */
+  icon?: ReactNode;
+  /** Trigger row label. */
+  label: ReactNode;
+  /** Right-aligned value shown next to the chevron (e.g. the current effort). */
+  value?: ReactNode;
+  disabled?: boolean;
+  align?: 'start' | 'center' | 'end';
+  side?: 'top' | 'bottom' | 'left' | 'right';
+  sideOffset?: number;
+  children: ReactNode;
+}
+
+/**
+ * A dropdown row that opens a nested popup (e.g. Model → Effort). The trigger
+ * mirrors DropdownItem styling so flat items and submenu rows read as one menu.
+ */
+export function DropdownSubmenu({
+  icon,
+  label,
+  value,
+  disabled,
+  align = 'start',
+  side = 'right',
+  sideOffset = 4,
+  children,
+}: DropdownSubmenuProps) {
+  return (
+    <Menu.SubmenuRoot>
+      <Menu.SubmenuTrigger
+        disabled={disabled}
+        className={cn(
+          'flex w-full cursor-default select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none',
+          'data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground',
+          'data-[popup-open]:bg-accent data-[popup-open]:text-accent-foreground',
+          'data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
+        )}
+      >
+        {icon ? <span className="[&_svg]:size-4">{icon}</span> : null}
+        <span className="flex-1 truncate">{label}</span>
+        <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+          {value}
+          <ChevronRight className="size-4" />
+        </span>
+      </Menu.SubmenuTrigger>
+      <Menu.Portal>
+        <Menu.Positioner align={align} side={side} sideOffset={sideOffset} className="z-50">
+          <Menu.Popup
+            className={cn(
+              'min-w-[8rem] overflow-hidden rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md',
+              'origin-[var(--transform-origin)] outline-none',
+              'data-[ending-style]:opacity-0 data-[starting-style]:opacity-0',
+              'transition-opacity duration-100',
+            )}
+          >
+            {children}
+          </Menu.Popup>
+        </Menu.Positioner>
+      </Menu.Portal>
+    </Menu.SubmenuRoot>
+  );
 }

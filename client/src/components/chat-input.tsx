@@ -9,7 +9,12 @@ import {
 } from 'shared/commands';
 import { type ApprovalMode, EFFORT_OPTIONS, type EffortLevel, effortLabel } from 'shared/types';
 import { Button } from '@/components/ui/button';
-import { DropdownItem, DropdownMenu, DropdownSeparator } from '@/components/ui/dropdown-menu';
+import {
+  DropdownItem,
+  DropdownMenu,
+  DropdownSeparator,
+  DropdownSubmenu,
+} from '@/components/ui/dropdown-menu';
 import { useChatStore } from '../lib/chat-store';
 import { useCommandStore } from '../lib/command-store';
 import { useDraftStore } from '../lib/draft-store';
@@ -521,73 +526,13 @@ export function ChatInput() {
           style={{ minHeight: '44px', maxHeight: '144px' }}
         />
 
-        <div className="flex items-center justify-between px-3 pb-2.5">
-          {/* Reasoning — Thinking toggle + reasoning effort, grouped together. */}
-          <span className="inline-flex items-center rounded-xl border border-border bg-card-2 px-1 transition-colors hover:bg-muted">
-            <DropdownMenu
-              align="start"
-              trigger={
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="xs"
-                  className={`cursor-pointer ${thinking ? 'text-primary' : 'text-muted-foreground'}`}
-                  disabled={!canCompose}
-                  aria-label="Reasoning"
-                  title="Thinking & reasoning effort — applies from the next message"
-                >
-                  <Brain className="h-3.5 w-3.5" />
-                  <span>
-                    {thinking ? 'Thinking' : 'Thinking off'}
-                    {thinking && effort ? ` · ${effortLabel(effort)}` : ''}
-                  </span>
-                  <ChevronDown className="h-3.5 w-3.5" />
-                </Button>
-              }
-            >
-              <div className="px-2 pt-1 pb-1.5 text-[11px] text-muted-foreground select-none">
-                Applies from the next message
-              </div>
-
-              <DropdownItem
-                onClick={toggleThinking}
-                closeOnClick={false}
-                trailing={<Switch on={thinking} />}
-              >
-                <span className="flex items-center gap-2">
-                  <Brain className="h-3.5 w-3.5" />
-                  Thinking
-                </span>
-              </DropdownItem>
-
-              <DropdownSeparator />
-
-              {/* Effort only applies under extended thinking; dim + disable when off. */}
-              <div
-                className={`flex items-center gap-2 px-2 pt-1 pb-0.5 text-[10px] font-semibold uppercase tracking-wider select-none ${
-                  thinking ? 'text-muted-foreground' : 'text-muted-foreground/40'
-                }`}
-              >
-                <Gauge className="h-3 w-3" />
-                Effort
-              </div>
-              {EFFORT_OPTIONS.map((opt) => (
-                <DropdownItem
-                  key={opt.label}
-                  disabled={!thinking}
-                  onClick={() => setEffort(opt.value)}
-                  icon={<Check className={thinking && effort === opt.value ? '' : 'opacity-0'} />}
-                >
-                  <span>{opt.label}</span>
-                </DropdownItem>
-              ))}
-            </DropdownMenu>
-          </span>
-
-          <div className="flex items-center gap-2">
-            <span className="inline-flex items-center rounded-xl border border-border bg-card-2 px-1 transition-colors hover:bg-muted">
+        <div className="flex items-center justify-between gap-2 px-3 pb-2.5">
+          {/* Config controls grouped left: Approval, then Model (reasoning
+              nested under it). Send/Stop stays right. */}
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="inline-flex min-w-0 items-center rounded-xl border border-border bg-card-2 px-1 transition-colors hover:bg-muted">
               <DropdownMenu
-                align="end"
+                align="start"
                 trigger={
                   <Button
                     type="button"
@@ -661,7 +606,7 @@ export function ChatInput() {
               </DropdownMenu>
             </span>
 
-            <span className="inline-flex items-center rounded-xl border border-border bg-card-2 px-1 transition-colors hover:bg-muted">
+            <span className="inline-flex min-w-0 items-center rounded-xl border border-border bg-card-2 px-1 transition-colors hover:bg-muted">
               <DropdownMenu
                 align="end"
                 trigger={
@@ -681,6 +626,15 @@ export function ChatInput() {
                     }
                   >
                     <span className="max-w-[16ch] truncate">{modelLabel}</span>
+                    {/* Reasoning rolled into the model pill (ref composer style):
+                        show the effort initial only when a level is chosen and
+                        thinking is on; Default/off stays clean. */}
+                    {thinking && effort ? (
+                      <span className="font-semibold uppercase text-primary">
+                        {' · '}
+                        {effort.charAt(0)}
+                      </span>
+                    ) : null}
                     <ChevronDown className="h-3.5 w-3.5" />
                   </Button>
                 }
@@ -769,35 +723,70 @@ export function ChatInput() {
                       No providers configured
                     </div>
                   )}
+
+                <DropdownSeparator />
+
+                {/* Reasoning lives under the model pill (ref composer): a nested
+                    Effort submenu whose own footer toggles Thinking. Effort only
+                    bites under extended thinking, so it's disabled when off. */}
+                <DropdownSubmenu
+                  icon={<Gauge className="h-3.5 w-3.5" />}
+                  label="Effort"
+                  value={thinking ? effortLabel(effort) : 'Off'}
+                >
+                  {EFFORT_OPTIONS.map((opt) => (
+                    <DropdownItem
+                      key={opt.label}
+                      disabled={!thinking}
+                      onClick={() => setEffort(opt.value)}
+                      icon={
+                        <Check className={thinking && effort === opt.value ? '' : 'opacity-0'} />
+                      }
+                    >
+                      <span>{opt.label}</span>
+                    </DropdownItem>
+                  ))}
+                  <DropdownSeparator />
+                  <DropdownItem
+                    onClick={toggleThinking}
+                    closeOnClick={false}
+                    trailing={<Switch on={thinking} />}
+                  >
+                    <span className="flex items-center gap-2">
+                      <Brain className="h-3.5 w-3.5" />
+                      Thinking
+                    </span>
+                  </DropdownItem>
+                </DropdownSubmenu>
               </DropdownMenu>
             </span>
-
-            {isTurnInProgress ? (
-              <Button
-                type="button"
-                size="icon-sm"
-                variant="destructive"
-                onClick={handlePrimaryAction}
-                disabled={!canCompose}
-                aria-label="Stop turn"
-                title="Stop the running agent"
-                className="cursor-pointer"
-              >
-                <Square />
-              </Button>
-            ) : (
-              <Button
-                type="button"
-                size="icon-sm"
-                onClick={handlePrimaryAction}
-                disabled={!text.trim() || !canCompose || noModelsAvailable || needsSelection}
-                aria-label="Send message"
-                className="cursor-pointer"
-              >
-                <Send />
-              </Button>
-            )}
           </div>
+
+          {isTurnInProgress ? (
+            <Button
+              type="button"
+              size="icon-sm"
+              variant="destructive"
+              onClick={handlePrimaryAction}
+              disabled={!canCompose}
+              aria-label="Stop turn"
+              title="Stop the running agent"
+              className="cursor-pointer"
+            >
+              <Square />
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              size="icon-sm"
+              onClick={handlePrimaryAction}
+              disabled={!text.trim() || !canCompose || noModelsAvailable || needsSelection}
+              aria-label="Send message"
+              className="cursor-pointer"
+            >
+              <Send />
+            </Button>
+          )}
         </div>
       </div>
 
