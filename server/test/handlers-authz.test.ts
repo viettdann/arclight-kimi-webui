@@ -1,17 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import type { Session } from '@moonshot-ai/kimi-agent-sdk';
 import type { ServerWebSocket } from 'bun';
 import type { ErrorPayload, WSMessage } from 'shared/types';
 import type { DB } from '../src/db';
-import { KimiSessionManager } from '../src/services/session-manager';
+import { SessionManager } from '../src/services/session-manager';
 import { handleMessage, setHandlerDeps } from '../src/ws/handlers';
 import type { WSData } from '../src/ws/upgrade';
 
 // Authz tests for the WS handlers. Cross-user access and malformed payloads
 // must short-circuit BEFORE any DB or SDK call. We inject a stub DB that
 // throws on first access — if it ever fires, the handler fell through too far.
-
-const stubKimi = {} as unknown as Session;
 
 const trapDb = new Proxy(
   {},
@@ -52,10 +49,10 @@ function asWS(f: FakeWS): ServerWebSocket<WSData> {
   return f as unknown as ServerWebSocket<WSData>;
 }
 
-let manager: KimiSessionManager;
+let manager: SessionManager;
 
 beforeEach(() => {
-  manager = new KimiSessionManager();
+  manager = new SessionManager();
   setHandlerDeps({ manager, db: trapDb });
 });
 
@@ -68,8 +65,6 @@ function registerOwnedSession(userId: string, sessionId: string): void {
     sessionId,
     userId,
     workDir: '/tmp/work',
-    kimiSessionId: `kimi-${sessionId}`,
-    kimiSession: stubKimi,
   });
 }
 
@@ -178,15 +173,30 @@ describe('handlers authz — bad payloads return bad_request', () => {
     expect(alice.lastError()?.payload.code).toBe('bad_message');
   });
 
-  it('create_session with non-absolute workDir → bad_request', async () => {
+  it('start_session with non-absolute workDir → bad_request', async () => {
     const alice = new FakeWS('alice');
-    await send(alice, { type: 'create_session', payload: { workDir: 'relative/path' } });
+    await send(alice, {
+      type: 'start_session',
+      payload: { workDir: 'relative/path', content: 'hi' },
+    });
     expect(alice.lastError()?.payload.code).toBe('bad_request');
   });
 
-  it('create_session with workDir outside user root → bad_request', async () => {
+  it('start_session with workDir outside user root → bad_request', async () => {
     const alice = new FakeWS('alice');
-    await send(alice, { type: 'create_session', payload: { workDir: '/etc/passwd' } });
+    await send(alice, {
+      type: 'start_session',
+      payload: { workDir: '/etc/passwd', content: 'hi' },
+    });
+    expect(alice.lastError()?.payload.code).toBe('bad_request');
+  });
+
+  it('start_session with empty content → bad_request', async () => {
+    const alice = new FakeWS('alice');
+    await send(alice, {
+      type: 'start_session',
+      payload: { workDir: '/etc/passwd', content: '' },
+    });
     expect(alice.lastError()?.payload.code).toBe('bad_request');
   });
 });

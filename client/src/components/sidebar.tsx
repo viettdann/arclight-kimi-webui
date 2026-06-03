@@ -1,15 +1,6 @@
-import {
-  ChevronRight,
-  ChevronsUpDown,
-  KeyRound,
-  LogOut,
-  Plus,
-  Settings,
-  SquarePen,
-  Zap,
-} from 'lucide-react';
+import { ChevronRight, ChevronsUpDown, LogOut, Plus, Settings, SquarePen, Zap } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router';
+import { useLocation, useNavigate, useParams } from 'react-router';
 import type { WSMessageType } from 'shared/types';
 import { Button } from '@/components/ui/button';
 import { DropdownItem, DropdownMenu, DropdownSeparator } from '@/components/ui/dropdown-menu';
@@ -34,19 +25,21 @@ interface SidebarProps {
 
 function AuthSection({ onLoginClick, onClose }: { onLoginClick: () => void; onClose: () => void }) {
   const navigate = useNavigate();
+  const location = useLocation();
   // Single-field selectors avoid re-renders on unrelated auth-store changes.
   const status = useAuthStore((s) => s.status);
   const user = useAuthStore((s) => s.user);
   const isAdmin = useAuthStore((s) => s.status === 'authenticated' && s.user?.role === 'admin');
   const clearSession = useAuthStore((s) => s.clearSession);
 
-  const go = useCallback(
-    (path: string) => {
-      onClose?.();
-      navigate(path);
-    },
-    [navigate, onClose],
-  );
+  // Open Settings as a modal overlay. Stamp the current URL into history state
+  // so the modal knows where to return on close (cold deep-links fall back to `/`).
+  const openSettings = useCallback(() => {
+    onClose?.();
+    navigate('/settings', {
+      state: { backgroundLocation: `${location.pathname}${location.search}` },
+    });
+  }, [navigate, onClose, location.pathname, location.search]);
 
   if (status === 'unknown') {
     return (
@@ -124,22 +117,11 @@ function AuthSection({ onLoginClick, onClose }: { onLoginClick: () => void; onCl
           </div>
         </div>
         <DropdownSeparator />
-        <DropdownItem
-          icon={<KeyRound />}
-          trailing={<ChevronRight />}
-          onClick={() => go('/preferences')}
-        >
-          Preferences
+        {/* Settings is for everyone — the modal shows providers/workspace/general
+            to all users and adds the admin-only System section for admins. */}
+        <DropdownItem icon={<Settings />} trailing={<ChevronRight />} onClick={openSettings}>
+          Settings
         </DropdownItem>
-        {isAdmin && (
-          <DropdownItem
-            icon={<Settings />}
-            trailing={<ChevronRight />}
-            onClick={() => go('/settings')}
-          >
-            Admin settings
-          </DropdownItem>
-        )}
         <DropdownSeparator />
         <DropdownItem destructive icon={<LogOut />} onClick={() => clearSession('manual')}>
           Log out
@@ -152,8 +134,10 @@ function AuthSection({ onLoginClick, onClose }: { onLoginClick: () => void; onCl
 const REFRESH_TRIGGER_TYPES = new Set<WSMessageType>([
   'snapshot',
   'session_created',
+  'session_updated',
   'title_update',
   'project_adopted',
+  'turn_end',
 ]);
 // Cheap pre-filter so the streaming hot path (text_delta, thinking_delta, …)
 // avoids JSON.parse on every frame. We only parse when the raw frame contains
@@ -161,8 +145,10 @@ const REFRESH_TRIGGER_TYPES = new Set<WSMessageType>([
 const REFRESH_RAW_HINTS = [
   '"snapshot"',
   '"session_created"',
+  '"session_updated"',
   '"title_update"',
   '"project_adopted"',
+  '"turn_end"',
 ];
 
 export function Sidebar({ isOpen, onClose, onLoginClick }: SidebarProps) {
@@ -187,6 +173,13 @@ export function Sidebar({ isOpen, onClose, onLoginClick }: SidebarProps) {
   // `filesOpen` is intent only; the project shown is always the active one.
   // If the user navigates away (no active project), the files panel hides.
   const showFiles = filesOpen && activeProjectName !== null;
+
+  // Auto-open the active session's project once when it becomes active. Idempotent
+  // `expand` leaves a later manual fold alone — it only re-fires when the active
+  // project itself changes (open another session / start a new task elsewhere).
+  useEffect(() => {
+    if (activeProjectName) useProjectsStore.getState().expand(activeProjectName);
+  }, [activeProjectName]);
 
   // Initial load when authenticated.
   useEffect(() => {
@@ -289,7 +282,7 @@ export function Sidebar({ isOpen, onClose, onLoginClick }: SidebarProps) {
   return (
     <>
       <aside
-        className={`fixed left-0 top-0 z-40 flex h-dvh w-[300px] flex-col border-r border-border bg-sidebar transition-transform duration-300 ease-in-out md:translate-x-0 ${
+        className={`fixed left-0 top-0 z-40 flex h-dvh w-[300px] flex-col border-r border-sidebar-border bg-sidebar transition-transform duration-300 ease-in-out md:translate-x-0 ${
           isOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
@@ -298,7 +291,7 @@ export function Sidebar({ isOpen, onClose, onLoginClick }: SidebarProps) {
           <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground font-bold text-sm">
             M
           </div>
-          <span className="text-sm font-semibold">More Than Coding</span>
+          <span className="text-sm font-semibold">More Than Code</span>
         </div>
 
         {/* Nav items */}

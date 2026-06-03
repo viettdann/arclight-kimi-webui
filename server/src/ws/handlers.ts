@@ -1,30 +1,28 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import { CliErrorCodes, getErrorCode } from '@moonshot-ai/kimi-agent-sdk';
 import type { ServerWebSocket } from 'bun';
 import { eq } from 'drizzle-orm';
 import type {
   AdoptProjectPayload,
   AnswerQuestionPayload,
   ApprovalMode,
-  ApprovalResponse,
   ApproveToolPayload,
-  CreateSessionPayload,
+  EffortLevel,
   ErrorPayload,
   ProjectAdoptedPayload,
   ReplayDonePayload,
   ResumeSessionPayload,
   SendMessagePayload,
   SessionCreatedPayload,
-  SlashCommand,
-  SlashCommandsPayload,
+  SessionUpdatedPayload,
   SnapshotPayload,
-  SteerInputPayload,
+  StartSessionPayload,
   SubscribePayload,
+  TurnBeginPayload,
   WSMessage,
   WSMessageType,
 } from 'shared/types';
-import { APPROVAL_MODES } from 'shared/types';
+import { APPROVAL_MODES, EFFORT_LEVELS } from 'shared/types';
 import { validateAuthSession } from '../auth/session-check';
 import { type DB, db, schema } from '../db';
 import { logDbError } from '../db/errors';
@@ -32,38 +30,35 @@ import { env } from '../env';
 import { auditLog as defaultAuditLog, logger } from '../lib/logger';
 import { slugifyProjectName } from '../lib/slug';
 import { broadcastEvent, sendDirect } from '../lib/ws-broadcast';
-import { buildEnvFromRow } from '../services/kimi-config/env';
-import { getKimiConfig } from '../services/kimi-config/get-kimi-config';
-import {
-  createKimi,
-  flushContextAndState,
-  pumpTurn,
-  restoreFromBackup,
-} from '../services/kimi-session';
-import { clearPendingPrompt, enqueuePendingPrompt } from '../services/pending-prompts';
+import { tryHandleSlashCommand } from '../services/agent/commands';
+import { refreshContextUsage } from '../services/agent/context-usage';
+import { createMessageBridge } from '../services/agent/message-bridge';
+import { consumeQueryOutput } from '../services/agent/output-consumer';
+import { startQuery } from '../services/agent/query-runner';
 import { adoptProjectForUser, ProjectNotFoundError } from '../services/projects';
+import {
+  defaultSelectionForUser,
+  ProviderUnavailableError,
+  resolveProviderForUser,
+} from '../services/providers/resolve';
 import {
   type ActiveSession,
   sessionManager as defaultManager,
-  type KimiSessionManager,
+  type SessionManager,
 } from '../services/session-manager';
-import { getSlashCommands } from '../services/slash-commands-cache';
-import { buildSnapshot, emptySnapshot } from '../services/snapshot';
+import { buildSnapshot } from '../services/snapshot';
 import { deriveProjectName } from '../services/work-dir';
 import { closeAuthExpired } from './close-codes';
 import { WS_HEARTBEAT_MS } from './heartbeat';
 import type { WSData } from './upgrade';
 
-type RestoreInjection = (
-  sessionId: string,
-  manager: KimiSessionManager,
-  db: DB,
-) => Promise<ActiveSession>;
-
-type CreateKimiInjection = typeof createKimi;
-
 // Client→server WS message handlers. Single dispatcher entrypoint
 // `handleMessage(ws, raw)`; each branch covers one client message type.
+//
+// Resource model: a Claude `query` spawns a `claude` subprocess. We never spawn
+// one merely to VIEW a session — subscribe/resume bring the session into memory
+// and restore its transcript but leave `query` null. The subprocess is spawned
+// lazily by `ensureQuery`, on the first real `send_message`.
 //
 // Module-level singletons (`db`, `defaultManager`) are wired by default; tests
 // inject overrides via `setHandlerDeps`. `setHandlerDeps` is intentionally
@@ -80,24 +75,67 @@ interface IncomingMessage {
 
 const VALID_APPROVAL: ReadonlySet<string> = new Set(['approve', 'approve_for_session', 'reject']);
 const VALID_APPROVAL_MODE: ReadonlySet<string> = new Set(APPROVAL_MODES);
+const VALID_EFFORT: ReadonlySet<string> = new Set(EFFORT_LEVELS);
+
+// Effort is invalid only when present and not a known level. `null` (reset to
+// provider default) and `undefined` (unchanged) are both allowed.
+function isInvalidEffort(effort: EffortLevel | null | undefined): boolean {
+  return effort !== undefined && effort !== null && !VALID_EFFORT.has(effort);
+}
+
+/**
+ * Restore an idle session into memory. Loads the `sessions` row (authz: must
+ * belong to `userId`), replays the persisted transcript to disk so the binary
+ * can `resume` from it, and registers an in-memory slot — WITHOUT starting a
+ * query. The subprocess is spawned lazily on the first `send_message`.
+ *
+ * Throws when the row is missing or owned by another user; `getOrRestore` maps
+ * the throw to a uniform `not_found`.
+ */
+type RestoreInjection = (
+  sessionId: string,
+  manager: SessionManager,
+  db: DB,
+) => Promise<ActiveSession>;
 
 interface HandlerDeps {
   db: DB;
-  manager: KimiSessionManager;
+  manager: SessionManager;
   restore: RestoreInjection;
   auditLog: typeof defaultAuditLog;
-  createKimi: CreateKimiInjection;
 }
 
-const defaultRestore: RestoreInjection = (sessionId, mgr, dbh) =>
-  restoreFromBackup({ sessionId, manager: mgr, db: dbh });
+const defaultRestore: RestoreInjection = async (sessionId, mgr, dbh) => {
+  const [row] = await dbh
+    .select()
+    .from(schema.sessions)
+    .where(eq(schema.sessions.id, sessionId))
+    .limit(1);
+  if (!row) throw new Error(`session ${sessionId} not found`);
+
+  // No local restore: the delete-local-before-resume guard + SDK `load()`
+  // rematerialize the transcript from the DB store when the first turn resumes.
+  // The snapshot the client receives is built from the store, not local files.
+  const active = mgr.register({
+    sessionId: row.id,
+    userId: row.userId,
+    workDir: row.workDir,
+    model: row.model,
+    providerId: row.providerId,
+    thinking: row.thinking,
+    approvalMode: row.approvalMode as ApprovalMode,
+    effort: (row.effort as EffortLevel | null) ?? null,
+  });
+  // Carry the persisted SDK session id so the lazy query can `resume`.
+  active.sdkSessionId = row.sdkSessionId ?? null;
+  return active;
+};
 
 let deps: HandlerDeps = {
   db,
   manager: defaultManager,
   restore: defaultRestore,
   auditLog: defaultAuditLog,
-  createKimi,
 };
 
 /** Test seam: swap module-level deps. Pass `null` to reset to defaults. */
@@ -108,7 +146,6 @@ export function setHandlerDeps(next: Partial<HandlerDeps> | null): void {
       manager: defaultManager,
       restore: defaultRestore,
       auditLog: defaultAuditLog,
-      createKimi,
     };
     return;
   }
@@ -117,7 +154,6 @@ export function setHandlerDeps(next: Partial<HandlerDeps> | null): void {
     manager: next.manager ?? defaultManager,
     restore: next.restore ?? defaultRestore,
     auditLog: next.auditLog ?? defaultAuditLog,
-    createKimi: next.createKimi ?? createKimi,
   };
 }
 
@@ -145,12 +181,22 @@ function asString(v: unknown): string | null {
   return typeof v === 'string' ? v : null;
 }
 
+/** Map the wire approval mode to the SDK `PermissionMode`. */
+function mapMode(mode: ApprovalMode): 'default' | 'acceptEdits' | 'bypassPermissions' {
+  switch (mode) {
+    case 'safe':
+      return 'acceptEdits';
+    case 'bypass':
+      return 'bypassPermissions';
+    default:
+      return 'default';
+  }
+}
+
 /**
- * Loose workspace prefix check. Plan §"create_session" — full path-guard
- * (NUL, symlink, realpath escape) is deferred to MVP-6. For now we only
- * confirm the requested workDir is absolute and lives under
- * `${WORKSPACE_ROOT}/${userSlug}` (matches dir layout created by auth +
- * routes/files). Returns the resolved abs path or `null`.
+ * Loose workspace prefix check. Confirms the requested workDir is absolute and
+ * lives under `${WORKSPACE_ROOT}/${userSlug}` (matches the dir layout created by
+ * auth + routes/files). Returns the resolved abs path or `null`.
  */
 function validateWorkDir(userSlug: string, workDir: unknown): string | null {
   if (typeof workDir !== 'string' || workDir.length === 0) return null;
@@ -214,8 +260,8 @@ export async function handleMessage(ws: WS, raw: string | Buffer): Promise<void>
 
   try {
     switch (parsed.type as WSMessageType) {
-      case 'create_session':
-        await handleCreateSession(ws, parsed.payload as CreateSessionPayload | undefined);
+      case 'start_session':
+        await handleStartSession(ws, parsed.payload as StartSessionPayload | undefined);
         return;
       case 'subscribe':
         await handleSubscribe(ws, parsed.payload as SubscribePayload | undefined);
@@ -236,11 +282,14 @@ export async function handleMessage(ws: WS, raw: string | Buffer): Promise<void>
           parsed.payload as AnswerQuestionPayload | undefined,
         );
         return;
-      case 'steer_input':
-        await handleSteerInput(ws, sessionId, parsed.payload as SteerInputPayload | undefined);
-        return;
       case 'interrupt_turn':
         await handleInterruptTurn(ws, sessionId);
+        return;
+      case 'request_context_usage':
+        await handleRequestContextUsage(ws, sessionId);
+        return;
+      case 'compact_session':
+        await handleCompactSession(ws, sessionId);
         return;
       case 'adopt_project':
         await handleAdoptProject(ws, parsed.payload as AdoptProjectPayload | undefined);
@@ -254,17 +303,136 @@ export async function handleMessage(ws: WS, raw: string | Buffer): Promise<void>
   }
 }
 
-// ─────────────────────────── 5a handlers ───────────────────────────
+/**
+ * Lazily spawn the SDK query (and its `claude` subprocess) for a session. Wires
+ * the streaming-input bridge as the prompt source, starts the long-running
+ * output consumer fire-and-forget, and resumes from the persisted SDK session
+ * id when present. Idempotent — a no-op if a query is already live, so multiple
+ * `send_message` turns reuse the single subprocess.
+ */
+async function ensureQuery(active: ActiveSession): Promise<void> {
+  if (active.query) return;
+  active.bridge = createMessageBridge(active.sessionId);
+  await startQuery(active, {
+    prompt: active.bridge.iterable,
+    resume: active.sdkSessionId ?? null,
+  });
+  // Detached: the consumer runs for the session lifetime. Any unexpected
+  // rejection surfaces as an `error` event and clears the in-flight flag.
+  void consumeQueryOutput(active).catch((err) => {
+    logger.error({ err, sessionId: active.sessionId }, 'output consumer rejected unexpectedly');
+    active.turnInProgress = false;
+    broadcastEvent<ErrorPayload>(
+      active,
+      'error',
+      {
+        code: 'consumer_failed',
+        message: err instanceof Error ? err.message : String(err),
+        retryable: false,
+      },
+      deps.manager,
+    );
+  });
+}
 
-async function handleCreateSession(
-  ws: WS,
-  payload: CreateSessionPayload | undefined,
-): Promise<void> {
+/**
+ * Spawn the query (lazily) and begin a turn for `content`. The only expected
+ * failure is a missing provider, surfaced as `provider_unset` without tearing
+ * the session down. Returns `false` when that gate fired (caller should stop),
+ * `true` once the turn is underway. Shared by the create-and-run and
+ * send-message paths so the turn-begin semantics live in one place.
+ */
+async function beginFirstTurn(ws: WS, active: ActiveSession, content: string): Promise<boolean> {
+  try {
+    await ensureQuery(active);
+  } catch (err) {
+    if (err instanceof ProviderUnavailableError) {
+      sendError(ws, 'provider_unset', active.sessionId, 'No provider selected');
+      return false;
+    }
+    throw err;
+  }
+
+  active.turnInProgress = true;
+  broadcastEvent<TurnBeginPayload>(
+    active,
+    'turn_begin',
+    { userInput: content, id: randomUUID() },
+    deps.manager,
+  );
+  active.bridge?.push(content);
+  return true;
+}
+
+/** Build a `snapshot` envelope carrying the current lastSeq as the wire seq. */
+function snapshotEnvelope(
+  active: ActiveSession,
+  snap: SnapshotPayload,
+): WSMessage<SnapshotPayload> {
+  return {
+    type: 'snapshot',
+    payload: snap,
+    sessionId: active.sessionId,
+    seq: active.lastSeq,
+    timestamp: Date.now(),
+  };
+}
+
+/**
+ * Snapshot-only attach. The snapshot REPLACES the client's block list, so we
+ * never also replay buffered events — that would double-apply appends. The live
+ * broadcast stream plus the `final:true` commits keep the client current after
+ * attach.
+ */
+async function sendSnapshot(ws: WS, active: ActiveSession): Promise<boolean> {
+  const snap = await buildSnapshot({
+    sessionId: active.sessionId,
+    manager: deps.manager,
+    db: deps.db,
+  });
+  if (!snap) {
+    sendError(ws, 'not_found', active.sessionId);
+    return false;
+  }
+  sendDirect(ws, snapshotEnvelope(active, snap));
+  sendDirect(
+    ws,
+    envelope<ReplayDonePayload>('replay_done', { lastSeq: active.lastSeq }, active.sessionId),
+  );
+  return true;
+}
+
+// ─────────────────────────── handlers ───────────────────────────
+
+/**
+ * Create a session and run its first turn in one atomic step. A row is INSERTed
+ * only here, on the first message — there is no separate empty-session create,
+ * so a session never exists without a turn behind it. After the row lands and
+ * the session registers, the snapshot drives the client to `/session/:id` and
+ * the first turn spawns the query.
+ */
+async function handleStartSession(ws: WS, payload: StartSessionPayload | undefined): Promise<void> {
   if (!payload || typeof payload !== 'object') {
     sendError(ws, 'bad_request');
     return;
   }
+  if (typeof payload.content !== 'string' || payload.content.length === 0) {
+    sendError(ws, 'bad_request');
+    return;
+  }
   if (payload.approvalMode !== undefined && !VALID_APPROVAL_MODE.has(payload.approvalMode)) {
+    sendError(ws, 'bad_request');
+    return;
+  }
+  if (payload.thinking !== undefined && typeof payload.thinking !== 'boolean') {
+    sendError(ws, 'bad_request');
+    return;
+  }
+  if (payload.providerId !== undefined && typeof payload.providerId !== 'string') {
+    sendError(ws, 'bad_request');
+    return;
+  }
+  if (isInvalidEffort(payload.effort)) {
     sendError(ws, 'bad_request');
     return;
   }
@@ -284,56 +452,40 @@ async function handleCreateSession(
     return;
   }
 
-  // Single read of the singleton config row; both env injection and the
-  // thinking/yolo defaults derive from it. Avoids two SELECTs per create_session.
-  let cfgRow: Awaited<ReturnType<typeof getKimiConfig>> | null = null;
-  try {
-    cfgRow = await getKimiConfig(deps.db);
-  } catch {
-    // Config table may be absent in test fakes; fall through to defaults.
-  }
-  const envVars = cfgRow ? buildEnvFromRow(cfgRow) : {};
-  const cfgDefaults = cfgRow
-    ? { thinking: cfgRow.defaults.thinking, yolo: cfgRow.defaults.yolo }
-    : null;
-  // Thinking is on by default: payload wins, else configured default, else true.
-  const thinking = payload.thinking ?? cfgDefaults?.thinking ?? true;
-  // approvalMode is the source of truth: explicit payload wins, else derive
-  // from the legacy yolo flag (payload or configured default). yoloMode forwarded
-  // to the SDK is then derived from the resolved mode.
-  const yoloDefault = payload.yoloMode ?? cfgDefaults?.yolo ?? false;
-  const approvalMode: ApprovalMode = payload.approvalMode ?? (yoloDefault ? 'yolo' : 'ask');
-  const sdkYolo = approvalMode === 'yolo';
+  // Thinking is on by default; approvalMode defaults to ask; effort defaults to
+  // the provider default (null).
+  const thinking = payload.thinking ?? true;
+  const approvalMode: ApprovalMode = payload.approvalMode ?? 'ask';
+  const effort: EffortLevel | null = payload.effort ?? null;
 
-  let kimi: ReturnType<typeof createKimi>;
-  try {
-    kimi = deps.createKimi({
-      workDir,
-      ...(payload.model ? { model: payload.model } : {}),
-      thinking,
-      yoloMode: sdkYolo,
-      env: envVars,
-    });
-  } catch (err) {
-    logger.error({ err, workDir }, 'createSession failed');
-    sendError(ws, 'session_create_failed');
-    return;
+  let providerId = typeof payload.providerId === 'string' ? payload.providerId : null;
+  let model = payload.model ?? null;
+  // Drop a supplied providerId the user isn't allowed to use; falling through to
+  // defaultSelectionForUser is preferable to persisting an unusable id.
+  if (providerId && !(await resolveProviderForUser(deps.db, ws.data.userId, providerId))) {
+    providerId = null;
+    model = null;
+  }
+  if (!providerId) {
+    const def = await defaultSelectionForUser(deps.db, ws.data.userId);
+    if (def) {
+      providerId = def.providerId;
+      model = def.model;
+    }
   }
 
-  const kimiSessionId = kimi.sessionId;
   const sessionRowId = randomUUID();
-
-  // Insert AFTER createSession succeeded — no orphan rows on SDK throw.
-  await deps.db.insert(schema.kimiSessions).values({
+  await deps.db.insert(schema.sessions).values({
     id: sessionRowId,
     userId: ws.data.userId,
     workDir,
     projectName,
-    model: payload.model ?? null,
+    model,
+    providerId,
     thinking,
-    yoloMode: sdkYolo,
     approvalMode,
-    kimiSessionId,
+    effort,
+    status: 'active',
     title: null,
   });
 
@@ -341,49 +493,23 @@ async function handleCreateSession(
     sessionId: sessionRowId,
     userId: ws.data.userId,
     workDir,
-    kimiSessionId,
-    kimiSession: kimi,
+    model,
+    providerId,
+    thinking,
     approvalMode,
+    effort,
   });
   deps.manager.attachWS(active, ws);
 
-  // Seed session_files immediately so a server restart before any turn
-  // doesn't leave this row as a zombie (active in `sessions` but no backup row).
-  // restoreFromBackup keys off the existence of this row.
-  try {
-    await flushContextAndState(active, deps.db);
-  } catch (err) {
-    logger.warn({ err, sessionId: sessionRowId }, 'initial session_files seed failed');
-  }
-
-  // Warm-init the slash-command picker for this workDir. Best-effort: a failed
-  // probe just leaves the picker empty — the session is still fully usable.
-  let slashCommands: SlashCommand[] = [];
-  try {
-    slashCommands = await getSlashCommands(workDir, { env: envVars });
-  } catch {
-    // picker stays empty
-  }
-
+  // The envelope's sessionId is the signal; the body is empty. Connected clients
+  // refresh their session/project lists off this.
   broadcastEvent<SessionCreatedPayload>(active, 'session_created', {}, deps.manager);
-  // Carry the resolved flags + slashCommands in the snapshot so reload/resume
-  // restores the picker and the approval/thinking selectors to true state.
-  const snap = emptySnapshot();
-  snap.thinking = thinking;
-  snap.yoloMode = sdkYolo;
-  snap.approvalMode = approvalMode;
-  snap.slashCommands = slashCommands;
-  broadcastEvent<SnapshotPayload>(active, 'snapshot', snap, deps.manager);
-  broadcastEvent<SlashCommandsPayload>(
-    active,
-    'slash_commands',
-    { commands: slashCommands },
-    deps.manager,
-  );
-  sendDirect(
-    ws,
-    envelope<ReplayDonePayload>('replay_done', { lastSeq: active.lastSeq }, active.sessionId),
-  );
+
+  // Snapshot + replay_done to the requesting socket. The snapshot's sessionId is
+  // the real row id; the client navigates to `/session/:id` on receipt.
+  await sendSnapshot(ws, active);
+
+  await beginFirstTurn(ws, active, payload.content);
 }
 
 async function handleSendMessage(
@@ -399,75 +525,128 @@ async function handleSendMessage(
     sendError(ws, 'bad_request', sessionId);
     return;
   }
-  const active = deps.manager.getForUser(ws.data.userId, sessionId);
-  if (!active) {
-    sendError(ws, 'not_found', sessionId);
-    return;
-  }
-  if (active.currentTurn !== null) {
-    sendError(ws, 'turn_in_progress', sessionId);
-    return;
-  }
-  // Apply composer flags that ride along with the send. Only fields that
-  // actually flip are written — a resend with unchanged flags is a no-op, so
-  // there is nothing to spam. The SDK reads thinking/yoloMode when the prompt
-  // below spawns the turn, so this is the right moment to commit them.
   if (
     (payload.thinking !== undefined && typeof payload.thinking !== 'boolean') ||
-    (payload.yoloMode !== undefined && typeof payload.yoloMode !== 'boolean') ||
-    (payload.approvalMode !== undefined && !VALID_APPROVAL_MODE.has(payload.approvalMode))
+    (payload.approvalMode !== undefined && !VALID_APPROVAL_MODE.has(payload.approvalMode)) ||
+    isInvalidEffort(payload.effort)
   ) {
     sendError(ws, 'bad_request', sessionId);
     return;
   }
-  // approvalMode is the source of truth. A client that sends only `yoloMode`
-  // (legacy composer) maps to a mode; the resolved mode then derives the SDK
-  // yolo flag. Omitting both leaves the session unchanged.
-  const nextMode: ApprovalMode | undefined =
-    payload.approvalMode ??
-    (payload.yoloMode !== undefined ? (payload.yoloMode ? 'yolo' : 'ask') : undefined);
 
-  const flagChanges: { thinking?: boolean; yoloMode?: boolean; approvalMode?: ApprovalMode } = {};
-  if (payload.thinking !== undefined && payload.thinking !== active.kimiSession.thinking) {
+  const active = await deps.manager.getOrRestore(ws.data.userId, sessionId, (sid) =>
+    deps.restore(sid, deps.manager, deps.db),
+  );
+  if (!active) {
+    sendError(ws, 'not_found', sessionId);
+    return;
+  }
+  if (active.turnInProgress) {
+    sendError(ws, 'turn_in_progress', sessionId);
+    return;
+  }
+
+  // Reject web-unsupported slash commands up front — no flag writes, no query spawn, no turn.
+  if (tryHandleSlashCommand(active, payload.content)) return;
+
+  // Apply composer flags that ride along with the send. Only fields that
+  // actually flip are written + persisted; a resend with unchanged flags is a
+  // no-op. When a query is already live, push the change into it directly so the
+  // running subprocess honors it without a respawn.
+  const flagChanges: {
+    thinking?: boolean;
+    approvalMode?: ApprovalMode;
+    effort?: EffortLevel | null;
+  } = {};
+  if (payload.thinking !== undefined && payload.thinking !== active.thinking) {
     flagChanges.thinking = payload.thinking;
   }
-  if (nextMode !== undefined && nextMode !== active.approvalMode) {
-    flagChanges.approvalMode = nextMode;
+  if (payload.approvalMode !== undefined && payload.approvalMode !== active.approvalMode) {
+    flagChanges.approvalMode = payload.approvalMode;
   }
-  const sdkYolo = nextMode === 'yolo';
-  if (nextMode !== undefined && sdkYolo !== active.kimiSession.yoloMode) {
-    flagChanges.yoloMode = sdkYolo;
+  if (payload.effort !== undefined && payload.effort !== active.effort) {
+    flagChanges.effort = payload.effort;
   }
   if (
     flagChanges.thinking !== undefined ||
-    flagChanges.yoloMode !== undefined ||
-    flagChanges.approvalMode !== undefined
+    flagChanges.approvalMode !== undefined ||
+    flagChanges.effort !== undefined
   ) {
-    // Mirror the SDK-facing flags onto the live session and the in-memory tier
-    // before prompt() spawns the turn. The DB write persists all three.
-    if (flagChanges.thinking !== undefined) active.kimiSession.thinking = flagChanges.thinking;
-    if (flagChanges.yoloMode !== undefined) active.kimiSession.yoloMode = flagChanges.yoloMode;
-    if (flagChanges.approvalMode !== undefined) active.approvalMode = flagChanges.approvalMode;
+    if (flagChanges.thinking !== undefined) {
+      active.thinking = flagChanges.thinking;
+      // `setMaxThinkingTokens` is deprecated and only Opus 4.6 maps 0→disabled —
+      // 3rd-party providers ignore it. `alwaysThinkingEnabled` is the cross-provider
+      // flag-settings key honored mid-session; null clears it to fall back to
+      // user/project settings.
+      await active.query?.applyFlagSettings({
+        alwaysThinkingEnabled: flagChanges.thinking ? null : false,
+      });
+    }
+    if (flagChanges.approvalMode !== undefined) {
+      active.approvalMode = flagChanges.approvalMode;
+      // A live query keeps its own permission mode; nudge it in place.
+      await active.query?.setPermissionMode(mapMode(flagChanges.approvalMode));
+    }
+    if (flagChanges.effort !== undefined) {
+      active.effort = flagChanges.effort;
+      // A live query applies the effort flag in place; passing null resets it.
+      await active.query?.applyFlagSettings({ effortLevel: flagChanges.effort });
+    }
+    await deps.db.update(schema.sessions).set(flagChanges).where(eq(schema.sessions.id, sessionId));
+  }
+
+  // Tracks whether a model and/or provider change was persisted, so we emit a
+  // single session_updated to refresh other clients' session lists.
+  let sessionPersisted = false;
+
+  // Per-session model switch. Only when the composer rides along a model that
+  // differs from the active one. A live query honors it in place; without one we
+  // still record the choice so the lazy spawn picks it up.
+  if (payload.model !== undefined && payload.model !== active.model) {
+    active.model = payload.model;
+    await active.query?.setModel(payload.model);
     await deps.db
-      .update(schema.kimiSessions)
-      .set(flagChanges)
-      .where(eq(schema.kimiSessions.id, sessionId));
+      .update(schema.sessions)
+      .set({ model: payload.model })
+      .where(eq(schema.sessions.id, sessionId));
+    sessionPersisted = true;
   }
-  await enqueuePendingPrompt(active.sessionId, payload.content, deps.db);
-  let turn: ReturnType<typeof active.kimiSession.prompt>;
-  try {
-    turn = active.kimiSession.prompt(payload.content);
-  } catch (err) {
-    await clearPendingPrompt(active.sessionId, deps.db);
-    throw err;
+
+  if (payload.providerId !== undefined && payload.providerId !== active.providerId) {
+    // Authorize the requested provider BEFORE persisting it: a private built-in
+    // (non-admin) or another user's personal provider must not be pinned.
+    const resolved = await resolveProviderForUser(deps.db, ws.data.userId, payload.providerId);
+    if (!resolved) {
+      sendError(ws, 'provider_unset', sessionId, 'No provider selected');
+      return;
+    }
+    active.providerId = payload.providerId;
+    await deps.db
+      .update(schema.sessions)
+      .set({ providerId: payload.providerId })
+      .where(eq(schema.sessions.id, sessionId));
+    sessionPersisted = true;
+    // The subprocess env is fixed at spawn — dispose any live query so ensureQuery
+    // respawns with the new provider's credentials/endpoint.
+    if (active.query) {
+      try {
+        await active.query.interrupt();
+      } catch {
+        /* may already be idle */
+      }
+      active.abortController?.abort();
+      active.bridge?.close();
+      active.query = null;
+      active.abortController = null;
+      active.bridge = null;
+    }
   }
-  active.currentTurn = turn;
-  // Pump runs detached. Errors are caught inside pumpTurn and surfaced as
-  // `error` events; awaiting here would block the dispatcher and stall the
-  // socket. invariant #1: backup mutex inside pump serializes writes.
-  void pumpTurn(active, turn, { manager: deps.manager, db: deps.db }).catch((err) => {
-    logger.error({ err, sessionId: active.sessionId }, 'pumpTurn rejected unexpectedly');
-  });
+
+  if (sessionPersisted) {
+    broadcastEvent<SessionUpdatedPayload>(active, 'session_updated', {}, deps.manager);
+  }
+
+  await beginFirstTurn(ws, active, payload.content);
 }
 
 async function handleApproveTool(
@@ -497,8 +676,9 @@ async function handleApproveTool(
     sendError(ws, 'not_found', sessionId);
     return;
   }
-  // SDK signature is positional: turn.approve(requestId, response).
-  await pending.turn.approve(pending.requestId, payload.response as ApprovalResponse);
+  // Resolve the awaiting canUseTool promise; approval.ts maps it to a
+  // PermissionResult.
+  pending.resolve(payload.response);
   active.pendingApprovals.delete(payload.requestId);
 }
 
@@ -533,51 +713,14 @@ async function handleAnswerQuestion(
     sendError(ws, 'not_found', sessionId);
     return;
   }
-  try {
-    // SDK signature: respondQuestion(rpcRequestId, questionRequestId, answers).
-    // Per assumption A1 the two ids are equal — both round-tripped from the
-    // wire `QuestionRequest.id`.
-    await pending.turn.respondQuestion(
-      pending.rpcRequestId,
-      pending.questionRequestId,
-      payload.answers,
-    );
-  } catch (err) {
-    logger.error({ err, sessionId, requestId: payload.requestId }, 'respondQuestion failed');
-    sendError(ws, 'answer_failed', sessionId, 'failed to forward answer to agent', true);
-    return;
-  }
+  // Resolve the awaiting AskUserQuestion promise; approval.ts injects the
+  // answers (+ annotations) into the tool's updatedInput.
+  pending.resolve({
+    requestId: payload.requestId,
+    answers: payload.answers,
+    ...(payload.annotations ? { annotations: payload.annotations } : {}),
+  });
   active.pendingQuestions.delete(payload.requestId);
-}
-
-async function handleSteerInput(
-  ws: WS,
-  sessionId: string,
-  payload: SteerInputPayload | undefined,
-): Promise<void> {
-  if (!sessionId) {
-    sendError(ws, 'bad_request');
-    return;
-  }
-  if (!payload || typeof payload.content !== 'string' || payload.content.length === 0) {
-    sendError(ws, 'bad_request', sessionId);
-    return;
-  }
-  const active = deps.manager.getForUser(ws.data.userId, sessionId);
-  if (!active) {
-    sendError(ws, 'not_found', sessionId);
-    return;
-  }
-  if (active.currentTurn === null) {
-    sendError(ws, 'no_turn', sessionId);
-    return;
-  }
-  try {
-    await active.currentTurn.steer(payload.content);
-  } catch (err) {
-    logger.error({ err, sessionId }, 'steer failed');
-    sendError(ws, 'steer_failed', sessionId, 'failed to steer turn', true);
-  }
 }
 
 async function handleInterruptTurn(ws: WS, sessionId: string): Promise<void> {
@@ -590,37 +733,95 @@ async function handleInterruptTurn(ws: WS, sessionId: string): Promise<void> {
     sendError(ws, 'not_found', sessionId);
     return;
   }
-  // Snapshot the turn before the null check so the post-await deref doesn't
-  // depend on `active.currentTurn` still being set by the time we resume —
-  // the pump may have cleared it during the await window.
-  const turn = active.currentTurn;
-  if (turn === null) return;
+  // Best-effort: a race where the query already finalized is fine. The output
+  // consumer emits turn_end on the resulting result message — we don't force
+  // a broadcast here.
   try {
-    await turn.interrupt();
+    await active.query?.interrupt();
   } catch (err) {
-    // Race: SDK already finalised the turn while the pump was still wrapping
-    // up (clearing currentTurn, broadcasting turn_end). The user's intent
-    // (stop the turn) is already satisfied — silently no-op instead of
-    // surfacing a confusing `internal` error.
-    if (getErrorCode(err) === CliErrorCodes.INVALID_STATE) {
-      logger.info(
-        { sessionId, err: err instanceof Error ? err.message : String(err) },
-        'interrupt_turn: SDK already idle, treating as no-op',
-      );
+    logger.info(
+      { sessionId, code: 'interrupt_noop', err: err instanceof Error ? err.message : String(err) },
+      'interrupt_turn: query already idle or interrupt failed, treating as no-op',
+    );
+  }
+  // Settle any canUseTool promise that was waiting on the interrupted turn.
+  deps.manager.drainPendingRequests(active);
+}
+
+/**
+ * Probe the live query's context usage and broadcast it. Brings a resumed-but-
+ * idle session into memory and lazily spawns the subprocess (the SDK control
+ * request needs a live query).
+ *
+ * This is a passive probe the client fires on its own (panel open, session
+ * switch, turn end) — never in response to a user action. A session with no
+ * resolvable provider yet (freshly created, nothing picked or sent) is the
+ * normal early state, not an error: skip silently so the panel keeps its
+ * "Context unavailable" placeholder instead of surfacing a SYSTEM_ERROR.
+ */
+async function handleRequestContextUsage(ws: WS, sessionId: string): Promise<void> {
+  if (!sessionId) {
+    sendError(ws, 'bad_request');
+    return;
+  }
+  const active = await deps.manager.getOrRestore(ws.data.userId, sessionId, (sid) =>
+    deps.restore(sid, deps.manager, deps.db),
+  );
+  if (!active) {
+    sendError(ws, 'not_found', sessionId);
+    return;
+  }
+  try {
+    await ensureQuery(active);
+  } catch (err) {
+    if (err instanceof ProviderUnavailableError) {
+      logger.debug({ sessionId, code: 'context_usage_no_provider' }, 'context usage skipped');
       return;
     }
     throw err;
   }
+  await refreshContextUsage(active);
 }
 
-// ─────────────────────────── 5b handlers ───────────────────────────
+/**
+ * Trigger an SDK `/compact` on the session's live query. No-op while a turn is
+ * already running (the compaction itself drives a turn whose lifecycle the
+ * output consumer reports). No user echo / turn_begin is broadcast.
+ */
+async function handleCompactSession(ws: WS, sessionId: string): Promise<void> {
+  if (!sessionId) {
+    sendError(ws, 'bad_request');
+    return;
+  }
+  const active = await deps.manager.getOrRestore(ws.data.userId, sessionId, (sid) =>
+    deps.restore(sid, deps.manager, deps.db),
+  );
+  if (!active) {
+    sendError(ws, 'not_found', sessionId);
+    return;
+  }
+  if (active.turnInProgress) return;
+  try {
+    await ensureQuery(active);
+  } catch (err) {
+    if (err instanceof ProviderUnavailableError) {
+      sendError(ws, 'provider_unset', sessionId, 'No provider selected');
+      return;
+    }
+    throw err;
+  }
+  active.turnInProgress = true;
+  active.bridge?.push('/compact');
+}
 
-async function reconnect(
-  ws: WS,
-  sessionId: string,
-  forceSnapshot: boolean,
-  lastSeq: number | undefined,
-): Promise<ActiveSession | null> {
+// ─────────────────────────── reconnect handlers ───────────────────────────
+
+/**
+ * Bring a session into memory (restoring its transcript via the lazy restoreFn),
+ * attach the socket, and serve a fresh snapshot. The query stays lazy — the
+ * first send_message spawns it with `resume`.
+ */
+async function attachAndSnapshot(ws: WS, sessionId: string): Promise<ActiveSession | null> {
   const active = await deps.manager.getOrRestore(ws.data.userId, sessionId, (sid) =>
     deps.restore(sid, deps.manager, deps.db),
   );
@@ -629,53 +830,7 @@ async function reconnect(
     return null;
   }
   deps.manager.attachWS(active, ws);
-
-  const buffer = active.eventBuffer;
-  const gap = lastSeq == null ? Number.POSITIVE_INFINITY : active.lastSeq - lastSeq;
-  // - lastSeq omitted → snapshot
-  // - gap > capacity → too far behind; buffer cannot serve
-  // - gap < 0 → client ahead of server (server restart); resync via snapshot
-  const needSnapshot = forceSnapshot || lastSeq == null || gap > buffer.capacity || gap < 0;
-
-  if (needSnapshot) {
-    const snap = await buildSnapshot({
-      sessionId: active.sessionId,
-      manager: deps.manager,
-      db: deps.db,
-    });
-    if (!snap) {
-      sendError(ws, 'not_found', sessionId);
-      return null;
-    }
-    broadcastEvent(active, 'snapshot', snap, deps.manager);
-  } else {
-    const diff = buffer.since(lastSeq as number);
-    for (const msg of diff) {
-      sendDirect(ws, msg);
-    }
-  }
-  sendDirect(
-    ws,
-    envelope<ReplayDonePayload>('replay_done', { lastSeq: active.lastSeq }, active.sessionId),
-  );
-
-  // After a server restart the warm-init cache is empty, so the snapshot above
-  // carried no slash commands. Re-warm in the background (detached — never
-  // block reconnect) and broadcast the list once it lands. Cache hit returns
-  // immediately and re-broadcasts the same list, which is harmless.
-  if (needSnapshot) {
-    void getSlashCommands(active.workDir)
-      .then((commands) => {
-        if (commands.length === 0) return;
-        broadcastEvent<SlashCommandsPayload>(active, 'slash_commands', { commands }, deps.manager);
-      })
-      .catch((err) => {
-        logger.warn(
-          { err, sessionId: active.sessionId },
-          'reconnect slash-commands warm-init failed',
-        );
-      });
-  }
+  if (!(await sendSnapshot(ws, active))) return null;
   return active;
 }
 
@@ -684,11 +839,7 @@ async function handleSubscribe(ws: WS, payload: SubscribePayload | undefined): P
     sendError(ws, 'bad_request');
     return;
   }
-  const lastSeq =
-    typeof payload.lastSeq === 'number' && Number.isFinite(payload.lastSeq)
-      ? payload.lastSeq
-      : undefined;
-  await reconnect(ws, payload.sessionId, false, lastSeq);
+  await attachAndSnapshot(ws, payload.sessionId);
 }
 
 async function handleResumeSession(
@@ -699,7 +850,7 @@ async function handleResumeSession(
     sendError(ws, 'bad_request');
     return;
   }
-  await reconnect(ws, payload.sessionId, true, undefined);
+  await attachAndSnapshot(ws, payload.sessionId);
 }
 
 async function handleAdoptProject(ws: WS, payload: AdoptProjectPayload | undefined): Promise<void> {

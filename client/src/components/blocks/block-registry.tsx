@@ -2,7 +2,6 @@ import type { Block } from 'shared/types';
 import { ApprovalCard } from './approval-card';
 import { ErrorBlock } from './error-block';
 import { QuestionCard } from './question-card';
-import { SteerBlock } from './steer-block';
 import { SubagentAccordion } from './subagent-accordion';
 import { TextBlock } from './text-block';
 import { ThinkingBlock } from './thinking-block';
@@ -68,8 +67,6 @@ export function BlockRegistry({ block }: BlockRegistryProps) {
           resolved={block.resolved}
         />
       );
-    case 'steer':
-      return <SteerBlock content={block.content} createdAt={block.createdAt} />;
     case 'error':
       return <ErrorBlock code={block.code} message={block.message} createdAt={block.createdAt} />;
     case 'subagent':

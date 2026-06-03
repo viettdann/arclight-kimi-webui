@@ -38,13 +38,13 @@ export function ApprovalCard({ requestId, action, description, resolution }: App
         <button
           type="button"
           onClick={() => setIsExpanded(!isExpanded)}
-          className="w-full flex items-center justify-between gap-2 px-3 py-1.5 text-[11px] font-semibold text-muted-foreground hover:bg-muted/40 cursor-pointer select-none"
+          className="w-full flex items-center justify-between gap-2 px-3 py-1.5 text-[11px] font-semibold text-muted-foreground hover:bg-muted cursor-pointer select-none"
         >
           <div className="flex items-center gap-1.5 min-w-0 flex-1">
             {isApproved ? (
-              <ShieldCheck className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+              <ShieldCheck className="h-3.5 w-3.5 text-success shrink-0" />
             ) : (
-              <ShieldX className="h-3.5 w-3.5 text-red-500 shrink-0" />
+              <ShieldX className="h-3.5 w-3.5 text-destructive shrink-0" />
             )}
             <span className="font-mono text-foreground/80 truncate">
               {effective === 'approve'
@@ -75,12 +75,12 @@ export function ApprovalCard({ requestId, action, description, resolution }: App
 
   // Khi chưa xử lý: hiển thị Card màu hổ phách cảnh báo nổi bật
   return (
-    <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 shadow-sm overflow-hidden backdrop-blur-sm animate-in fade-in duration-200 w-full">
+    <div className="rounded-xl border border-warning/30 bg-warning-wash shadow-sm overflow-hidden backdrop-blur-sm animate-in fade-in duration-200 w-full">
       {/* Header */}
       <div className="flex items-center justify-between gap-2 px-4 py-2 select-none border-b border-border/20">
         <div className="flex items-center gap-2 text-xs font-semibold">
-          <ShieldAlert className="h-4.5 w-4.5 text-amber-500" />
-          <span className="text-amber-500">Action Requires Approval</span>
+          <ShieldAlert className="h-4.5 w-4.5 text-warning" />
+          <span className="text-warning">Action Requires Approval</span>
           <span className="ml-1 inline-flex items-center rounded-md border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
             {action}
           </span>
@@ -108,7 +108,7 @@ export function ApprovalCard({ requestId, action, description, resolution }: App
             type="button"
             variant="outline"
             size="sm"
-            className="border-amber-500/30 text-amber-500 hover:bg-amber-500/10 hover:text-amber-500 cursor-pointer"
+            className="border-warning/30 text-warning hover:bg-warning/10 hover:text-warning cursor-pointer"
             onClick={() => handleResolve('approve_for_session')}
           >
             Approve for Session

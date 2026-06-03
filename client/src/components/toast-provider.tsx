@@ -1,41 +1,28 @@
-import { createPortal } from 'react-dom';
-import { create } from 'zustand';
-import { Toast, type ToastItem } from './toast';
+import { Toaster, toast } from 'sonner';
 
-interface ToastState {
-  toasts: ToastItem[];
-  addToast: (toast: Omit<ToastItem, 'id'>) => void;
-  dismissToast: (id: string) => void;
-}
+export { toast };
 
-const useToastStore = create<ToastState>((set) => ({
-  toasts: [],
-  addToast: (toast) => {
-    const id = crypto.randomUUID();
-    set((state) => ({
-      toasts: [...state.toasts.slice(-2), { ...toast, id }],
-    }));
-  },
-  dismissToast: (id) =>
-    set((state) => ({
-      toasts: state.toasts.filter((t) => t.id !== id),
-    })),
-}));
-
-export function showToast(toast: Omit<ToastItem, 'id'>) {
-  useToastStore.getState().addToast(toast);
+export function showToast({ message, type }: { message: string; type: 'info' | 'error' }) {
+  if (type === 'error') {
+    toast.error(message);
+  } else {
+    toast(message);
+  }
 }
 
 export function ToastProvider() {
-  const toasts = useToastStore((s) => s.toasts);
-  const dismissToast = useToastStore((s) => s.dismissToast);
-
-  return createPortal(
-    <div className="fixed top-4 right-4 z-[100] flex flex-col gap-2">
-      {toasts.map((toast) => (
-        <Toast key={toast.id} toast={toast} onDismiss={dismissToast} />
-      ))}
-    </div>,
-    document.body,
+  return (
+    <Toaster
+      position="top-right"
+      theme="light"
+      toastOptions={{
+        classNames: {
+          toast:
+            'flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-3 text-sm font-medium text-card-foreground shadow-lg',
+          error: 'border-destructive/30 bg-destructive-wash text-destructive',
+          actionButton: 'bg-primary text-primary-foreground',
+        },
+      }}
+    />
   );
 }

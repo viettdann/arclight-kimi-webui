@@ -2,8 +2,8 @@ import { index, pgTable, text, timestamp, uuid, varchar } from 'drizzle-orm/pg-c
 import { user } from './auth';
 
 // Per-user git credentials (PAT over HTTPS). Multiple rows per user. The `token`
-// column is plaintext at-rest, mirroring the `kimi_config.provider.apiKey`
-// precedent; it is masked when serialized to the client.
+// column is plaintext at-rest, like the `providers.token` secret; it is masked
+// when serialized to the client.
 export const gitCredentials = pgTable(
   'git_credentials',
   {

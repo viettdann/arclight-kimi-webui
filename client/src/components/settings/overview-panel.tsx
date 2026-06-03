@@ -1,16 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router';
 import type { OverviewResponse } from 'shared/types';
 import { Button } from '@/components/ui/button';
+import { SecHead } from '@/components/ui/sec-head';
 import { Section } from '@/components/ui/section';
 import { fetchOverview } from '../../api/overview';
-import { useKimiConfigStore } from '../../lib/kimi-config-store';
 import { cn } from '../../lib/utils';
 
 export function OverviewPanel() {
-  const status = useKimiConfigStore((s) => s.status);
-  const config = useKimiConfigStore((s) => s.config);
-
   const [overview, setOverview] = useState<OverviewResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -35,8 +31,7 @@ export function OverviewPanel() {
 
   return (
     <div className="space-y-6">
-      <ConfigStatusCard />
-      <ProviderSummaryCard />
+      <SecHead title="Overview" description="System status and runtime metrics." />
 
       <Section
         title="Runtime"
@@ -61,84 +56,8 @@ export function OverviewPanel() {
           <p className="text-sm text-muted-foreground">Loading…</p>
         )}
       </Section>
-
-      {status?.system && (
-        <Section
-          title="System info (read-only)"
-          description="Process-level constants resolved at server startup."
-        >
-          <dl className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-            <SystemRow label="Workspace root" value={status.system.workspaceRoot} mono />
-            <SystemRow
-              label="Max upload"
-              value={`${(status.system.maxUploadBytes / (1024 * 1024)).toFixed(0)} MB (${status.system.maxUploadBytes.toLocaleString()} bytes)`}
-            />
-            <SystemRow label="Log level" value={status.system.logLevel} />
-            <SystemRow label="Port" value={`:${status.system.port}`} mono />
-            <SystemRow label="Node env" value={status.system.nodeEnv} />
-          </dl>
-        </Section>
-      )}
     </div>
   );
-
-  function ConfigStatusCard() {
-    if (!status) return null;
-    const ready = status.ready;
-    return (
-      <Section title="Configuration status" description="Auth mode and missing fields.">
-        <div className="flex flex-wrap items-center gap-3 text-sm">
-          <span
-            className={cn(
-              'rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider border',
-              ready
-                ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-700 dark:text-emerald-300'
-                : 'bg-amber-500/10 border-amber-500/40 text-amber-700 dark:text-amber-300',
-            )}
-          >
-            {ready ? 'Ready' : 'Incomplete'}
-          </span>
-          <span className="text-muted-foreground">
-            Auth mode: <code className="font-mono text-foreground">{status.authMode}</code>
-          </span>
-          {status.missing.length > 0 && (
-            <span className="text-muted-foreground">
-              Missing:{' '}
-              {status.missing.map((m, i) => (
-                <span key={m}>
-                  <code className="font-mono text-destructive">{m}</code>
-                  {i < status.missing.length - 1 ? ', ' : ''}
-                </span>
-              ))}{' '}
-              ·{' '}
-              <Link to="/settings/provider" className="underline hover:no-underline">
-                Fix in Provider
-              </Link>
-            </span>
-          )}
-        </div>
-      </Section>
-    );
-  }
-
-  function ProviderSummaryCard() {
-    if (!config) return null;
-    const defaultModel = config.models[config.defaults.model];
-    return (
-      <Section title="Provider" description="Current credentials and default model.">
-        <dl className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-          <SystemRow label="Type" value={config.provider.type} />
-          <SystemRow label="Base URL" value={config.provider.baseUrl || '—'} mono />
-          <SystemRow label="Default model key" value={config.defaults.model} mono />
-          <SystemRow
-            label="Model id"
-            value={defaultModel?.model ?? '— (model not in models map)'}
-            mono
-          />
-        </dl>
-      </Section>
-    );
-  }
 }
 
 function RuntimeGrid({ overview }: { overview: OverviewResponse }) {
@@ -218,13 +137,13 @@ function HealthCard({
   neutral?: boolean;
 }) {
   const tone = neutral
-    ? 'border-border bg-muted/30 text-foreground'
+    ? 'border-border bg-muted text-foreground'
     : ok
-      ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200'
+      ? 'border-success/40 bg-success-wash text-success'
       : 'border-destructive/40 bg-destructive/10 text-destructive';
   return (
     <div className={cn('rounded-md border px-3 py-2', tone)}>
-      <div className="text-xs font-semibold uppercase tracking-wider opacity-80">{label}</div>
+      <div className="text-xs font-semibold uppercase tracking-[0.08em] opacity-80">{label}</div>
       <div className="mt-1 text-sm break-all">{detail}</div>
     </div>
   );
@@ -240,8 +159,8 @@ function SystemRow({
   mono?: boolean;
 }) {
   return (
-    <div className="rounded-md border border-border bg-muted/30 px-3 py-2">
-      <dt className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+    <div className="rounded-md border border-border bg-muted px-3 py-2">
+      <dt className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
         {label}
       </dt>
       <dd

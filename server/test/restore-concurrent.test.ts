@@ -1,15 +1,12 @@
 import { describe, expect, it } from 'bun:test';
-import type { Session } from '@moonshot-ai/kimi-agent-sdk';
-import { type ActiveSession, KimiSessionManager } from '../src/services/session-manager';
+import { type ActiveSession, SessionManager } from '../src/services/session-manager';
 
 // `getOrRestore` invariant #3: concurrent subscribers for the same not-in-
 // memory session share a single restore Promise. Verify exactly one restoreFn
 // call regardless of how many parallel callers fire.
 
-const stubKimi = {} as unknown as Session;
-
 function fakeRestore(
-  manager: KimiSessionManager,
+  manager: SessionManager,
   ownerUserId: string,
   delayMs = 5,
 ): {
@@ -24,8 +21,6 @@ function fakeRestore(
       sessionId,
       userId: ownerUserId,
       workDir: '/tmp/work',
-      kimiSessionId: `kimi-${sessionId}`,
-      kimiSession: stubKimi,
     });
   };
   return { fn, callCount: () => count };
@@ -33,7 +28,7 @@ function fakeRestore(
 
 describe('getOrRestore — in-flight cache', () => {
   it('two concurrent restores for the same session → exactly one restoreFn call', async () => {
-    const manager = new KimiSessionManager();
+    const manager = new SessionManager();
     const restore = fakeRestore(manager, 'alice');
 
     const [a, b] = await Promise.all([
@@ -49,7 +44,7 @@ describe('getOrRestore — in-flight cache', () => {
   });
 
   it('three concurrent restores collapse to one call', async () => {
-    const manager = new KimiSessionManager();
+    const manager = new SessionManager();
     const restore = fakeRestore(manager, 'alice', 10);
 
     const results = await Promise.all([
@@ -64,7 +59,7 @@ describe('getOrRestore — in-flight cache', () => {
   });
 
   it('concurrent restores for different sessions do NOT collapse', async () => {
-    const manager = new KimiSessionManager();
+    const manager = new SessionManager();
     const restore = fakeRestore(manager, 'alice');
 
     await Promise.all([
@@ -77,7 +72,7 @@ describe('getOrRestore — in-flight cache', () => {
   });
 
   it('serial restore after first resolves: restore is no-op (already in memory)', async () => {
-    const manager = new KimiSessionManager();
+    const manager = new SessionManager();
     const restore = fakeRestore(manager, 'alice');
 
     await manager.getOrRestore('alice', 'sess-A', restore.fn);
@@ -87,7 +82,7 @@ describe('getOrRestore — in-flight cache', () => {
   });
 
   it('cross-user lookup against restored session → null, restoreFn still ran once', async () => {
-    const manager = new KimiSessionManager();
+    const manager = new SessionManager();
     const restore = fakeRestore(manager, 'alice');
 
     const [aliceResult, bobResult] = await Promise.all([
@@ -101,7 +96,7 @@ describe('getOrRestore — in-flight cache', () => {
   });
 
   it('restoreFn throw → both concurrent callers receive null, retry triggers fresh restore', async () => {
-    const manager = new KimiSessionManager();
+    const manager = new SessionManager();
     let calls = 0;
     let throwOnce = true;
     const fn = async (sessionId: string): Promise<ActiveSession> => {
@@ -115,8 +110,6 @@ describe('getOrRestore — in-flight cache', () => {
         sessionId,
         userId: 'alice',
         workDir: '/tmp/work',
-        kimiSessionId: `kimi-${sessionId}`,
-        kimiSession: stubKimi,
       });
     };
 

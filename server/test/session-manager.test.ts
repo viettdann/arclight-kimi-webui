@@ -1,26 +1,19 @@
 import { describe, expect, it } from 'bun:test';
-import type { Session } from '@moonshot-ai/kimi-agent-sdk';
-import { KimiSessionManager } from '../src/services/session-manager';
-
-// `Session` is fully external; the manager only holds the reference. A bare
-// stub matches the structural surface needed for these tests.
-const stubKimi = {} as unknown as Session;
+import { SessionManager } from '../src/services/session-manager';
 
 function mgr() {
-  return new KimiSessionManager();
+  return new SessionManager();
 }
 
-function reg(m: KimiSessionManager, sessionId: string, userId: string) {
+function reg(m: SessionManager, sessionId: string, userId: string) {
   return m.register({
     sessionId,
     userId,
     workDir: '/tmp/work',
-    kimiSessionId: `kimi-${sessionId}`,
-    kimiSession: stubKimi,
   });
 }
 
-describe('KimiSessionManager', () => {
+describe('SessionManager', () => {
   it('rejects cross-user sessionId access', () => {
     const m = mgr();
     reg(m, 'sess-A', 'user-1');

@@ -7,7 +7,7 @@ import type { ProjectListResponse, ProjectSummary } from 'shared/types';
 import type { AuthVariables } from '../src/auth/middleware';
 import type { AuditEvent } from '../src/lib/logger';
 import { createProjectsRoutes } from '../src/routes/projects';
-import { KimiSessionManager } from '../src/services/session-manager';
+import { SessionManager } from '../src/services/session-manager';
 import { makeFakeDb } from './_helpers';
 
 interface MockUser {
@@ -28,6 +28,8 @@ function buildApp(opts: BuildOpts): {
   fake: ReturnType<typeof makeFakeDb>;
 } {
   const fake = makeFakeDb();
+  // Seed the site_settings query (no rows = code defaults).
+  fake.selectQueue.push([]);
   // Seed the DISTINCT projectName query so GET / has a deterministic DB side.
   fake.selectQueue.push((opts.dbProjectNames ?? []).map((name) => ({ projectName: name })));
 
@@ -45,7 +47,7 @@ function buildApp(opts: BuildOpts): {
         opts.audit.push(e);
       },
       db: fake.db,
-      manager: new KimiSessionManager(),
+      manager: new SessionManager(),
     }),
   );
   return { app, fake };
@@ -60,7 +62,7 @@ let fake: ReturnType<typeof makeFakeDb>;
 const mockUser: MockUser = { id: 'u1', email: 'alice@example.com' };
 
 beforeEach(async () => {
-  tmpRoot = await mkdtemp(path.join(tmpdir(), 'kimi-projects-test-'));
+  tmpRoot = await mkdtemp(path.join(tmpdir(), 'mtc-projects-test-'));
   userRoot = path.join(tmpRoot, 'alice');
   audit = [];
   const built = buildApp({ user: mockUser, env: { WORKSPACE_ROOT: tmpRoot }, audit });
@@ -297,7 +299,8 @@ describe('GET /api/projects', () => {
 
     // Override the seeded empty DB rows for this request.
     fake.selectQueue.length = 0;
-    fake.selectQueue.push([{ projectName: 'alpha' }, { projectName: 'beta' }]);
+    fake.selectQueue.push([]); // select site_settings
+    fake.selectQueue.push([{ projectName: 'alpha' }, { projectName: 'beta' }]); // selectDistinct projectNames
 
     const res = await app.request('/api/projects');
     expect(res.status).toBe(200);
@@ -340,7 +343,7 @@ describe('DELETE /api/projects/:name', () => {
   it('foreign project: 200 + sessionCount, deletes DB rows, audits project_delete', async () => {
     // Foreign = DB rows, no local folder. Override the buildApp-seeded queue.
     fake.selectQueue.length = 0;
-    fake.selectQueue.push([{ id: 's1', workDir: '/remote/machine/proj', kimiSessionId: null }]);
+    fake.selectQueue.push([{ id: 's1', workDir: '/remote/machine/proj', sdkSessionId: null }]);
 
     const res = await app.request('/api/projects/proj', { method: 'DELETE' });
     expect(res.status).toBe(200);

@@ -5,8 +5,50 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1780043015864,
-      "tag": "0000_genesis",
+      "when": 1780167423432,
+      "tag": "0000_multi_provider",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1780206057373,
+      "tag": "0001_provider_constraints",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1780232187801,
+      "tag": "0002_add_effort_to_sessions",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1780293966187,
+      "tag": "0003_add_title_source",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1780373611840,
+      "tag": "0004_add_session_store_entries",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1780374549199,
+      "tag": "0005_drop_session_transcripts",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1780416491396,
+      "tag": "0006_add_key_value_settings",
       "breakpoints": true
     }
   ]

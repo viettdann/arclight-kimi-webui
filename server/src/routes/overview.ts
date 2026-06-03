@@ -5,11 +5,11 @@ import { resolveAccessControl } from '../auth/access';
 import { type AuthVariables, requireAdmin } from '../auth/middleware';
 import type { DB } from '../db';
 import { allowedEmail } from '../db/schema';
-import type { KimiSessionManager } from '../services/session-manager';
+import type { SessionManager } from '../services/session-manager';
 
 export interface OverviewRouterDeps {
   db: DB;
-  manager: Pick<KimiSessionManager, 'size'>;
+  manager: Pick<SessionManager, 'size'>;
   wsClientCount: () => number;
   startedAt: Date;
 }

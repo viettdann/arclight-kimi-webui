@@ -127,7 +127,7 @@ export function ConfirmDeleteProjectDialog({
                     git: {stat.git.branch ?? 'detached HEAD'}
                   </div>
                   {stat.git.dirtyCount > 0 && (
-                    <div className="flex items-center gap-1.5 font-medium text-amber-500">
+                    <div className="flex items-center gap-1.5 font-medium text-warning">
                       <AlertTriangle className="size-3.5" />
                       {stat.git.dirtyCount} uncommitted change
                       {stat.git.dirtyCount === 1 ? '' : 's'}
@@ -158,7 +158,7 @@ export function ConfirmDeleteProjectDialog({
               <ul className="mt-1 list-disc space-y-0.5 pl-5 text-muted-foreground">
                 {shownTitles.map((s) => (
                   <li key={s.id} className="truncate">
-                    {s.title ?? 'Untitled session'}
+                    {s.title ?? s.firstUserText ?? 'Untitled session'}
                   </li>
                 ))}
                 {overflow > 0 && <li className="text-muted-foreground/70">+{overflow} more</li>}

@@ -1,74 +1,78 @@
 import { createBrowserRouter, Navigate } from 'react-router';
 import { ErrorView } from '../components/error-view';
-import { GitCredentialsPanel } from '../components/preferences/git-credentials-panel';
-import { RequireAdmin } from '../components/require-admin';
+import { ProjectDiscoverySection } from '../components/settings/project-discovery-section';
 import { RequireAuth } from '../components/require-auth';
 import { AccessControlPanel } from '../components/settings/access-control-panel';
-import { KimiAgentPanel } from '../components/settings/kimi-agent-panel';
-import { KimiBackgroundPanel } from '../components/settings/kimi-background-panel';
-import { KimiDefaultsPanel } from '../components/settings/kimi-defaults-panel';
-import { KimiHooksPanel } from '../components/settings/kimi-hooks-panel';
-import { KimiRawTomlPanel } from '../components/settings/kimi-raw-toml-panel';
-import { KimiSection } from '../components/settings/kimi-section';
-import { KimiServicesPanel } from '../components/settings/kimi-services-panel';
+import { GeneralSection } from '../components/settings/general-section';
 import { OverviewPanel } from '../components/settings/overview-panel';
 import { ProviderPanel } from '../components/settings/provider-panel';
+import { ProvidersSection } from '../components/settings/providers-section';
+import { SystemSection } from '../components/settings/system-section';
+import { WorkspacePanel } from '../components/settings/workspace-panel';
 import { Shell } from '../pages/app';
 import { ChatView } from '../pages/chat-view';
-import { PreferencesView } from '../pages/preferences';
 import { SettingsView } from '../pages/settings';
+
+// Draft-session route + the query param carrying its target workspace. Shared so
+// the route declaration, the navigate that opens a draft, and the composer that
+// reads it can't drift to different spellings.
+export const DRAFT_SESSION_PATH = '/session/new';
+export const DRAFT_WORKDIR_PARAM = 'workDir';
 
 export const router = createBrowserRouter([
   {
     path: '/',
-    element: <Shell />,
     // Catches thrown errors and Responses (403/500/…) from any descendant, plus
     // React Router's synthetic 404 for URLs that match no route below.
     errorElement: <ErrorView />,
     children: [
-      { index: true, element: <ChatView /> },
       {
-        path: 'session/:id/*',
-        element: <RequireAuth />,
-        children: [{ index: true, element: <ChatView /> }],
-      },
-      {
-        path: 'settings',
-        element: <RequireAdmin />,
+        // Chat Shell: fixed project rail + shared header. Chat pages AND the
+        // settings modal render under here, so the rail + header stay mounted and
+        // blur through the settings backdrop instead of dropping to a blank page.
+        element: <Shell />,
         children: [
+          { index: true, element: <ChatView /> },
           {
-            element: <SettingsView />,
+            // Draft session: input only, no row yet. The first message fires
+            // `start_session`; the resulting snapshot redirects to the real id.
+            path: 'session/new',
+            element: <RequireAuth />,
+            children: [{ index: true, element: <ChatView /> }],
+          },
+          {
+            path: 'session/:id/*',
+            element: <RequireAuth />,
+            children: [{ index: true, element: <ChatView /> }],
+          },
+          {
+            // Settings is a route-driven modal (SettingsView → SettingsDialog,
+            // portaled). Nested here so opening it keeps the Shell behind the
+            // backdrop; closing navigates back to `backgroundLocation`.
+            path: 'settings',
+            element: <RequireAuth />,
             children: [
-              { index: true, element: <Navigate to="overview" replace /> },
-              { path: 'overview', element: <OverviewPanel /> },
-              { path: 'provider', element: <ProviderPanel /> },
               {
-                path: 'kimi',
-                element: <KimiSection />,
+                element: <SettingsView />,
                 children: [
-                  { index: true, element: <Navigate to="defaults" replace /> },
-                  { path: 'defaults', element: <KimiDefaultsPanel /> },
-                  { path: 'services', element: <KimiServicesPanel /> },
-                  { path: 'agent', element: <KimiAgentPanel /> },
-                  { path: 'background', element: <KimiBackgroundPanel /> },
-                  { path: 'hooks', element: <KimiHooksPanel /> },
-                  { path: 'raw-toml', element: <KimiRawTomlPanel /> },
+                  { index: true, element: <Navigate to="providers" replace /> },
+                  { path: 'providers', element: <ProvidersSection /> },
+                  { path: 'workspace', element: <WorkspacePanel /> },
+                  { path: 'general', element: <GeneralSection /> },
+                  { path: 'system', element: <SystemSection /> },
+                  // ── Redirect map for old URLs ──
+                  { path: 'overview', element: <Navigate to="/settings/system" replace /> },
+                  {
+                    path: 'session-defaults',
+                    element: <Navigate to="/settings/workspace" replace />,
+                  },
+                  { path: 'access', element: <Navigate to="/settings/system" replace /> },
+                  {
+                    path: 'project-discovery',
+                    element: <Navigate to="/settings/system" replace />,
+                  },
                 ],
               },
-              { path: 'access', element: <AccessControlPanel /> },
-            ],
-          },
-        ],
-      },
-      {
-        path: 'preferences',
-        element: <RequireAuth />,
-        children: [
-          {
-            element: <PreferencesView />,
-            children: [
-              { index: true, element: <Navigate to="git-credentials" replace /> },
-              { path: 'git-credentials', element: <GitCredentialsPanel /> },
             ],
           },
         ],

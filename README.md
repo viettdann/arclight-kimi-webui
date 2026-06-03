@@ -1,16 +1,14 @@
-# Kimi WebUI
+# MTC — More Than Code
 
-Rảnh rỗi sinh nông nỗi — tôi đăng ký gói Allegretto bên Kimi rồi tự hỏi "giờ làm gì với nó". Câu trả lời là build thêm một WebUI nữa cho Kimi, dù bản chính thức và `kimi-cli` đều đã có sẵn. Đúng kiểu rỗi việc làm lại cái đã có.
+Self-hosted, multi-user WebUI cho Claude Code. Agent chạy server-side qua `@anthropic-ai/claude-agent-sdk`, stream event về client qua WebSocket.
 
-Bản web mặc định của Kimi dùng nội bộ thì ổn, đem ra internet thì tôi chưa yên tâm: phần đăng nhập đơn sơ, session lưu rời rạc, đổi máy hay đổi browser một cái là gần như mất ngữ cảnh hội thoại. Bản này gom hết — tài khoản, hội thoại, file — vào đúng một Postgres. Server bật lên là từ máy nào cũng vào tiếp được, không phải mò vào VPS để cứu chat hôm qua.
-
-Agent chạy server-side qua `@moonshot-ai/kimi-agent-sdk`, stream event về client qua WebSocket. Multi-user, self-hosted.
+Chạy `claude` CLI rải rác trên từng máy thì ngữ cảnh nằm rời rạc: session lưu cục bộ, đổi máy hay đổi browser một cái là gần như mất hội thoại cũ. Bản này gom hết — tài khoản, hội thoại, file — vào đúng một Postgres. Server bật lên là từ máy nào cũng vào tiếp được, không phải mò vào VPS để cứu chat hôm qua.
 
 ## Stack
 
 - **Runtime:** Bun `1.3.13`
 - **Monorepo:** Bun workspaces + Turbo
-- **BE:** Hono, Kimi Agent SDK, Drizzle + postgres-js, BetterAuth (MVP-3), pino, zod
+- **BE:** Hono, Claude Agent SDK, Drizzle + postgres-js, BetterAuth (MVP-3), pino, zod
 - **FE:** Vite + React 19, Tailwind v4, shadcn/ui, TanStack Query, Zustand
 
 Layout: `server/`, `client/`, `shared/`.
@@ -19,11 +17,11 @@ Layout: `server/`, `client/`, `shared/`.
 
 - [Bun](https://bun.sh) `>= 1.3.13` (`bun upgrade` if older)
 - `git`
-- [`uv`](https://docs.astral.sh/uv/) — required by Kimi CLI
+- [Claude Code](https://claude.com/claude-code) — `claude` phải có trên PATH (Agent SDK spawn nó)
 - PostgreSQL (external, SSL); CA cert at `./certs/ca.crt`
 
 ```sh
-which bun git uv
+which bun git claude
 bun --version  # must be >= 1.3.13
 ```
 
@@ -80,12 +78,10 @@ bun --filter server test   # bun:test (placeholder it.todo specs at bootstrap)
 Server scripts read env from project root via `bun --env-file=../.env`.
 Client/Vite reads its own `.env` (only `VITE_*` keys exposed to the browser).
 
-`KIMI_SHARE_DIR` isolates the webui's Kimi state — `config.toml`, `oauth/`, `sessions/`, `logs/` — from your host `~/.kimi`. Default when unset: dev → `<project_root>/.kimi` (sibling of `workspace/`), prod (`NODE_ENV=production`) → `/app/.kimi`. Relative values resolve against the project root; absolute values are used as-is. Running `kimi` in a terminal still uses `~/.kimi` as before.
-
-## Out of scope (MVP build order, see `docs/plans/2026-04-30-kimi-webui-design.md`)
+## Out of scope (MVP build order)
 
 - BetterAuth + Azure SSO (MVP-3)
-- Kimi SDK wrapper, backup/restore (MVP-4)
+- Agent SDK wrapper, backup/restore (MVP-4)
 - WS handlers, EventBuffer, replay (MVP-5)
 - Path-guard impl + tests, File API (MVP-6)
 - shadcn components, full UI (UI track)

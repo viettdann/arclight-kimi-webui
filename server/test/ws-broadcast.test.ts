@@ -1,16 +1,12 @@
 import { describe, expect, it } from 'bun:test';
-import type { Session } from '@moonshot-ai/kimi-agent-sdk';
 import type { ServerWebSocket } from 'bun';
 import { broadcastEvent, sendDirect } from '../src/lib/ws-broadcast';
-import { KimiSessionManager } from '../src/services/session-manager';
+import { SessionManager } from '../src/services/session-manager';
 import type { WSData } from '../src/ws/upgrade';
 
 // Pure-logic tests: no DB, no SDK. We attach fake sockets to a real
-// KimiSessionManager and verify broadcastEvent stamps a monotonic seq, pushes
-// into the per-session buffer, and fans out to every OPEN socket while
-// skipping CLOSED ones.
-
-const stubKimi = {} as unknown as Session;
+// SessionManager and verify broadcastEvent stamps a monotonic seq and fans out
+// to every OPEN socket while skipping CLOSED ones.
 
 class FakeWS {
   readyState = 1; // OPEN
@@ -26,19 +22,17 @@ function asWS(fake: FakeWS): ServerWebSocket<WSData> {
 }
 
 function setup(sessionId: string) {
-  const manager = new KimiSessionManager();
+  const manager = new SessionManager();
   const active = manager.register({
     sessionId,
     userId: 'u1',
     workDir: '/tmp/work',
-    kimiSessionId: `kimi-${sessionId}`,
-    kimiSession: stubKimi,
   });
   return { manager, active };
 }
 
 describe('broadcastEvent', () => {
-  it('assigns monotonic seq and pushes into buffer', () => {
+  it('assigns monotonic seq', () => {
     const { manager, active } = setup('s1');
     const ws = new FakeWS();
     manager.attachWS(active, asWS(ws));
@@ -49,8 +43,6 @@ describe('broadcastEvent', () => {
     expect(m1.seq).toBe(1);
     expect(m2.seq).toBe(2);
     expect(active.lastSeq).toBe(2);
-    expect(active.eventBuffer.lastSeq).toBe(2);
-    expect(active.eventBuffer.since(0).map((m) => m.seq)).toEqual([1, 2]);
   });
 
   it('fans out to every attached socket', () => {
@@ -91,8 +83,6 @@ describe('broadcastEvent', () => {
     expect(open.sent.length).toBe(1);
     expect(closing.sent.length).toBe(0);
     expect(closed.sent.length).toBe(0);
-    // Buffer still got the message — late reconnects can replay it.
-    expect(active.eventBuffer.since(0).length).toBe(1);
   });
 
   it('continues fanout when one socket throws on send', () => {
@@ -113,20 +103,16 @@ describe('broadcastEvent', () => {
   });
 
   it('per-session seq is independent across sessions', () => {
-    const manager = new KimiSessionManager();
+    const manager = new SessionManager();
     const a = manager.register({
       sessionId: 'sA',
       userId: 'u',
       workDir: '/a',
-      kimiSessionId: 'k-a',
-      kimiSession: stubKimi,
     });
     const b = manager.register({
       sessionId: 'sB',
       userId: 'u',
       workDir: '/b',
-      kimiSessionId: 'k-b',
-      kimiSession: stubKimi,
     });
     broadcastEvent(a, 'text_delta', { text: '1' }, manager);
     broadcastEvent(b, 'text_delta', { text: '2' }, manager);

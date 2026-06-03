@@ -1,7 +1,9 @@
+import { Plus, ShieldCheck, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import type { AccessControlResponse, AllowedEmailDTO } from 'shared/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { SecHead } from '@/components/ui/sec-head';
 import {
   addAllowedEmail,
   fetchAccessControl,
@@ -10,7 +12,9 @@ import {
   setAccessControl,
 } from '../../api/access';
 import { useAuthStore } from '../../lib/auth-store';
+import { saveWithToast } from '../../lib/save-toast';
 import { cn } from '../../lib/utils';
+import { useRegisterDirty } from './use-settings-dirty';
 
 type OverrideChoice = 'default' | 'on' | 'off';
 
@@ -34,6 +38,9 @@ export function AccessControlPanel() {
   const [newEmail, setNewEmail] = useState('');
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [saveFailed, setSaveFailed] = useState(false);
+
+  useRegisterDirty('access-control', saveFailed);
 
   useEffect(() => {
     let cancelled = false;
@@ -55,17 +62,21 @@ export function AccessControlPanel() {
     };
   }, []);
 
-  async function changeOverride(choice: OverrideChoice) {
-    setSavingControl(true);
+  function changeOverride(choice: OverrideChoice) {
     setError(null);
-    try {
-      const next = await setAccessControl(overrideFromChoice(choice));
-      setControl(next);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to update');
-    } finally {
-      setSavingControl(false);
-    }
+    // setSavingControl lives inside `run` so it toggles on the initial save and
+    // on every Retry; the finally guarantees the control re-enables either way.
+    saveWithToast(
+      async () => {
+        setSavingControl(true);
+        try {
+          setControl(await setAccessControl(overrideFromChoice(choice)));
+        } finally {
+          setSavingControl(false);
+        }
+      },
+      { error: 'Failed to update', onSettled: setSaveFailed },
+    );
   }
 
   async function handleAdd() {
@@ -121,7 +132,9 @@ export function AccessControlPanel() {
   ];
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
+      <SecHead title="Members & access" description="Who can sign in and use this workspace." />
+
       {error && (
         <div className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-2.5 text-sm text-destructive">
           {error}
@@ -145,12 +158,14 @@ export function AccessControlPanel() {
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            <span className="text-xs text-muted-foreground">{emails.length} listed</span>
+            <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+              {emails.length} listed
+            </span>
             <span
               className={cn(
-                'rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider border',
+                'rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] border',
                 effective
-                  ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-700 dark:text-emerald-300'
+                  ? 'bg-success-wash border-success/40 text-success'
                   : 'bg-muted border-border text-muted-foreground',
               )}
             >
@@ -163,7 +178,7 @@ export function AccessControlPanel() {
           <div
             role="radiogroup"
             aria-label="Enforcement mode"
-            className="inline-flex rounded-md border border-border bg-muted/40 p-0.5"
+            className="inline-flex rounded-md border border-border bg-muted p-0.5"
           >
             {choices.map((opt) => {
               const active = choice === opt.id;
@@ -188,28 +203,35 @@ export function AccessControlPanel() {
             })}
           </div>
 
-          <div className="flex gap-2">
-            <Input
-              type="email"
-              value={newEmail}
-              placeholder="name@company.com"
-              onChange={(e) => setNewEmail(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  void handleAdd();
-                }
-              }}
-            />
-            <Button
-              type="button"
-              variant="default"
-              size="sm"
-              onClick={handleAdd}
-              disabled={adding || newEmail.trim() === ''}
-            >
-              {adding ? 'Adding…' : 'Add email'}
-            </Button>
+          <div className="space-y-1.5">
+            <label htmlFor="allowlist-add" className="block text-xs font-semibold text-foreground">
+              Add to allowlist
+            </label>
+            <div className="flex gap-2">
+              <Input
+                id="allowlist-add"
+                type="email"
+                value={newEmail}
+                placeholder="name@company.com"
+                onChange={(e) => setNewEmail(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    void handleAdd();
+                  }
+                }}
+              />
+              <Button
+                type="button"
+                variant="default"
+                size="sm"
+                onClick={handleAdd}
+                disabled={adding || newEmail.trim() === ''}
+              >
+                <Plus className="mr-1 h-3.5 w-3.5" />
+                {adding ? 'Adding…' : 'Add email'}
+              </Button>
+            </div>
           </div>
 
           {sortedEmails.length === 0 ? (
@@ -221,7 +243,7 @@ export function AccessControlPanel() {
               {sortedEmails.map((e) => (
                 <li
                   key={e.email}
-                  className="flex items-center justify-between gap-3 px-3 py-2 hover:bg-muted/40 transition-colors"
+                  className="flex items-center justify-between gap-3 px-3 py-2 hover:bg-muted transition-colors"
                 >
                   <span className="font-mono text-sm truncate min-w-0">{e.email}</span>
                   <div className="flex items-center gap-3 shrink-0">
@@ -239,6 +261,7 @@ export function AccessControlPanel() {
                       onClick={() => handleRemove(e.email)}
                       className="text-destructive hover:text-destructive"
                     >
+                      <Trash2 className="mr-1 h-3.5 w-3.5" />
                       Remove
                     </Button>
                   </div>
@@ -269,26 +292,27 @@ function IdentityRow({
 }) {
   const initial = name?.trim()?.[0]?.toUpperCase() ?? '?';
   return (
-    <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/30 px-4 py-2.5">
+    <div className="flex items-center gap-3.5 rounded-lg border border-border bg-card px-4 py-3.5 shadow-sm">
       <div
         aria-hidden
-        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary"
+        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-bold text-primary-foreground shadow-sm"
       >
         {initial}
       </div>
-      <div className="flex flex-1 items-center gap-2 min-w-0 text-sm">
-        <span className="font-medium text-foreground truncate">{name}</span>
-        <span className="text-muted-foreground">·</span>
-        <span className="font-mono text-xs text-muted-foreground truncate">{email}</span>
+      <div className="flex min-w-0 flex-col leading-tight">
+        <span className="truncate text-sm font-semibold text-foreground">{name}</span>
+        <span className="truncate font-mono text-xs text-muted-foreground">{email}</span>
       </div>
+      <span className="flex-1" />
       <span
         className={cn(
-          'shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider border',
+          'inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] border',
           role === 'admin'
-            ? 'bg-primary/10 border-primary/40 text-primary'
+            ? 'bg-primary-wash border-primary/40 text-primary-hover'
             : 'bg-muted border-border text-muted-foreground',
         )}
       >
+        {role === 'admin' && <ShieldCheck className="h-3 w-3" />}
         {role}
       </span>
     </div>

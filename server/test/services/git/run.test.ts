@@ -22,7 +22,7 @@ describe('runGit', () => {
   });
 
   it('returns a non-zero exitCode + stderr for a failing sub-command', async () => {
-    const dir = await mkdtemp(path.join(tmpdir(), 'kimi-rungit-'));
+    const dir = await mkdtemp(path.join(tmpdir(), 'mtc-rungit-'));
     try {
       // rev-parse outside any repo fails with a non-zero exit and a fatal: line.
       const r = await runGit(['rev-parse', '--abbrev-ref', 'HEAD'], {
@@ -39,7 +39,7 @@ describe('runGit', () => {
   });
 
   it('runs in the provided cwd', async () => {
-    const dir = await mkdtemp(path.join(tmpdir(), 'kimi-rungit-cwd-'));
+    const dir = await mkdtemp(path.join(tmpdir(), 'mtc-rungit-cwd-'));
     try {
       const init = await runGit(['init', '-q'], { cwd: dir, timeoutMs: 5_000 });
       expect(init.exitCode).toBe(0);

@@ -88,7 +88,7 @@ export function PendingApprovalDock() {
 
   if (!current) return null;
 
-  const isShell = toolCall?.name === 'Shell';
+  const isShell = toolCall?.name === 'Bash';
   const command = isShell && toolCall ? readArgString(toolCall, 'command') : '';
   const headline = (current.description ?? '').trim() || (current.action ?? '').trim();
   const queueExtra = pending.length - 1;
@@ -102,10 +102,10 @@ export function PendingApprovalDock() {
       <div className="mx-auto max-w-3xl pointer-events-auto">
         <div
           ref={cardRef}
-          className="rounded-lg border border-border/70 bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/85 overflow-hidden shadow-lg ring-1 ring-amber-500/10"
+          className="rounded-lg border border-border/70 bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/85 overflow-hidden shadow-lg ring-1 ring-warning/10"
         >
           <div className="px-4 py-3 flex items-start gap-3 border-b border-border/40">
-            <ShieldAlert className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
+            <ShieldAlert className="h-4 w-4 text-warning mt-0.5 shrink-0" />
             <div className="flex-1 min-w-0">
               <div className="text-sm font-semibold text-foreground flex items-baseline gap-2 flex-wrap">
                 <span>Approval required</span>
@@ -123,7 +123,7 @@ export function PendingApprovalDock() {
 
           {command && (
             <pre className="px-4 py-2 font-mono text-xs whitespace-pre-wrap break-words bg-muted/15 text-foreground/90 max-h-32 overflow-y-auto leading-relaxed">
-              <span className="text-amber-500 font-bold select-none">$ </span>
+              <span className="text-warning font-bold select-none">$ </span>
               {command}
             </pre>
           )}
@@ -134,7 +134,7 @@ export function PendingApprovalDock() {
               variant="ghost"
               size="sm"
               onClick={() => resolve('reject')}
-              className="text-red-600 hover:bg-red-500/10 hover:text-red-600 cursor-pointer justify-center sm:order-1"
+              className="text-destructive hover:bg-destructive-wash hover:text-destructive cursor-pointer justify-center sm:order-1"
             >
               Deny
             </Button>

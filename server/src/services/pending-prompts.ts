@@ -8,23 +8,23 @@ export async function enqueuePendingPrompt(
 ): Promise<void> {
   const dbh = db ?? defaultDb;
   await dbh
-    .update(schema.kimiSessions)
+    .update(schema.sessions)
     .set({
       pendingPrompt: text,
       pendingEnqueuedAt: new Date(),
     })
-    .where(eq(schema.kimiSessions.id, sessionId));
+    .where(eq(schema.sessions.id, sessionId));
 }
 
 export async function clearPendingPrompt(sessionId: string, db?: DB): Promise<void> {
   const dbh = db ?? defaultDb;
   await dbh
-    .update(schema.kimiSessions)
+    .update(schema.sessions)
     .set({
       pendingPrompt: null,
       pendingEnqueuedAt: null,
     })
-    .where(eq(schema.kimiSessions.id, sessionId));
+    .where(eq(schema.sessions.id, sessionId));
 }
 
 export async function peekPendingPrompt(
@@ -34,11 +34,11 @@ export async function peekPendingPrompt(
   const dbh = db ?? defaultDb;
   const rows = await dbh
     .select({
-      pendingPrompt: schema.kimiSessions.pendingPrompt,
-      pendingEnqueuedAt: schema.kimiSessions.pendingEnqueuedAt,
+      pendingPrompt: schema.sessions.pendingPrompt,
+      pendingEnqueuedAt: schema.sessions.pendingEnqueuedAt,
     })
-    .from(schema.kimiSessions)
-    .where(eq(schema.kimiSessions.id, sessionId));
+    .from(schema.sessions)
+    .where(eq(schema.sessions.id, sessionId));
 
   if (!rows || rows.length === 0) return null;
   const row = rows[0];

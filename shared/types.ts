@@ -1,6 +1,7 @@
-// Kimi WebUI shared contract — copied from design doc.
+// Shared client/server wire contract.
 // Server and client must agree on this surface verbatim.
 
+import type { CommandInfo } from './commands';
 import type { GitProvider } from './types/git-credentials';
 
 // ─────────────────────────── WebSocket envelope ───────────────────────────
@@ -20,7 +21,6 @@ export type WSMessageType =
   | 'snapshot'
   | 'replay_done'
   | 'turn_begin'
-  | 'step_begin'
   | 'text_delta'
   | 'thinking_delta'
   | 'tool_call'
@@ -31,32 +31,48 @@ export type WSMessageType =
   | 'approval_request'
   | 'approval_response'
   | 'question_request'
-  | 'step_interrupted'
-  | 'parse_error'
   | 'compaction_begin'
   | 'compaction_end'
-  | 'steer_input'
   | 'turn_end'
   | 'session_created'
+  | 'session_updated'
   | 'title_update'
   | 'project_adopted'
-  | 'slash_commands'
   | 'clone_progress'
+  | 'commands_available'
+  | 'context_usage'
   | 'error'
   // client → server
   | 'subscribe'
-  | 'create_session'
+  | 'start_session'
   | 'resume_session'
   | 'send_message'
   | 'approve_tool'
   | 'answer_question'
   | 'interrupt_turn'
-  | 'adopt_project';
+  | 'adopt_project'
+  | 'request_context_usage'
+  | 'compact_session';
 
 // ─────────────────────────── Domain types ───────────────────────────
 
-export const APPROVAL_MODES = ['ask', 'auto', 'yolo'] as const;
+export const APPROVAL_MODES = ['ask', 'safe', 'bypass'] as const;
 export type ApprovalMode = (typeof APPROVAL_MODES)[number];
+
+export const EFFORT_LEVELS = ['low', 'medium', 'high'] as const;
+/** Reasoning effort exposed in the composer. `null` means the provider default. */
+export type EffortLevel = (typeof EFFORT_LEVELS)[number];
+
+/** Human-readable effort label. `null` → "Default". */
+export function effortLabel(value: EffortLevel | null): string {
+  return value ? value.charAt(0).toUpperCase() + value.slice(1) : 'Default';
+}
+
+/** Effort selector options for dropdowns. `null` is the provider default. */
+export const EFFORT_OPTIONS: { value: EffortLevel | null; label: string }[] = [
+  { value: null, label: 'Default' },
+  ...EFFORT_LEVELS.map((value) => ({ value, label: effortLabel(value) })),
+];
 
 export type DisplayBlock =
   | { type: 'shell'; command: string; language: string }
@@ -68,21 +84,18 @@ export type DisplayBlock =
 export type Block =
   | { kind: 'user'; id: string; content: string; createdAt: string; status?: 'pending' | 'sent' }
   | {
+      // id = `${message.id}:${contentBlockIndex}` — stable across live & reload.
       kind: 'text';
       id: string;
-      turnIdx: number;
-      stepIdx: number;
-      partIdx: number;
       content: string;
       isStreaming: boolean;
       createdAt: string;
     }
   | {
+      // id = `${message.id}:${contentBlockIndex}`. `encrypted` = redacted thinking
+      // (empty text, signature-only).
       kind: 'thinking';
       id: string;
-      turnIdx: number;
-      stepIdx: number;
-      partIdx: number;
       content: string;
       encrypted: boolean;
       isStreaming: boolean;
@@ -111,9 +124,15 @@ export type Block =
       createdAt: string;
     }
   | {
+      // id = `subagent:${parentToolCallId}` where parentToolCallId is the Task
+      // tool_use.id. Nested blocks are attached at render time (live: routed by
+      // SDK `parent_tool_use_id`; reload: from the `subagents` JSONB via
+      // meta.toolUseId). `subagentType`/`description` come from `task_started`.
       kind: 'subagent';
       id: string;
       parentToolCallId: string;
+      subagentType?: string;
+      description?: string;
       blocks: Block[];
       isStreaming: boolean;
       createdAt: string;
@@ -139,7 +158,6 @@ export type Block =
       resolved?: boolean;
       createdAt: string;
     }
-  | { kind: 'steer'; id: string; content: string; createdAt: string }
   | { kind: 'error'; id: string; code: string; message: string; createdAt: string };
 
 export interface SessionListItem {
@@ -153,9 +171,19 @@ export interface SessionListItem {
   /** `local` when `workDir === localWorkDir`; `foreign` otherwise. */
   origin: 'local' | 'foreign';
   title: string | null;
+  /**
+   * First user prompt (whitespace-normalized, length-capped), or null when the
+   * session has no transcript yet. The client shows this as a provisional title
+   * until a real `title` (binary ai-title or self-generated fallback) is set —
+   * it is never persisted to the `title` column.
+   */
+  firstUserText: string | null;
   model: string | null;
+  /** Provider that owns `model`; null when unset or orphaned. */
+  providerId: string | null;
   thinking: boolean;
   totalTokens: number;
+  totalCostUsd: number;
   createdAt: string;
   lastActiveAt: string;
 }
@@ -171,26 +199,16 @@ export interface FileEntry {
 export interface QuestionOptionDTO {
   label: string;
   description?: string;
+  /** Per-option preview content for AskUserQuestion; from the SDK option's `preview` field. */
+  preview?: string;
 }
 
 export interface QuestionItemDTO {
   question: string;
   header?: string;
   options: QuestionOptionDTO[];
-  /** Normalized from SDK snake_case `multi_select`. */
+  /** Mirrors the SDK camelCase `multiSelect` field. */
   multiSelect?: boolean;
-}
-
-/**
- * One slash command available in a session's workDir, mirroring the SDK
- * `SlashCommandInfo` (and `InitializeResult.slash_commands`). Surfaced to the
- * composer picker; sourced from a warm-init ProtocolClient probe keyed by
- * `(workDir, skillsDir)`, NOT from the live session.
- */
-export interface SlashCommand {
-  name: string;
-  description: string;
-  aliases: string[];
 }
 
 // ─────────────────────────── Server → Client payloads ───────────────────────────
@@ -198,6 +216,7 @@ export interface SlashCommand {
 export interface SnapshotPayload {
   blocks: Block[];
   totalTokens: number;
+  totalCostUsd: number;
   title: string | null;
   pendingPrompt: { text: string; enqueuedAt: string } | null;
   /**
@@ -206,29 +225,29 @@ export interface SnapshotPayload {
    * reflect the true server state after reload — not a stale local default.
    */
   thinking: boolean;
-  yoloMode: boolean;
   approvalMode: ApprovalMode;
+  /** Reasoning effort, applied from the prompt it rides with onward; `null` is the provider default. */
+  effort: EffortLevel | null;
   /**
-   * Slash commands available in this session's workDir. Carried in the snapshot
-   * (not only a one-shot event) so the composer picker survives reload/resume.
-   * Empty when the warm-init probe failed or has not run yet.
+   * Dynamic command/skill catalog for this session's workDir, captured from the
+   * live session's `system/init`. Empty until the first turn populates it.
    */
-  slashCommands: SlashCommand[];
+  commands: CommandInfo[];
   live: {
-    /** True iff the server still has an in-flight Turn for this session. */
+    /** True iff the server still has an in-flight turn for this session. */
     turnInProgress: boolean;
-    turnIdx: number | null;
-    stepIdx: number | null;
-    /** Current part index of the in-flight thinking section (per turn+step). */
-    thinkPartIdx: number;
-    /** Current part index of the in-flight text section (per turn+step). */
-    textPartIdx: number;
   };
+  /**
+   * In-memory cached context-window usage, so the snapshot paints the context
+   * panel instantly before the sidebar's open-request round-trips. Null when no
+   * usage has been fetched for this session yet.
+   */
+  contextUsage: ContextUsagePayload | null;
 }
 
-/** Server→client push of the workDir's slash commands (also embedded in snapshot). */
-export interface SlashCommandsPayload {
-  commands: SlashCommand[];
+/** Dynamic command/skill catalog, broadcast when a live session reports `init`. */
+export interface CommandsAvailablePayload {
+  commands: CommandInfo[];
 }
 
 export interface ReplayDonePayload {
@@ -237,26 +256,33 @@ export interface ReplayDonePayload {
 
 export interface TurnBeginPayload {
   userInput: string;
-}
-
-export interface StepBeginPayload {
-  stepNumber: number;
+  /** Server-assigned stable id for the echoed user block. */
+  id: string;
 }
 
 export interface TextDeltaPayload {
+  /** Stable block id `${message.id}:${contentBlockIndex}`. */
+  id: string;
   text: string;
-  /** Disambiguates multiple text segments within the same (turnIdx, stepIdx). */
-  partIdx: number;
+  /**
+   * When true, `text` is the FULL final content: the client SETS (replaces)
+   * the block and stops streaming. Otherwise `text` is an incremental append.
+   * The final commit repairs any prefix missed during a mid-stream reconnect.
+   */
+  final?: boolean;
 }
 
 export interface ThinkingDeltaPayload {
+  /** Stable block id `${message.id}:${contentBlockIndex}`. */
+  id: string;
   thinking: string;
   encrypted?: boolean;
-  /** Disambiguates multiple thinking segments within the same (turnIdx, stepIdx). */
-  partIdx: number;
+  /** Full-content commit + stop streaming when true (see TextDeltaPayload.final). */
+  final?: boolean;
 }
 
 export interface ToolCallPayload {
+  /** SDK `tool_use.id` (`toolu_…`) — also the block id. */
   id: string;
   name: string;
   arguments: unknown;
@@ -276,13 +302,77 @@ export interface ToolResultPayload {
 }
 
 export interface SubagentEventPayload {
+  /** Parent Task `tool_use.id` this subagent activity nests under. */
   parentToolCallId: string;
-  event: unknown;
+  /** From `task_started` — surfaced on the subagent block header. */
+  subagentType?: string;
+  description?: string;
+  /**
+   * A nested delta event applied to the subagent's own block list. Uses the
+   * same stable-id applicator as top-level events (text_delta/thinking_delta/
+   * tool_call/tool_call_delta/tool_result/turn_end). `null` for header-only
+   * frames (task_started/task_done) that just set subagentType/streaming.
+   */
+  inner: { type: WSMessageType; payload: unknown } | null;
 }
 
 export interface StatusUpdatePayload {
   tokenUsage: number;
-  contextUsage: number;
+  /** Cumulative session cost in USD, from the SDK `result` message. */
+  totalCostUsd?: number;
+}
+
+/**
+ * Trimmed projection of the SDK `getContextUsage()` control response. The rich
+ * context-window breakdown is the single representation of context usage,
+ * delivered on the `context_usage` event and cached as the session's snapshot
+ * value. CLI theme `color` tokens are dropped; the client owns its palette.
+ */
+export interface ContextUsageCategory {
+  name: string;
+  tokens: number;
+  /** True when the category is shown but not loaded into the prompt (deferred behind tool search). */
+  isDeferred?: boolean;
+}
+export interface ContextUsageSkill {
+  name: string;
+  source: string;
+  tokens: number;
+}
+export interface ContextUsageMemoryFile {
+  path: string;
+  type: string;
+  tokens: number;
+}
+/** An MCP tool. `isLoaded === false` means it's deferred behind tool search. */
+export interface ContextUsageMcpTool {
+  name: string;
+  serverName: string;
+  tokens: number;
+  isLoaded?: boolean;
+}
+/** A built-in tool deferred behind tool search; `isLoaded` reflects current state. */
+export interface ContextUsageBuiltinTool {
+  name: string;
+  tokens: number;
+  isLoaded: boolean;
+}
+/** A system-tools entry that is always part of the prompt. */
+export interface ContextUsageSystemTool {
+  name: string;
+  tokens: number;
+}
+export interface ContextUsagePayload {
+  percentage: number;
+  totalTokens: number;
+  maxTokens: number;
+  model: string;
+  categories: ContextUsageCategory[];
+  skills: ContextUsageSkill[];
+  memoryFiles: ContextUsageMemoryFile[];
+  mcpTools: ContextUsageMcpTool[];
+  deferredBuiltinTools: ContextUsageBuiltinTool[];
+  systemTools: ContextUsageSystemTool[];
 }
 
 export interface ApprovalRequestPayload {
@@ -311,29 +401,13 @@ export interface QuestionRequestPayload {
   questions: QuestionItemDTO[];
 }
 
-export type StepInterruptedPayload = Record<string, never>;
 export type CompactionBeginPayload = Record<string, never>;
 export type CompactionEndPayload = Record<string, never>;
 
 /**
- * Carries either a SDK `WireEvent` ParseError (envelope decode of one wire
- * frame failed — `rawType` set) or a top-level `StreamEvent` ParseError
- * (raw frame text — `raw` set). Both surface to the client as `parse_error`.
+ * The turn's terminal status. Pump errors (thrown during iteration) surface
+ * via the `error` event, not `turn_end`.
  */
-export interface ParseErrorPayload {
-  code: string;
-  message: string;
-  rawType?: string;
-  raw?: string;
-}
-
-/** Echo of a steer-input from any user — broadcast back to all attached sockets. */
-export interface SteerInputPayload {
-  content: string;
-}
-
-// Mirrors `RunResult.status` from `@moonshot-ai/kimi-agent-sdk`. Pump errors
-// (thrown during iteration) surface via the `error` event, not `turn_end`.
 export type TurnEndStatus = 'finished' | 'cancelled' | 'max_steps_reached';
 
 export interface TurnEndPayload {
@@ -346,6 +420,13 @@ export interface TurnEndPayload {
  * session list. Carries no body — the envelope's `sessionId` is the signal.
  */
 export type SessionCreatedPayload = Record<string, never>;
+
+/**
+ * Broadcast when a session's persisted model/provider changes so connected
+ * clients refresh their session list. Carries no body — the envelope's
+ * `sessionId` is the signal.
+ */
+export type SessionUpdatedPayload = Record<string, never>;
 
 export interface TitleUpdatePayload {
   title: string;
@@ -365,12 +446,22 @@ export interface SubscribePayload {
   lastSeq?: number;
 }
 
-export interface CreateSessionPayload {
+/**
+ * Atomically create a session and run its first turn. A session row exists only
+ * once its first message is sent — there is no separate empty-session create.
+ * The server INSERTs the row, registers it, then spawns the turn with `content`.
+ */
+export interface StartSessionPayload {
   workDir: string;
+  /** First user message; the turn the new session is created to run. */
+  content: string;
   model?: string;
+  /** Provider that owns `model`. Identity of a selection is (providerId, model). */
+  providerId?: string;
   thinking?: boolean;
-  yoloMode?: boolean;
   approvalMode?: ApprovalMode;
+  /** Initial reasoning effort; `null` or omitted is the provider default. */
+  effort?: EffortLevel | null;
 }
 
 export interface ResumeSessionPayload {
@@ -386,11 +477,18 @@ export interface SendMessagePayload {
    * exactly when it first takes effect. Omitted fields are left unchanged.
    */
   thinking?: boolean;
-  yoloMode?: boolean;
   approvalMode?: ApprovalMode;
+  /** Model switch to apply for this turn onward; the server applies it via `Query.setModel`. */
+  model?: string;
+  /** Provider switch to apply alongside `model`; changes the subprocess env. */
+  providerId?: string;
+  /**
+   * Reasoning effort to apply for this prompt onward. `null` resets to the
+   * provider default; an omitted field leaves the current effort unchanged.
+   */
+  effort?: EffortLevel | null;
 }
 
-// Mirrors `ApprovalResponse` from `@moonshot-ai/kimi-agent-sdk`.
 export type ApprovalResponse = 'approve' | 'approve_for_session' | 'reject';
 
 export interface ApproveToolPayload {
@@ -401,6 +499,9 @@ export interface ApproveToolPayload {
 export interface AnswerQuestionPayload {
   requestId: string;
   answers: Record<string, string>;
+  /** Optional per-question free-text notes, forwarded into AskUserQuestion's
+   *  `updatedInput.annotations`. */
+  annotations?: Record<string, { notes?: string }>;
 }
 
 export type InterruptTurnPayload = Record<string, never>;
@@ -431,6 +532,67 @@ export interface MeResponse {
   role: 'admin' | 'user';
   /** `true` for everyone when access control is off; allowlist result when on. */
   allowed: boolean;
+}
+
+/** Byte cap on the per-user global-instructions file. Shared so the client can
+ *  show the limit and the server can reject oversized writes with the same
+ *  number. */
+export const USER_PREFERENCES_MAX_BYTES = 16 * 1024;
+
+/** `GET /api/me/preferences` — the current user's global instructions, i.e. the
+ *  contents of their own `$HOME/.claude/CLAUDE.md`. `content` is `''` when the
+ *  file does not exist yet. Applies to every project the user runs. */
+export interface UserPreferencesResponse {
+  content: string;
+}
+
+/** `PUT /api/me/preferences` — replace the user's global instructions. */
+export interface UserPreferencesUpdateRequest {
+  content: string;
+}
+
+/** Default blacklist entries for project discovery. */
+export const DEFAULT_PROJECT_DISCOVERY_BLACKLIST = [
+  '.git',
+  '.claude',
+  '.vscode',
+  '.idea',
+  'node_modules',
+  '.turbo',
+  '.next',
+  'dist',
+  'build',
+  'target',
+  '.cache',
+  '.pytest_cache',
+  '__pycache__',
+  '.mypy_cache',
+  '.tox',
+  '.egg-info',
+  '.coverage',
+  '.nyc_output',
+  'coverage',
+  '.DS_Store',
+  'Thumbs.db',
+] as const;
+
+/**
+ * `GET /api/admin/project-discovery` — the site-wide project discovery
+ * blacklist. Admin-managed; applies to every user's sidebar scan.
+ *
+ *   entries   extra directory names to exclude
+ *   override  true → use only `entries`; false → append `entries` to the
+ *             built-in {@link DEFAULT_PROJECT_DISCOVERY_BLACKLIST}
+ */
+export interface ProjectDiscoverySettingsResponse {
+  entries: string[];
+  override: boolean;
+}
+
+/** `PUT /api/admin/project-discovery` — update the site-wide blacklist. */
+export interface ProjectDiscoverySettingsUpdateRequest {
+  entries: string[];
+  override: boolean;
 }
 
 export interface AllowedEmailDTO {
@@ -484,7 +646,7 @@ export interface ProjectSummary {
   workDir: string;
   /**
    * `local` when the workspace folder exists on the current machine.
-   * `foreign` when only `kimi_sessions` rows reference this projectName.
+   * `foreign` when only `sessions` rows reference this projectName.
    * Foreign projects become local on the first successful adoption
    * (which mkdir's the folder via `ensureWorkDir`).
    */
@@ -549,7 +711,7 @@ export interface ProjectListResponse {
 
 export interface ProjectDeleteResponse {
   ok: true;
-  /** Number of `kimi_sessions` rows removed for the project. */
+  /** Number of `sessions` rows removed for the project. */
   sessionCount: number;
 }
 
@@ -596,5 +758,3 @@ export interface OverviewResponse {
 
 // Re-export git-credential types so `shared/types` entrypoint covers everything.
 export * from './types/git-credentials';
-// Re-export kimi-config types so `shared/types` entrypoint covers everything.
-export * from './types/kimi-config';

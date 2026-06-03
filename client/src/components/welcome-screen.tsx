@@ -28,7 +28,7 @@ export function WelcomeScreen() {
         <div className="flex items-center justify-center gap-3">
           <h1 className="text-4xl font-bold tracking-tight md:text-5xl">
             <span className="text-foreground">More Than </span>
-            <span className="gradient-text">Coding</span>
+            <span className="gradient-text">Code</span>
           </h1>
           <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-semibold text-primary">
             BETA
@@ -43,7 +43,7 @@ export function WelcomeScreen() {
         {features.map((feature) => (
           <div
             key={feature.title}
-            className="flex min-h-[176px] flex-col rounded-2xl border border-border bg-card p-6 transition-colors hover:border-primary/30 hover:bg-accent/30 cursor-default"
+            className="flex min-h-[176px] flex-col rounded-2xl border border-border bg-card p-6 transition-colors hover:border-primary/30 hover:bg-accent cursor-default"
           >
             <img
               src={feature.image}

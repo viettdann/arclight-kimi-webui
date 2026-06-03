@@ -1,6 +1,6 @@
 import type { ServerWebSocket } from 'bun';
 import type { WSMessage, WSMessageType } from 'shared/types';
-import type { ActiveSession, KimiSessionManager } from '../services/session-manager';
+import type { ActiveSession, SessionManager } from '../services/session-manager';
 import { snapshot } from '../ws/registry';
 import type { WSData } from '../ws/upgrade';
 
@@ -10,18 +10,18 @@ import type { WSData } from '../ws/upgrade';
 const WS_OPEN = 1;
 
 /**
- * Build a WS envelope, push it into the per-session ring buffer, and fan out
- * to every attached socket. Returns the built message so callers can chain
- * (e.g. emit DB log alongside).
+ * Build a WS envelope and fan it out to every attached socket. Returns the
+ * built message so callers can chain (e.g. emit DB log alongside).
  *
  * Caller invariant: `manager.allocSeq(active)` is the only place seqs are
- * minted; doing it here ensures buffer order matches wire order.
+ * minted; doing it here ensures every fanned-out frame is seq-stamped in
+ * monotonic wire order.
  */
 export function broadcastEvent<T>(
   active: ActiveSession,
   type: WSMessageType,
   payload: T,
-  manager: KimiSessionManager,
+  manager: SessionManager,
 ): WSMessage<T> {
   const seq = manager.allocSeq(active);
   const msg: WSMessage<T> = {
@@ -31,7 +31,6 @@ export function broadcastEvent<T>(
     seq,
     timestamp: Date.now(),
   };
-  active.eventBuffer.push(msg as WSMessage);
   const serialized = JSON.stringify(msg);
   for (const ws of active.wsSet) {
     if (ws.readyState !== WS_OPEN) continue;
@@ -65,7 +64,7 @@ export function sendDirect(ws: ServerWebSocket<WSData>, msg: WSMessage): void {
  * Fan a message out to every open socket of a single user, independent of any
  * chat session. Used for user-scoped notifications (e.g. `clone_progress`) that
  * happen outside a session: the envelope carries an empty `sessionId` and a
- * zero `seq` (no per-session ring buffer to replay through).
+ * zero `seq` (no per-session seq stream).
  */
 export function broadcastToUser<T>(userId: string, type: WSMessageType, payload: T): void {
   const msg: WSMessage<T> = { type, payload, sessionId: '', seq: 0, timestamp: Date.now() };

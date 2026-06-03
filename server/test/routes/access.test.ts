@@ -1,13 +1,24 @@
-import { describe, expect, it } from 'bun:test';
+import { afterEach, describe, expect, it } from 'bun:test';
 import { Hono } from 'hono';
 import { createMiddleware } from 'hono/factory';
 import type { AccessControlResponse, AllowedEmailDTO, AllowlistResponse } from 'shared/types';
+import { setAccessControlResolver } from '../../src/auth/access';
 import type { AuthVariables } from '../../src/auth/middleware';
 import { createAccessRouter } from '../../src/routes/access';
 import type { DbCall } from '../_helpers';
 import { makeFakeDb } from '../_helpers';
 
 function buildApp(fakeDb: ReturnType<typeof makeFakeDb>, role: 'admin' | 'user') {
+  // Wire a mock resolver so resolveAccessControl reads from selectQueue
+  // instead of the real site_settings table.
+  setAccessControlResolver(async () => {
+    const rows = fakeDb.selectQueue.shift();
+    const raw = rows?.[0]?.enabled;
+    const envDefault = true;
+    const override = typeof raw === 'boolean' ? raw : null;
+    return { override, envDefault, effective: override ?? envDefault };
+  });
+
   const app = new Hono<{ Variables: AuthVariables }>();
   app.use(
     '*',
@@ -20,6 +31,10 @@ function buildApp(fakeDb: ReturnType<typeof makeFakeDb>, role: 'admin' | 'user')
   app.route('/', createAccessRouter({ db: fakeDb.db }));
   return app;
 }
+
+afterEach(() => {
+  setAccessControlResolver(null as never);
+});
 
 describe('allowlist routes', () => {
   it('GET /allowlist returns listed emails', async () => {

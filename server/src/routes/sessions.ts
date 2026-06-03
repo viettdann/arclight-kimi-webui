@@ -1,6 +1,5 @@
-import { rm } from 'node:fs/promises';
 import path from 'node:path';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, getTableColumns, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import type { SessionListItem, SessionListResponse } from 'shared/types';
 import { slug } from '../auth';
@@ -8,18 +7,39 @@ import { type AuthVariables, requireAuth } from '../auth/middleware';
 import { type DB, db as defaultDb, schema } from '../db';
 import { env as defaultEnv, type Env } from '../env';
 import { auditLog as defaultAuditLog, logger } from '../lib/logger';
-import { kimiPaths } from '../services/kimi-config/paths';
+import { isUnderWorkspace } from '../services/agent/agent-paths';
+import { deleteStoreEntries } from '../services/agent/session-store';
+import { clearLocalSession, firstUserTextFromJsonl } from '../services/agent/transcript-store';
 import { teardownActiveSession } from '../services/session-lifecycle';
-import {
-  sessionManager as defaultManager,
-  type KimiSessionManager,
-} from '../services/session-manager';
+import { sessionManager as defaultManager, type SessionManager } from '../services/session-manager';
 
 const SESSIONS_LIST_LIMIT = 200;
 
+/** First N user-type main entries scanned to derive the provisional title. The
+ *  opening prompt is the first user entry; a small cap absorbs any leading
+ *  tool_result-only user turns while keeping the per-row subquery cheap. */
+const TITLE_HEAD_USER_ENTRIES = 5;
+
+/** Max length of the provisional title shipped to the client. */
+const PROVISIONAL_TITLE_MAX = 120;
+
+/**
+ * Derive a provisional title from a transcript head: the first real user
+ * prompt, whitespace-collapsed to one line and length-capped. Null when the
+ * head holds no user text yet. Never persisted — purely a display fallback.
+ */
+function provisionalTitle(head: string | null | undefined): string | null {
+  if (!head) return null;
+  const text = firstUserTextFromJsonl(head);
+  if (!text) return null;
+  const oneLine = text.replace(/\s+/g, ' ').trim();
+  if (!oneLine) return null;
+  return oneLine.length > PROVISIONAL_TITLE_MAX ? oneLine.slice(0, PROVISIONAL_TITLE_MAX) : oneLine;
+}
+
 export interface SessionsRouterDeps {
   db: DB;
-  manager: KimiSessionManager;
+  manager: SessionManager;
   auditLog: typeof defaultAuditLog;
   env: Pick<Env, 'WORKSPACE_ROOT'>;
 }
@@ -49,11 +69,31 @@ export function createSessionsRouter(deps: SessionsRouterDeps): Hono<{ Variables
     const user = c.var.user;
     if (user == null) return c.json({ error: 'unauthorized' }, 401);
 
+    // Join the transcript head (not the full content — sessions can be 100KB+)
+    // so the provisional title can be derived without a second query per row.
     const rows = await db
-      .select()
-      .from(schema.kimiSessions)
-      .where(eq(schema.kimiSessions.userId, user.id))
-      .orderBy(desc(schema.kimiSessions.lastActiveAt))
+      .select({
+        ...getTableColumns(schema.sessions),
+        // Provisional-title head: the session's first few *user* main entries
+        // (by SDK id) reconstructed as JSONL — only `type='user'` non-meta rows,
+        // since the title is the opening user prompt. Filtering in SQL avoids
+        // shipping assistant/tool entries. A correlated subquery keeps the
+        // listing a single round-trip; the load index covers sdk_session_id.
+        transcriptHead: sql<string | null>`(
+          SELECT string_agg(sub.entry::text, E'\n' ORDER BY sub.id)
+          FROM (
+            SELECT id, entry FROM session_store_entries
+            WHERE sdk_session_id = ${schema.sessions.sdkSessionId}
+              AND subpath IS NULL
+              AND entry->>'type' = 'user'
+              AND COALESCE(entry->>'isMeta', '') <> 'true'
+            ORDER BY id LIMIT ${TITLE_HEAD_USER_ENTRIES}
+          ) sub
+        )`,
+      })
+      .from(schema.sessions)
+      .where(eq(schema.sessions.userId, user.id))
+      .orderBy(desc(schema.sessions.lastActiveAt))
       .limit(SESSIONS_LIST_LIMIT);
 
     // Hoist user root out of the row loop: slug(email) and the WORKSPACE_ROOT
@@ -70,9 +110,12 @@ export function createSessionsRouter(deps: SessionsRouterDeps): Hono<{ Variables
         localWorkDir,
         origin: r.workDir === localWorkDir ? 'local' : 'foreign',
         title: r.title,
+        firstUserText: provisionalTitle(r.transcriptHead),
         model: r.model,
+        providerId: r.providerId,
         thinking: r.thinking,
         totalTokens: r.totalTokens,
+        totalCostUsd: Number(r.totalCostUsd),
         projectName: r.projectName,
         createdAt: r.createdAt.toISOString(),
         lastActiveAt: r.lastActiveAt.toISOString(),
@@ -84,9 +127,8 @@ export function createSessionsRouter(deps: SessionsRouterDeps): Hono<{ Variables
   });
 
   // DELETE /:id — hard delete. If in memory, tear the session down first so the
-  // SDK is shut down and any in-flight backup drains. Then remove the Kimi
-  // session dir on disk (best-effort) and DELETE the row. `session_files` is
-  // removed via ON DELETE CASCADE.
+  // SDK is shut down. Then remove the session's mirrored store entries + on-disk
+  // scratch (best-effort) and DELETE the row.
   sessions.delete('/:id', async (c) => {
     const user = c.var.user;
     if (user == null) return c.json({ error: 'unauthorized' }, 401);
@@ -94,11 +136,11 @@ export function createSessionsRouter(deps: SessionsRouterDeps): Hono<{ Variables
 
     const [row] = await db
       .select({
-        workDir: schema.kimiSessions.workDir,
-        kimiSessionId: schema.kimiSessions.kimiSessionId,
+        workDir: schema.sessions.workDir,
+        sdkSessionId: schema.sessions.sdkSessionId,
       })
-      .from(schema.kimiSessions)
-      .where(and(eq(schema.kimiSessions.id, id), eq(schema.kimiSessions.userId, user.id)))
+      .from(schema.sessions)
+      .where(and(eq(schema.sessions.id, id), eq(schema.sessions.userId, user.id)))
       .limit(1);
     if (!row) {
       return c.json({ error: 'not_found' }, 404);
@@ -109,18 +151,25 @@ export function createSessionsRouter(deps: SessionsRouterDeps): Hono<{ Variables
       await teardownActiveSession(active, { manager, db });
     }
 
-    if (row.kimiSessionId) {
-      const sessionDir = kimiPaths().sessionDir(row.workDir, row.kimiSessionId);
+    if (row.sdkSessionId) {
+      // Remove the session's mirrored transcript from the DB store (the cleanup
+      // the old session_transcripts FK cascade used to do; store rows are generic).
       try {
-        await rm(sessionDir, { recursive: true, force: true });
+        await deleteStoreEntries(db, [row.sdkSessionId]);
       } catch (err) {
-        logger.warn({ err, sessionId: id, sessionDir }, 'failed to remove kimi session dir');
+        logger.warn({ err, sessionId: id }, 'failed to remove session store entries');
+      }
+      // Remove on-disk scratch: `<sdkSessionId>.jsonl` + the `<sdkSessionId>/`
+      // subtree (subagent transcripts), siblings untouched. Foreign/remote
+      // workDirs outside the workspace never had a local dir.
+      if (isUnderWorkspace(row.workDir)) {
+        await clearLocalSession(row.workDir, row.sdkSessionId);
       }
     }
 
     await db
-      .delete(schema.kimiSessions)
-      .where(and(eq(schema.kimiSessions.id, id), eq(schema.kimiSessions.userId, user.id)));
+      .delete(schema.sessions)
+      .where(and(eq(schema.sessions.id, id), eq(schema.sessions.userId, user.id)));
 
     auditLog({
       userId: user.id,

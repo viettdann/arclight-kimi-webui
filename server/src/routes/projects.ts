@@ -34,17 +34,14 @@ import {
   listProjectsForUser,
   statProjectForUser,
 } from '../services/projects';
-import {
-  sessionManager as defaultManager,
-  type KimiSessionManager,
-} from '../services/session-manager';
+import { sessionManager as defaultManager, type SessionManager } from '../services/session-manager';
 
 export interface ProjectsRoutesDeps {
   env: Pick<Env, 'WORKSPACE_ROOT'> & { GIT_CLONE_TIMEOUT_MS?: number };
   auditLog: typeof defaultAuditLog;
   db?: DB;
   cloneRepo?: typeof defaultCloneRepo;
-  manager?: KimiSessionManager;
+  manager?: SessionManager;
   /** Push a clone-progress frame to every socket of the cloning user. Injected
    *  in tests to observe the async clone outcome without a live WebSocket. */
   notifyCloneProgress?: (userId: string, payload: CloneProgressPayload) => void;
@@ -324,8 +321,8 @@ export function createProjectsRoutes(deps: ProjectsRoutesDeps): Hono<{ Variables
 
   // ─────────────────────────── DELETE /:name ───────────────────────────
   // Hard-delete the project + all its sessions: DB-first (cascade drops the
-  // JSONL restore source), then best-effort disk + kimi.json cleanup. See
-  // `deleteProjectForUser` for the crash-safe ordering.
+  // JSONL restore source), then best-effort disk cleanup (transcript dirs +
+  // workspace). See `deleteProjectForUser` for the crash-safe ordering.
 
   projects.delete('/:name', async (c) => {
     const user = c.var.user;

@@ -8,7 +8,7 @@ import type {
 } from 'shared/types';
 import { authFetch, parseError } from '../lib/auth-fetch';
 
-const BASE = '/api/git-credentials';
+const BASE = '/api/config/general/git-credentials';
 
 export async function listGitCredentials(): Promise<GitCredentialListResponse> {
   const res = await authFetch(BASE);

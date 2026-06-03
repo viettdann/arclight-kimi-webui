@@ -17,10 +17,11 @@ export function ShellBlock({ command, language }: ShellBlockProps) {
 
   return (
     <div className="rounded-xl border border-zinc-800 bg-zinc-950 shadow-lg overflow-hidden backdrop-blur-sm animate-in fade-in duration-200">
+      {/* terminal surface kept dark intentionally — zinc-950/zinc-900 are not theme tokens */}
       {/* Terminal Window Header */}
       <div className="flex items-center justify-between bg-zinc-900 px-4 py-2 border-b border-zinc-800 text-xs select-none">
         <div className="flex items-center gap-2">
-          {/* Window control dots */}
+          {/* macOS window dots — decorative, not status colors */}
           <div className="flex gap-1.5 mr-1">
             <span className="h-3 w-3 rounded-full bg-red-500/80" />
             <span className="h-3 w-3 rounded-full bg-amber-500/80" />
@@ -42,6 +43,7 @@ export function ShellBlock({ command, language }: ShellBlockProps) {
           className="flex items-center gap-1 text-zinc-400 hover:text-zinc-200 transition-colors px-1.5 py-0.5 rounded hover:bg-zinc-800"
         >
           {copied ? (
+            // emerald accent on the intentionally-dark terminal surface, not a theme status token
             <Check className="h-3.5 w-3.5 text-emerald-500" />
           ) : (
             <Copy className="h-3.5 w-3.5" />
@@ -53,6 +55,7 @@ export function ShellBlock({ command, language }: ShellBlockProps) {
       {/* Terminal Body */}
       <div className="p-4 font-mono text-xs text-zinc-300 overflow-x-auto leading-relaxed select-text">
         <div className="flex gap-2">
+          {/* emerald shell-prompt glyph on the dark terminal surface — decorative, not a status token */}
           <span className="text-emerald-500 select-none">$</span>
           <pre className="whitespace-pre-wrap flex-1">{command}</pre>
         </div>

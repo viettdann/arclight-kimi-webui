@@ -1,6 +1,8 @@
 import type { SessionListItem, SessionListResponse } from 'shared/types';
 import { create } from 'zustand';
 import { authFetch } from './auth-fetch';
+import { useChatStore } from './chat-store';
+import { useCommandStore } from './command-store';
 
 interface SessionsState {
   sessions: SessionListItem[];
@@ -36,6 +38,10 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
       throw new Error(`http_${res.status}`);
     }
     set({ sessions: get().sessions.filter((s) => s.id !== sessionId) });
+    // Drop the deleted session's in-memory state from the per-session stores so
+    // long-lived tabs don't accumulate orphaned chat/command data.
+    useChatStore.getState().removeSession(sessionId);
+    useCommandStore.getState().removeSession(sessionId);
   },
 }));
 

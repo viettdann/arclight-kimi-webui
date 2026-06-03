@@ -41,7 +41,7 @@ export function TerminalOutput({ command, output, isError, borderless }: Termina
     >
       {command && (
         <div className="px-3 py-2 border-b border-border/40 font-mono text-xs flex items-start gap-2 group">
-          <span className="text-amber-500 font-bold select-none shrink-0">$</span>
+          <span className="text-warning font-bold select-none shrink-0">$</span>
           <pre className="flex-1 whitespace-pre-wrap break-words text-foreground/90 leading-relaxed">
             {command}
           </pre>
@@ -52,7 +52,7 @@ export function TerminalOutput({ command, output, isError, borderless }: Termina
             aria-label="Copy command"
           >
             {copied ? (
-              <Check className="h-3.5 w-3.5 text-emerald-500" />
+              <Check className="h-3.5 w-3.5 text-success" />
             ) : (
               <Copy className="h-3.5 w-3.5" />
             )}
@@ -62,7 +62,7 @@ export function TerminalOutput({ command, output, isError, borderless }: Termina
       {output != null && output !== '' && (
         <div
           className={`px-3 py-2 font-mono text-[11px] leading-relaxed whitespace-pre-wrap break-words select-text ${
-            isError ? 'text-red-500/90' : 'text-muted-foreground/95'
+            isError ? 'text-destructive/90' : 'text-muted-foreground/95'
           }`}
         >
           {shown}

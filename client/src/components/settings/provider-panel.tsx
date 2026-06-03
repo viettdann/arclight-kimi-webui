@@ -1,182 +1,295 @@
-import { useRef, useState } from 'react';
-import { isProviderType, PROVIDER_TYPES, type ProviderType } from 'shared/types/kimi-config';
+import { Pencil, Plus, Trash2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import type { ProviderDTO, Visibility } from 'shared/types/providers';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Section } from '@/components/ui/section';
-import { Select } from '@/components/ui/select';
+import { SecHead } from '@/components/ui/sec-head';
+import {
+  createBuiltinProvider,
+  deleteBuiltinProvider,
+  fetchBuiltinProviderModels,
+  listBuiltinProviders,
+  testBuiltinProvider,
+  updateBuiltinProvider,
+} from '../../api/providers';
 import { showToast } from '../../components/toast-provider';
-import { useKimiConfigStore } from '../../lib/kimi-config-store';
-import { KeyValueEditor } from './key-value-editor';
-import { ModelsPanel } from './models-panel';
+import { refreshComposerCatalog } from '../../lib/providers-store';
+import { cn } from '../../lib/utils';
+import { ProviderForm } from './provider-form';
+import { emptyForm, formFromProvider, useProviderForm } from './use-provider-form';
+import { useRegisterDirty } from './use-settings-dirty';
 
-const TYPE_HINTS: Record<ProviderType, string> = {
-  kimi: 'Kimi API platforms (Kimi Code, platform.kimi.com, platform.kimi.ai). API key required (`sk-...`).',
-  openai_legacy:
-    'OpenAI Chat Completions API and compatible providers (DeepSeek, Mistral, local OpenAI-compatible servers).',
-  openai_responses: 'OpenAI Responses API (newer format) and compatible providers.',
-  anthropic:
-    'Anthropic Claude API and compatible providers (e.g. proxies using Anthropic schema). Environment variable overrides are not supported — config file is the only source.',
-};
+// ── Main component ────────────────────────────────────────────────────────────
 
 export function ProviderPanel() {
-  const config = useKimiConfigStore((s) => s.config);
-  const patch = useKimiConfigStore((s) => s.patch);
-  const replaceKey = useKimiConfigStore((s) => s.replaceKey);
-  const setReplaceKey = useKimiConfigStore((s) => s.setReplaceKey);
-  const revealedApiKey = useKimiConfigStore((s) => s.revealedApiKey);
-  const revealApiKey = useKimiConfigStore((s) => s.revealApiKey);
-  const hideApiKey = useKimiConfigStore((s) => s.hideApiKey);
-  // Reveal/Hide toggle while typing a new key (Replace mode): plain UI password ↔ text.
-  const [showRawInput, setShowRawInput] = useState(false);
-  // Captured masked value at the moment user clicked "Replace", restored on Cancel.
-  const stashedMaskedKey = useRef<string>('');
+  const [providers, setProviders] = useState<ProviderDTO[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  if (!config) return <PanelSkeleton />;
-  const p = config.provider;
+  /** Which provider is being edited (by id), or 'new' for the add form, or null. */
+  const [editing, setEditing] = useState<string | 'new' | null>(null);
+  useRegisterDirty('builtin-provider-form', editing !== null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
-  async function handleReveal() {
-    const res = await revealApiKey();
-    if (!res.ok) showToast({ message: res.error ?? 'Reveal failed', type: 'error' });
+  /** Which provider id has a delete request in flight, or null. */
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const {
+    form,
+    setForm,
+    patchForm,
+    manualModelId,
+    setManualModelId,
+    handleTest,
+    handleFetchModels,
+    toggleModelDefault,
+    toggleModelSelected,
+    addManualModel,
+  } = useProviderForm({
+    testProvider: testBuiltinProvider,
+    fetchModels: fetchBuiltinProviderModels,
+  });
+
+  async function load() {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const { providers: list } = await listBuiltinProviders();
+      setProviders(list);
+    } catch (e) {
+      setLoadError(e instanceof Error ? e.message : 'Failed to load providers');
+    } finally {
+      setLoading(false);
+    }
   }
 
-  function enterReplace() {
-    stashedMaskedKey.current = p.apiKey;
-    patch({ provider: { apiKey: '' } });
-    setReplaceKey(true);
-    setShowRawInput(true);
-    hideApiKey();
+  // biome-ignore lint/correctness/useExhaustiveDependencies: one-shot on mount
+  useEffect(() => {
+    void load();
+  }, []);
+
+  function startAdd() {
+    setEditing('new');
+    setForm(emptyForm());
+    setSaveError(null);
+    setManualModelId('');
   }
 
-  function cancelReplace() {
-    patch({ provider: { apiKey: stashedMaskedKey.current } });
-    stashedMaskedKey.current = '';
-    setReplaceKey(false);
-    setShowRawInput(false);
+  function startEdit(p: ProviderDTO) {
+    setEditing(p.id);
+    setForm(formFromProvider(p));
+    setSaveError(null);
+    setManualModelId('');
   }
 
-  // Display value used by the readonly view (no Replace in progress):
-  //   raw if revealed, otherwise the masked string the server returned.
-  const displayValue = revealedApiKey ?? p.apiKey;
+  function cancelEdit() {
+    setEditing(null);
+    setSaveError(null);
+  }
+
+  function onTest() {
+    const editingProvider = editing !== 'new' ? providers.find((p) => p.id === editing) : undefined;
+    void handleTest(editingProvider?.id ?? null);
+  }
+
+  function onFetchModels() {
+    const editingProvider = editing !== 'new' ? providers.find((p) => p.id === editing) : undefined;
+    void handleFetchModels(editingProvider?.id ?? null);
+  }
+
+  async function handleSave() {
+    if (editing === null) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      if (editing === 'new') {
+        const token = form.token ?? '';
+        if (!token) {
+          setSaveError('Token is required for a new provider.');
+          setSaving(false);
+          return;
+        }
+        const created = await createBuiltinProvider({
+          type: 'api',
+          namespace: form.namespace,
+          baseUrl: form.baseUrl || null,
+          token,
+          visibility: form.visibility,
+          models: form.models,
+        });
+        setProviders((prev) => [...prev, created]);
+      } else {
+        const updated = await updateBuiltinProvider(editing, {
+          namespace: form.namespace,
+          baseUrl: form.baseUrl || null,
+          token: form.token, // null = keep existing
+          visibility: form.visibility,
+          models: form.models,
+        });
+        setProviders((prev) => prev.map((p) => (p.id === editing ? updated : p)));
+      }
+      setEditing(null);
+      refreshComposerCatalog();
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : 'Save failed');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete(id: string) {
+    if (!window.confirm('Delete this provider? This cannot be undone.')) return;
+    setDeletingId(id);
+    try {
+      await deleteBuiltinProvider(id);
+      setProviders((prev) => prev.filter((p) => p.id !== id));
+      if (editing === id) setEditing(null);
+      refreshComposerCatalog();
+    } catch (e) {
+      // Surface as inline error rather than crashing.
+      setLoadError(e instanceof Error ? e.message : 'Delete failed');
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
+  async function handleVisibilityToggle(p: ProviderDTO) {
+    const prevVisibility = p.visibility;
+    const next: Visibility = prevVisibility === 'public' ? 'private' : 'public';
+    // Optimistically reflect the new visibility in local state.
+    setProviders((prev) => prev.map((x) => (x.id === p.id ? { ...x, visibility: next } : x)));
+    try {
+      const updated = await updateBuiltinProvider(p.id, { visibility: next });
+      setProviders((prev) => prev.map((x) => (x.id === p.id ? updated : x)));
+      refreshComposerCatalog();
+    } catch (e) {
+      // Roll back the optimistic change and surface the error.
+      setProviders((prev) =>
+        prev.map((x) => (x.id === p.id ? { ...x, visibility: prevVisibility } : x)),
+      );
+      showToast({
+        message: e instanceof Error ? e.message : 'Failed to update visibility',
+        type: 'error',
+      });
+    }
+  }
+
+  if (loading) return <PanelSkeleton />;
 
   return (
     <div className="space-y-6">
-      <Section title="Credentials" description="Configure the upstream API the agent calls.">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="space-y-1.5">
-            <Label htmlFor="provider-type">Provider type</Label>
-            <Select
-              id="provider-type"
-              value={p.type}
-              onChange={(e) => {
-                const next = e.target.value;
-                if (isProviderType(next)) patch({ provider: { type: next } });
-              }}
+      <SecHead
+        title="Built-in providers"
+        description="API providers shared across all users. Credentials are stored server-side and never exposed to clients."
+        actions={
+          editing !== 'new' && (
+            <Button type="button" variant="outline" size="sm" onClick={startAdd}>
+              <Plus className="h-3.5 w-3.5 mr-1" />
+              Add provider
+            </Button>
+          )
+        }
+      />
+
+      {loadError && <p className="text-sm text-destructive">{loadError}</p>}
+
+      <div className="space-y-3">
+        {providers.length === 0 && editing !== 'new' && (
+          <p className="rounded-lg border border-dashed border-border py-6 text-center text-sm italic text-muted-foreground">
+            No built-in providers configured.
+          </p>
+        )}
+
+        {providers.map((p) =>
+          editing === p.id ? (
+            <ProviderForm
+              key={p.id}
+              form={form}
+              patchForm={patchForm}
+              onTest={onTest}
+              onSave={handleSave}
+              onCancel={cancelEdit}
+              onFetchModels={onFetchModels}
+              onToggleModelDefault={toggleModelDefault}
+              onToggleModelSelected={toggleModelSelected}
+              manualModelId={manualModelId}
+              onManualModelIdChange={setManualModelId}
+              onAddManualModel={addManualModel}
+              saving={saving}
+              saveError={saveError}
+              isEdit
+              existingProvider={p}
+            />
+          ) : (
+            <div
+              key={p.id}
+              className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-3.5 shadow-sm"
             >
-              {PROVIDER_TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </Select>
-            <p className="text-xs text-muted-foreground">{TYPE_HINTS[p.type]}</p>
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="provider-name">Identifier name</Label>
-            <Input
-              id="provider-name"
-              value={p.name}
-              placeholder="e.g. managed:kimi-code"
-              onChange={(e) => patch({ provider: { name: e.target.value } })}
-            />
-          </div>
-          <div className="md:col-span-2 space-y-1.5">
-            <Label htmlFor="provider-baseUrl">Base URL</Label>
-            <Input
-              id="provider-baseUrl"
-              value={p.baseUrl}
-              placeholder="https://api.example.com/v1"
-              onChange={(e) => patch({ provider: { baseUrl: e.target.value } })}
-            />
-          </div>
-          <div className="md:col-span-2 space-y-1.5">
-            <Label htmlFor="provider-apiKey">API key</Label>
-            <div className="flex gap-2">
-              {replaceKey ? (
-                <Input
-                  id="provider-apiKey"
-                  type={showRawInput ? 'text' : 'password'}
-                  value={p.apiKey}
-                  onChange={(e) => patch({ provider: { apiKey: e.target.value } })}
-                  placeholder="Enter new API key"
-                  autoFocus
-                />
-              ) : (
-                <Input
-                  id="provider-apiKey"
-                  type="text"
-                  value={displayValue}
-                  readOnly
-                  placeholder={p.apiKey === '' ? '(no key configured)' : undefined}
-                  className="font-mono"
-                />
-              )}
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={!replaceKey && p.apiKey === ''}
-                onClick={() => {
-                  if (replaceKey) {
-                    setShowRawInput((v) => !v);
-                  } else if (revealedApiKey !== null) {
-                    hideApiKey();
-                  } else {
-                    void handleReveal();
-                  }
-                }}
-              >
-                {replaceKey
-                  ? showRawInput
-                    ? 'Hide'
-                    : 'Reveal'
-                  : revealedApiKey !== null
-                    ? 'Hide'
-                    : 'Reveal'}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => (replaceKey ? cancelReplace() : enterReplace())}
-              >
-                {replaceKey ? 'Cancel' : 'Replace'}
-              </Button>
+              <div className="flex min-w-0 items-center gap-2.5">
+                <span className="font-mono text-sm font-semibold text-foreground">
+                  {p.namespace}
+                </span>
+                <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                  {p.models.length} model{p.models.length !== 1 ? 's' : ''}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void handleVisibilityToggle(p)}
+                  title="Toggle visibility"
+                  className={cn(
+                    'rounded-full px-2 py-0.5 text-xs font-medium transition-colors',
+                    p.visibility === 'public'
+                      ? 'bg-primary-wash text-primary-hover hover:bg-primary-wash/70'
+                      : 'bg-muted text-muted-foreground hover:bg-muted/70',
+                  )}
+                >
+                  {p.visibility === 'public' ? 'Public' : 'Private'}
+                </button>
+              </div>
+              <div className="flex shrink-0 items-center gap-1">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => startEdit(p)}
+                  title="Edit provider"
+                >
+                  <Pencil className="h-4 w-4" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="icon-sm"
+                  onClick={() => void handleDelete(p.id)}
+                  disabled={deletingId === p.id}
+                  title="Remove provider"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
-          </div>
-        </div>
+          ),
+        )}
 
-        <div className="border-t border-border pt-4 space-y-4">
-          <KeyValueEditor
-            label="Environment overrides"
-            description="Extra env vars injected when launching the agent."
-            data={p.env}
-            onChange={(env) => patch({ provider: { env } })}
-            keyPlaceholder="KEY"
-            valuePlaceholder="value"
+        {editing === 'new' && (
+          <ProviderForm
+            form={form}
+            patchForm={patchForm}
+            onTest={onTest}
+            onSave={handleSave}
+            onCancel={cancelEdit}
+            onFetchModels={onFetchModels}
+            onToggleModelDefault={toggleModelDefault}
+            onToggleModelSelected={toggleModelSelected}
+            manualModelId={manualModelId}
+            onManualModelIdChange={setManualModelId}
+            onAddManualModel={addManualModel}
+            saving={saving}
+            saveError={saveError}
+            isEdit={false}
           />
-          <KeyValueEditor
-            label="Custom HTTP headers"
-            description="Sent with every request to the provider."
-            data={p.customHeaders}
-            onChange={(customHeaders) => patch({ provider: { customHeaders } })}
-            keyPlaceholder="X-Header"
-            valuePlaceholder="value"
-          />
-        </div>
-      </Section>
-
-      <ModelsPanel />
+        )}
+      </div>
     </div>
   );
 }

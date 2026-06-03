@@ -1,187 +1,72 @@
-import { afterAll, describe, expect, it, mock } from 'bun:test';
-import * as realFsPromises from 'node:fs/promises';
-import type { Block } from 'shared/types';
-import { KimiSessionManager } from '../../src/services/session-manager';
-import { buildSnapshot } from '../../src/services/snapshot';
-import { makeFakeDb, stubSession } from '../_helpers';
+import { describe, expect, it } from 'bun:test';
+import { setCatalog } from '../../src/services/agent/commands-catalog';
+import { SessionManager } from '../../src/services/session-manager';
+import { buildSnapshot, emptySnapshot } from '../../src/services/snapshot';
+import { makeFakeDb } from '../_helpers';
 
-type BlockOfKind<K extends Block['kind']> = Extract<Block, { kind: K }>;
-function assertKind<K extends Block['kind']>(b: Block | undefined, kind: K): BlockOfKind<K> {
-  if (!b || b.kind !== kind) throw new Error(`expected ${kind}, got ${b?.kind ?? 'undefined'}`);
-  return b as BlockOfKind<K>;
+// buildSnapshot reflects the persisted effort column and the in-memory catalog
+// for the session's workDir; emptySnapshot is the canonical zero state.
+
+function sessionRow(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'sess-1',
+    workDir: '/tmp/snap-work',
+    totalTokens: 0,
+    totalCostUsd: '0',
+    title: null,
+    pendingPrompt: null,
+    pendingEnqueuedAt: null,
+    thinking: false,
+    approvalMode: 'ask',
+    effort: null,
+    ...overrides,
+  };
 }
 
-// Snapshot real export before `mock.module` swaps the namespace.
-const originalReadFile = realFsPromises.readFile;
+describe('buildSnapshot — effort + commands', () => {
+  it('carries the persisted effort and the workDir catalog', async () => {
+    const workDir = '/tmp/snap-work-effort';
+    const catalog = [
+      { name: 'deploy', description: 'Ship it', argumentHint: '[env]', kind: 'project' as const },
+    ];
+    setCatalog(workDir, catalog);
 
-mock.module('node:fs/promises', () => {
-  return {
-    ...realFsPromises,
-    readFile: async (p: string, encoding?: any) => {
-      if (p.endsWith('wire.jsonl')) {
-        return `${JSON.stringify({
-          timestamp: new Date().toISOString(),
-          message: {
-            type: 'TurnBegin',
-            payload: {
-              id: 'turn-1',
-              user_slug: 'alice',
-              user_input: [{ type: 'text', text: 'hi' }],
-            },
-          },
-        })}\n`;
-      }
-      return originalReadFile(p, encoding);
-    },
-  };
-});
-
-afterAll(() => {
-  mock.restore();
-});
-
-describe('buildSnapshot', () => {
-  it('builds a correct SnapshotPayload when session is active', async () => {
     const fake = makeFakeDb();
+    fake.selectQueue.push([sessionRow({ effort: 'high', workDir })]); // sessions row
+    fake.selectQueue.push([]); // no transcript
 
-    // 1. Session row
-    fake.selectQueue.push([
-      {
-        id: 'sess-1',
-        userId: 'alice',
-        workDir: '/tmp/work',
-        model: null,
-        thinking: false,
-        yoloMode: false,
-        approvalMode: 'auto',
-        status: 'active',
-        kimiSessionId: 'kimi-x',
-        title: 'Mock Session Title',
-        totalTokens: 50,
-      },
-    ]);
-
-    // 2. Pending prompt (none)
-    fake.selectQueue.push([]);
-
-    const manager = new KimiSessionManager();
-    const active = manager.register({
+    const snap = await buildSnapshot({
       sessionId: 'sess-1',
-      userId: 'alice',
-      workDir: '/tmp/work',
-      kimiSessionId: 'kimi-x',
-      kimiSession: stubSession(),
-    });
-
-    active.liveTextDelta = 'Streaming live text';
-    active.liveTurnIdx = 0;
-    active.liveStepIdx = 0;
-
-    const snapshot = await buildSnapshot({
-      sessionId: 'sess-1',
-      manager,
       db: fake.db,
+      manager: new SessionManager(),
     });
 
-    expect(snapshot).not.toBeNull();
-    expect(snapshot?.title).toBe('Mock Session Title');
-    expect(snapshot?.totalTokens).toBe(50);
-    expect(snapshot?.approvalMode).toBe('auto');
-    // No `currentTurn` was attached to the active session in this test, so
-    // resume should report no in-flight turn.
-    expect(snapshot?.live.turnInProgress).toBe(false);
-
-    // Should fold the TurnBegin from wire.jsonl + the live text delta overlay!
-    expect(snapshot?.blocks.length).toBe(2);
-    const userBlock = assertKind(snapshot?.blocks[0], 'user');
-    expect(userBlock.content).toBe('hi');
-    const textBlock = assertKind(snapshot?.blocks[1], 'text');
-    expect(textBlock.content).toBe('Streaming live text');
-    expect(textBlock.isStreaming).toBe(true);
+    expect(snap).not.toBeNull();
+    expect(snap?.effort).toBe('high');
+    expect(snap?.commands).toEqual(catalog);
   });
 
-  it('reports live.turnInProgress=true when active session holds an in-flight Turn', async () => {
+  it('defaults effort to null and commands to [] when unset', async () => {
     const fake = makeFakeDb();
-    fake.selectQueue.push([
-      {
-        id: 'sess-live',
-        userId: 'alice',
-        workDir: '/tmp/work',
-        model: null,
-        thinking: false,
-        yoloMode: false,
-        approvalMode: 'ask',
-        status: 'active',
-        kimiSessionId: 'kimi-x',
-        title: null,
-        totalTokens: 0,
-      },
-    ]);
+    // workDir has no catalog registered.
+    fake.selectQueue.push([sessionRow({ workDir: '/tmp/snap-work-none' })]);
     fake.selectQueue.push([]);
 
-    const manager = new KimiSessionManager();
-    const active = manager.register({
-      sessionId: 'sess-live',
-      userId: 'alice',
-      workDir: '/tmp/work',
-      kimiSessionId: 'kimi-x',
-      kimiSession: stubSession(),
-    });
-    // Pretend a Turn is in flight. buildSnapshot only checks for non-null,
-    // not the shape, so a minimal stub is enough.
-    active.currentTurn = {} as unknown as typeof active.currentTurn;
-
-    const snapshot = await buildSnapshot({ sessionId: 'sess-live', manager, db: fake.db });
-    expect(snapshot?.live.turnInProgress).toBe(true);
-  });
-
-  it('includes enqueued pending prompts at the tail of the block array', async () => {
-    const fake = makeFakeDb();
-
-    // 1. Session row
-    fake.selectQueue.push([
-      {
-        id: 'sess-2',
-        userId: 'alice',
-        workDir: '/tmp/work',
-        model: null,
-        thinking: false,
-        yoloMode: false,
-        approvalMode: 'ask',
-        status: 'active',
-        kimiSessionId: 'kimi-x',
-        title: 'Mock Session Title',
-        totalTokens: 0,
-      },
-    ]);
-
-    // 2. Pending prompt row (returned when peekPendingPrompt is called)
-    const date = new Date();
-    fake.selectQueue.push([
-      {
-        pendingPrompt: 'This prompt is pending',
-        pendingEnqueuedAt: date,
-      },
-    ]);
-
-    const manager = new KimiSessionManager();
-
-    const snapshot = await buildSnapshot({
-      sessionId: 'sess-2',
-      manager,
+    const snap = await buildSnapshot({
+      sessionId: 'sess-1',
       db: fake.db,
+      manager: new SessionManager(),
     });
 
-    expect(snapshot).not.toBeNull();
-    expect(snapshot?.pendingPrompt).toEqual({
-      text: 'This prompt is pending',
-      enqueuedAt: date.toISOString(),
-    });
+    expect(snap?.effort).toBeNull();
+    expect(snap?.commands).toEqual([]);
+  });
+});
 
-    const userPendingBlock = snapshot?.blocks.find(
-      (b): b is BlockOfKind<'user'> => b.kind === 'user' && b.status === 'pending',
-    );
-    expect(userPendingBlock).toBeDefined();
-    expect(userPendingBlock?.content).toBe('This prompt is pending');
+describe('emptySnapshot', () => {
+  it('has effort:null and commands:[]', () => {
+    const snap = emptySnapshot();
+    expect(snap.effort).toBeNull();
+    expect(snap.commands).toEqual([]);
   });
 });

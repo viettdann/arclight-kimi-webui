@@ -99,6 +99,9 @@ interface ProjectsState {
   cancelClone: (name: string) => Promise<void>;
   remove: (name: string) => Promise<void>;
   toggleExpanded: (name: string) => void;
+  /** Expand a project (idempotent). Used to auto-open the active session's
+   *  project without clobbering a later manual fold. */
+  expand: (name: string) => void;
 }
 
 export const useProjectsStore = create<ProjectsState>((set, get) => ({
@@ -191,5 +194,11 @@ export const useProjectsStore = create<ProjectsState>((set, get) => ({
 
   toggleExpanded: (name: string) => {
     set((s) => ({ expanded: { ...s.expanded, [name]: !s.expanded[name] } }));
+  },
+
+  expand: (name: string) => {
+    // No-op if already expanded so a manual fold of the active project isn't
+    // re-opened on every unrelated store update.
+    set((s) => (s.expanded[name] ? s : { expanded: { ...s.expanded, [name]: true } }));
   },
 }));

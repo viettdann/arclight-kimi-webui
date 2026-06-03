@@ -61,7 +61,7 @@ function bundleSubagents(blocks: Block[]): RenderItem[] {
 
 /**
  * Group sequential rail-eligible blocks into ActivityTimeline segments.
- * Everything else (user, text, steer, approval_request, question_request,
+ * Everything else (user, text, approval_request, question_request,
  * subagent-bundle) renders standalone — preserving the original ordering so
  * Timeline / bubble / Timeline interleaving works naturally.
  */
@@ -103,12 +103,24 @@ export function Transcript() {
     };
   }, [sessionId]);
 
-  // Auto-scroll to bottom during active turn updates
+  // Auto-scroll to bottom on new content. Scroll the container directly rather
+  // than `anchor.scrollIntoView()` — the latter bubbles to every scrollable
+  // ancestor, and on mobile the layout/visual-viewport gap (bottom address bar)
+  // makes it over-scroll the document, shoving the composer toward the middle.
+  // Guard on near-bottom so reading scrollback isn't yanked back down.
+  //
+  // `blocks.length` is the intended trigger, not a read value: each new
+  // streamed block must re-run the effect so it re-measures `scrollHeight` and
+  // follows the bottom. Biome flags it as "unnecessary" because the body never
+  // reads it directly — removing it would break auto-scroll, so suppress.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: blocks.length is a deliberate re-run trigger; the effect reads the derived scrollHeight, not the length itself.
   useEffect(() => {
-    if (isTurnInProgress || blocks.length > 0) {
-      bottomAnchorRef.current?.scrollIntoView({
-        behavior: isTurnInProgress ? 'smooth' : 'auto',
-      });
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const nearBottom = distanceFromBottom < 120;
+    if (isTurnInProgress || nearBottom) {
+      el.scrollTo({ top: el.scrollHeight, behavior: isTurnInProgress ? 'smooth' : 'auto' });
     }
   }, [blocks.length, isTurnInProgress]);
 

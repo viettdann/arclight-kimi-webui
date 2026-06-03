@@ -1,11 +1,13 @@
 import { Loader2 } from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useRef } from 'react';
-import { useParams } from 'react-router';
+import { useLocation, useParams } from 'react-router';
 import { ChatInput } from '../components/chat-input';
 import { PendingApprovalDock } from '../components/pending-approval-dock';
+import { RightSidebar } from '../components/right-sidebar/right-sidebar';
 import { Transcript } from '../components/transcript';
 import { WelcomeScreen } from '../components/welcome-screen';
 import { persistWidth, useOpenFileStore } from '../lib/open-file-store';
+import { DRAFT_SESSION_PATH } from '../lib/router';
 import { useSessionsStore } from '../lib/sessions-store';
 
 // CodeMirror + every language mode + react-markdown live behind this split
@@ -20,6 +22,11 @@ const MIN_EDITOR_PX = 400;
 
 export function ChatView() {
   const { id: sessionId } = useParams<{ id: string }>();
+  // The draft route (`/session/new?workDir=…`) has no id but carries a workDir.
+  // It shows the composer with no transcript until the first message creates
+  // the row; the resulting snapshot then navigates to the real `/session/:id`.
+  const { pathname } = useLocation();
+  const isDraft = pathname === DRAFT_SESSION_PATH;
 
   // Narrow selector — only re-render on projectName change for THIS session.
   const activeProjectName = useSessionsStore(
@@ -108,12 +115,23 @@ export function ChatView() {
           editor (the one %-anchored side) and the 1px handle leave behind —
           anchoring both sides to % would overflow by the handle width and
           jump on drag start. */}
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="relative flex min-w-0 flex-1 flex-col">
         {sessionId ? (
           <>
+            {/* The right-panel toggle lives in the shared header (Shell), so the
+                chat column is just the transcript + input here. */}
             <Transcript />
             <div className="relative shrink-0">
               <PendingApprovalDock />
+              <ChatInput />
+            </div>
+          </>
+        ) : isDraft ? (
+          // Draft: empty transcript area with an active composer. The first
+          // message creates the session, then the snapshot redirects here.
+          <>
+            <div className="flex-1 overflow-y-auto" />
+            <div className="relative shrink-0">
               <ChatInput />
             </div>
           </>
@@ -164,6 +182,10 @@ export function ChatView() {
           </div>
         </>
       )}
+
+      {/* Right sidebar (Todo + Context). Desktop: ~320px flex column to the
+          right of the editor; mobile: right overlay drawer. */}
+      <RightSidebar sessionId={sessionId} />
     </div>
   );
 }

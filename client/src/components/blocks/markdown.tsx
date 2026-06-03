@@ -84,7 +84,7 @@ export function CodeBlock({ code, language }: { code: string; language: string }
           className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors px-1.5 py-0.5 rounded hover:bg-muted"
         >
           {copied ? (
-            <Check className="h-3.5 w-3.5 text-emerald-500" />
+            <Check className="h-3.5 w-3.5 text-success" />
           ) : (
             <Copy className="h-3.5 w-3.5" />
           )}

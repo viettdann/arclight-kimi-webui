@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { AuditEvent } from '../../src/lib/logger';
@@ -10,8 +10,12 @@ import {
   ProjectNotFoundError,
   statProjectForUser,
 } from '../../src/services/projects';
-import { KimiSessionManager } from '../../src/services/session-manager';
+import { SessionManager } from '../../src/services/session-manager';
+import { SITE_SETTING_KEYS } from '../../src/services/site-settings';
 import { makeFakeDb } from '../_helpers';
+
+const ENTRIES_KEY = SITE_SETTING_KEYS.projectDiscoveryEntries;
+const OVERRIDE_KEY = SITE_SETTING_KEYS.projectDiscoveryOverride;
 
 async function gitInit(dir: string): Promise<void> {
   const proc = Bun.spawn({
@@ -33,7 +37,7 @@ let tmpRoot: string;
 let userRoot: string;
 
 beforeEach(async () => {
-  tmpRoot = await mkdtemp(path.join(tmpdir(), 'kimi-projects-svc-'));
+  tmpRoot = await mkdtemp(path.join(tmpdir(), 'mtc-projects-svc-'));
   userRoot = path.join(tmpRoot, USER_SLUG);
 });
 
@@ -44,7 +48,8 @@ afterEach(async () => {
 describe('listProjectsForUser', () => {
   it('FS empty + DB empty → []', async () => {
     const fake = makeFakeDb();
-    fake.selectQueue.push([]); // selectDistinct
+    fake.selectQueue.push([]); // select site_settings
+    fake.selectQueue.push([]); // selectDistinct projectNames
     const result = await listProjectsForUser({
       userId: USER_ID,
       userEmail: USER_EMAIL,
@@ -56,7 +61,8 @@ describe('listProjectsForUser', () => {
 
   it('mkdir -p userRoot when missing', async () => {
     const fake = makeFakeDb();
-    fake.selectQueue.push([]);
+    fake.selectQueue.push([]); // select site_settings
+    fake.selectQueue.push([]); // selectDistinct projectNames
     await listProjectsForUser({
       userId: USER_ID,
       userEmail: USER_EMAIL,
@@ -73,7 +79,8 @@ describe('listProjectsForUser', () => {
     await mkdir(path.join(userRoot, 'proj-a'), { mode: 0o700 });
 
     const fake = makeFakeDb();
-    fake.selectQueue.push([]);
+    fake.selectQueue.push([]); // select site_settings
+    fake.selectQueue.push([]); // selectDistinct projectNames
 
     const result = await listProjectsForUser({
       userId: USER_ID,
@@ -92,7 +99,8 @@ describe('listProjectsForUser', () => {
     await writeFile(path.join(userRoot, 'stray.txt'), 'ignored');
 
     const fake = makeFakeDb();
-    fake.selectQueue.push([]);
+    fake.selectQueue.push([]); // select site_settings
+    fake.selectQueue.push([]); // selectDistinct projectNames
 
     const result = await listProjectsForUser({
       userId: USER_ID,
@@ -105,7 +113,8 @@ describe('listProjectsForUser', () => {
 
   it('FS empty, DB has session with projectName=alpha → 1 foreign project', async () => {
     const fake = makeFakeDb();
-    fake.selectQueue.push([{ projectName: 'alpha' }]);
+    fake.selectQueue.push([]); // select site_settings
+    fake.selectQueue.push([{ projectName: 'alpha' }]); // selectDistinct projectNames
 
     const result = await listProjectsForUser({
       userId: USER_ID,
@@ -123,7 +132,8 @@ describe('listProjectsForUser', () => {
     await mkdir(path.join(userRoot, 'alpha'), { mode: 0o700 });
 
     const fake = makeFakeDb();
-    fake.selectQueue.push([{ projectName: 'alpha' }]);
+    fake.selectQueue.push([]); // select site_settings
+    fake.selectQueue.push([{ projectName: 'alpha' }]); // selectDistinct projectNames
 
     const result = await listProjectsForUser({
       userId: USER_ID,
@@ -141,7 +151,8 @@ describe('listProjectsForUser', () => {
     await mkdir(path.join(userRoot, 'alpha'), { mode: 0o700 });
 
     const fake = makeFakeDb();
-    fake.selectQueue.push([{ projectName: 'beta' }]);
+    fake.selectQueue.push([]); // select site_settings
+    fake.selectQueue.push([{ projectName: 'beta' }]); // selectDistinct projectNames
 
     const result = await listProjectsForUser({
       userId: USER_ID,
@@ -160,7 +171,8 @@ describe('listProjectsForUser', () => {
     await mkdir(path.join(userRoot, 'b'), { mode: 0o700 });
 
     const fake = makeFakeDb();
-    fake.selectQueue.push([{ projectName: 'a' }]);
+    fake.selectQueue.push([]); // select site_settings
+    fake.selectQueue.push([{ projectName: 'a' }]); // selectDistinct projectNames
 
     const result = await listProjectsForUser({
       userId: USER_ID,
@@ -169,6 +181,82 @@ describe('listProjectsForUser', () => {
       env: { WORKSPACE_ROOT: tmpRoot },
     });
     expect(result.map((p) => `${p.name}:${p.origin}`)).toEqual(['a:foreign', 'b:local']);
+  });
+
+  it('filters out default-blacklisted directories (e.g. .git, node_modules)', async () => {
+    await mkdir(userRoot, { recursive: true, mode: 0o700 });
+    await mkdir(path.join(userRoot, 'real-proj'), { mode: 0o700 });
+    await mkdir(path.join(userRoot, '.git'), { mode: 0o700 });
+    await mkdir(path.join(userRoot, 'node_modules'), { mode: 0o700 });
+
+    const fake = makeFakeDb();
+    fake.selectQueue.push([]); // select site_settings (no rows = defaults)
+    fake.selectQueue.push([]); // selectDistinct projectNames
+
+    const result = await listProjectsForUser({
+      userId: USER_ID,
+      userEmail: USER_EMAIL,
+      db: fake.db,
+      env: { WORKSPACE_ROOT: tmpRoot },
+    });
+    expect(result.map((p) => p.name)).toEqual(['real-proj']);
+  });
+
+  it('append mode: custom entries merge with defaults', async () => {
+    await mkdir(userRoot, { recursive: true, mode: 0o700 });
+    await mkdir(path.join(userRoot, 'real-proj'), { mode: 0o700 });
+    await mkdir(path.join(userRoot, 'custom-ignore'), { mode: 0o700 });
+
+    const fake = makeFakeDb();
+    fake.selectQueue.push([
+      { key: ENTRIES_KEY, value: ['custom-ignore'] },
+      { key: OVERRIDE_KEY, value: false },
+    ]); // select site_settings (append)
+    fake.selectQueue.push([]); // selectDistinct projectNames
+
+    const result = await listProjectsForUser({
+      userId: USER_ID,
+      userEmail: USER_EMAIL,
+      db: fake.db,
+      env: { WORKSPACE_ROOT: tmpRoot },
+    });
+    expect(result.map((p) => p.name)).toEqual(['real-proj']);
+  });
+
+  it('override mode: only custom entries are used', async () => {
+    await mkdir(userRoot, { recursive: true, mode: 0o700 });
+    await mkdir(path.join(userRoot, '.git'), { mode: 0o700 });
+    await mkdir(path.join(userRoot, 'real-proj'), { mode: 0o700 });
+
+    const fake = makeFakeDb();
+    fake.selectQueue.push([
+      { key: ENTRIES_KEY, value: ['other-ignore'] },
+      { key: OVERRIDE_KEY, value: true },
+    ]); // select site_settings (override)
+    fake.selectQueue.push([]); // selectDistinct projectNames
+
+    const result = await listProjectsForUser({
+      userId: USER_ID,
+      userEmail: USER_EMAIL,
+      db: fake.db,
+      env: { WORKSPACE_ROOT: tmpRoot },
+    });
+    // .git is NOT blacklisted because override replaces defaults entirely
+    expect(result.map((p) => p.name)).toEqual(['.git', 'real-proj']);
+  });
+
+  it('filters blacklisted foreign project names too', async () => {
+    const fake = makeFakeDb();
+    fake.selectQueue.push([]); // select site_settings (no rows = defaults)
+    fake.selectQueue.push([{ projectName: 'node_modules' }, { projectName: 'real-proj' }]); // selectDistinct projectNames
+
+    const result = await listProjectsForUser({
+      userId: USER_ID,
+      userEmail: USER_EMAIL,
+      db: fake.db,
+      env: { WORKSPACE_ROOT: tmpRoot },
+    });
+    expect(result.map((p) => p.name)).toEqual(['real-proj']);
   });
 });
 
@@ -198,14 +286,14 @@ describe('adoptProjectForUser', () => {
     const result = await adoptProjectForUser({
       userId: USER_ID,
       userSlug: USER_SLUG,
-      projectName: 'kimi-dev',
+      projectName: 'mtc-dev',
       db: fake.db,
       env: { WORKSPACE_ROOT: tmpRoot },
     });
 
-    const expectedWorkDir = path.join(userRoot, 'kimi-dev');
+    const expectedWorkDir = path.join(userRoot, 'mtc-dev');
     expect(result).toEqual({
-      projectName: 'kimi-dev',
+      projectName: 'mtc-dev',
       workDir: expectedWorkDir,
       sessionCount: 3,
     });
@@ -227,14 +315,14 @@ describe('adoptProjectForUser', () => {
     await adoptProjectForUser({
       userId: USER_ID,
       userSlug: USER_SLUG,
-      projectName: 'kimi-dev',
+      projectName: 'mtc-dev',
       db: fake.db,
       env: { WORKSPACE_ROOT: tmpRoot },
     });
     const result2 = await adoptProjectForUser({
       userId: USER_ID,
       userSlug: USER_SLUG,
-      projectName: 'kimi-dev',
+      projectName: 'mtc-dev',
       db: fake.db,
       env: { WORKSPACE_ROOT: tmpRoot },
     });
@@ -293,36 +381,21 @@ describe('statProjectForUser', () => {
 });
 
 describe('deleteProjectForUser', () => {
-  let shareDir: string;
   let audit: AuditEvent[];
-  let manager: KimiSessionManager;
+  let manager: SessionManager;
 
-  beforeEach(async () => {
-    shareDir = await mkdtemp(path.join(tmpdir(), 'kimi-del-share-'));
+  beforeEach(() => {
     audit = [];
-    manager = new KimiSessionManager();
+    manager = new SessionManager();
   });
 
-  afterEach(async () => {
-    await rm(shareDir, { recursive: true, force: true });
-  });
-
-  it('local project: removes folder + DB rows + kimi.json entry, emits audit', async () => {
+  it('local project: removes folder + DB rows, emits audit', async () => {
     const localWorkDir = path.join(userRoot, 'proj');
     await mkdir(localWorkDir, { recursive: true, mode: 0o700 });
     await writeFile(path.join(localWorkDir, 'file.txt'), 'data');
-    await writeFile(
-      path.join(shareDir, 'kimi.json'),
-      JSON.stringify({
-        work_dirs: [
-          { path: localWorkDir, kaos: 'local', last_session_id: null },
-          { path: '/other', kaos: 'local', last_session_id: null },
-        ],
-      }),
-    );
 
     const fake = makeFakeDb();
-    fake.selectQueue.push([{ id: 's1', workDir: localWorkDir, kimiSessionId: 'kid1' }]);
+    fake.selectQueue.push([{ id: 's1', workDir: localWorkDir }]);
 
     const result = await deleteProjectForUser({
       userId: USER_ID,
@@ -332,16 +405,12 @@ describe('deleteProjectForUser', () => {
       env: { WORKSPACE_ROOT: tmpRoot },
       manager,
       auditLog: (e) => audit.push(e),
-      shareDir,
     });
 
     expect(result).toEqual({ sessionCount: 1 });
     await expect(stat(localWorkDir)).rejects.toBeDefined();
 
     expect(fake.calls.filter((c) => c.op === 'delete')).toHaveLength(1);
-
-    const kimi = JSON.parse(await readFile(path.join(shareDir, 'kimi.json'), 'utf8'));
-    expect(kimi.work_dirs).toEqual([{ path: '/other', kaos: 'local', last_session_id: null }]);
 
     expect(audit).toContainEqual({
       userId: USER_ID,
@@ -353,7 +422,7 @@ describe('deleteProjectForUser', () => {
 
   it('foreign project (no local folder, has rows): deletes DB rows only', async () => {
     const fake = makeFakeDb();
-    fake.selectQueue.push([{ id: 's1', workDir: '/remote/machine/proj', kimiSessionId: null }]);
+    fake.selectQueue.push([{ id: 's1', workDir: '/remote/machine/proj' }]);
 
     const result = await deleteProjectForUser({
       userId: USER_ID,
@@ -363,7 +432,6 @@ describe('deleteProjectForUser', () => {
       env: { WORKSPACE_ROOT: tmpRoot },
       manager,
       auditLog: (e) => audit.push(e),
-      shareDir,
     });
 
     expect(result).toEqual({ sessionCount: 1 });
@@ -382,7 +450,6 @@ describe('deleteProjectForUser', () => {
       env: { WORKSPACE_ROOT: tmpRoot },
       manager,
       auditLog: (e) => audit.push(e),
-      shareDir,
     });
 
     expect(result).toBe('not_found');
@@ -405,7 +472,6 @@ describe('deleteProjectForUser', () => {
       env: { WORKSPACE_ROOT: tmpRoot },
       manager,
       auditLog: (e) => audit.push(e),
-      shareDir,
     });
 
     expect(result).toEqual({ sessionCount: 0 });

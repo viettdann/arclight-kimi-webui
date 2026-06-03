@@ -2,60 +2,80 @@
 import type {
   ApprovalMode,
   Block,
+  ContextUsagePayload,
   DisplayBlock,
-  SlashCommand,
-  SlashCommandsPayload,
+  EffortLevel,
+  QuestionItemDTO,
   SnapshotPayload,
+  StatusUpdatePayload,
   WSMessageType,
 } from 'shared/types';
 import { create } from 'zustand';
 
 export interface ChatSessionState {
   blocks: Block[];
-  tokenUsage: number | null;
-  contextUsage: number | null;
+  /** Cumulative session token usage, mirrored from `status_update`/snapshot. */
+  totalTokens: number | null;
+  /** Rich context-window breakdown from the latest `context_usage` event / snapshot. */
+  contextUsage: ContextUsagePayload | null;
+  /**
+   * Bumped on each `turn_end` — a subscribable signal that context usage may have
+   * changed. The right sidebar watches this to re-request usage while open,
+   * instead of re-parsing raw WS frames.
+   */
+  contextEpoch: number;
+  /** Cumulative session cost in USD, from `status_update`/snapshot. */
+  totalCostUsd: number | null;
   title: string | null;
-  slashCommands: SlashCommand[];
   pendingPrompt: { text: string; enqueuedAt: string } | null;
   isTurnInProgress: boolean;
   /** Per-session agent flags, mirrored from the snapshot (true server state). */
   thinking: boolean;
-  yoloMode: boolean;
   approvalMode: ApprovalMode;
-  liveTurnIdx: number | null;
-  liveStepIdx: number | null;
-  subagentStates: Record<string, { liveTurnIdx: number | null; liveStepIdx: number | null }>;
+  /** Reasoning effort, applied from the prompt it rides with onward; `null` is the provider default. */
+  effort: EffortLevel | null;
 }
 
 interface ChatStore {
   sessions: Record<string, ChatSessionState>;
   getOrCreateSession: (sessionId: string) => ChatSessionState;
   loadSnapshot: (sessionId: string, payload: SnapshotPayload) => void;
-  applyEvent: (sessionId: string, type: WSMessageType, payload: any) => void;
+  applyEvent: (sessionId: string, type: WSMessageType, payload: any, seq?: number) => void;
   addPendingUserBlock: (sessionId: string, text: string) => void;
   /** Optimistic local update of agent flags; server echoes the truth via snapshot. */
   setSessionFlags: (
     sessionId: string,
-    flags: { thinking?: boolean; yoloMode?: boolean; approvalMode?: ApprovalMode },
+    flags: { thinking?: boolean; approvalMode?: ApprovalMode; effort?: EffortLevel | null },
   ) => void;
+  /** Drop a session's in-memory chat state when the session is deleted. */
+  removeSession: (sessionId: string) => void;
 }
 
 const createDefaultSessionState = (): ChatSessionState => ({
   blocks: [],
-  tokenUsage: null,
+  totalTokens: null,
   contextUsage: null,
+  contextEpoch: 0,
+  totalCostUsd: null,
   title: null,
-  slashCommands: [],
   pendingPrompt: null,
   isTurnInProgress: false,
   thinking: true,
-  yoloMode: false,
   approvalMode: 'ask',
-  liveTurnIdx: null,
-  liveStepIdx: null,
-  subagentStates: {},
+  effort: null,
 });
 
+const now = (): string => new Date().toISOString();
+
+// Fallback monotonic counter for error block ids when the WS envelope `seq` is
+// not threaded through (e.g. local optimistic applyEvent calls). Keeps ids
+// stable and collision-free without relying on Date.now().
+let localSeqFallback = 0;
+
+/**
+ * Recursively find the name of the tool_call matching `toolCallId`, descending
+ * into subagent block lists so a nested tool_result can label itself.
+ */
 function findToolCallNameInBlocks(blocks: Block[], toolCallId: string): string {
   for (const b of blocks) {
     if (b.kind === 'tool_call' && b.toolCallId === toolCallId) {
@@ -69,261 +89,275 @@ function findToolCallNameInBlocks(blocks: Block[], toolCallId: string): string {
   return '';
 }
 
+/**
+ * Pure applicator: given the current block list and one WS event, return the
+ * next block list. Block ids are SERVER-ASSIGNED and stable — this function
+ * NEVER computes positional ids. It finds a block by id and appends/sets, or
+ * pushes a new block when none exists. `subagent_event` recurses through the
+ * same function so nested blocks get the identical stable-id treatment.
+ *
+ * `seq` is the WS envelope sequence number, used only to mint a stable,
+ * collision-free id for `error` blocks.
+ */
 function applyEventToBlocks(
   blocks: Block[],
   type: WSMessageType,
   payload: any,
-  context: {
-    liveTurnIdx: number | null;
-    liveStepIdx: number | null;
-    setLiveTurnIdx: (val: number | null) => void;
-    setLiveStepIdx: (val: number | null) => void;
-    findToolCallName: (toolCallId: string) => string;
-    applySubagentEvent?: (parentToolCallId: string, nestedEvent: any) => void;
-  },
+  seq: number,
 ): Block[] {
-  let updatedBlocks = [...blocks];
-
   switch (type) {
     case 'turn_begin': {
       const userBlock: Block = {
         kind: 'user',
-        id: `user:wire:${(context.liveTurnIdx ?? -1) + 1}`,
-        content: typeof payload === 'string' ? payload : (payload.userInput ?? ''),
-        createdAt: new Date().toISOString(),
+        id: payload.id,
+        content: payload.userInput ?? '',
         status: 'sent',
+        createdAt: now(),
       };
-      // Remove any pending user block
-      updatedBlocks = updatedBlocks.filter((b) => b.kind !== 'user' || b.status !== 'pending');
-      updatedBlocks.push(userBlock);
-      context.setLiveTurnIdx((context.liveTurnIdx ?? -1) + 1);
-      context.setLiveStepIdx(0);
-      break;
+      // Drop any optimistic pending user block; the server's echo replaces it.
+      const filtered = blocks.filter((b) => b.kind !== 'user' || b.status !== 'pending');
+      return [...filtered, userBlock];
     }
-    case 'step_begin': {
-      // Mark text/thinking block of previous step isStreaming = false
-      updatedBlocks = updatedBlocks.map((b) => {
-        if ((b.kind === 'text' || b.kind === 'thinking') && b.isStreaming) {
-          return { ...b, isStreaming: false };
-        }
-        return b;
-      });
-      const nextStep =
-        typeof payload?.stepNumber === 'number'
-          ? payload.stepNumber
-          : (context.liveStepIdx ?? -1) + 1;
-      context.setLiveStepIdx(nextStep);
-      break;
-    }
+
     case 'text_delta': {
-      const turn = context.liveTurnIdx ?? 0;
-      const step = context.liveStepIdx ?? 0;
-      const text = typeof payload === 'string' ? payload : (payload.text ?? '');
-      // partIdx disambiguates multiple text segments within (turn, step) so a
-      // second text section (after a tool call) does not append to the first.
-      const partIdx =
-        typeof payload === 'object' && typeof payload.partIdx === 'number' ? payload.partIdx : 0;
-      const existingIdx = updatedBlocks.findIndex(
-        (b) =>
-          b.kind === 'text' && b.turnIdx === turn && b.stepIdx === step && b.partIdx === partIdx,
-      );
-      if (existingIdx >= 0) {
-        const existing = updatedBlocks[existingIdx] as Extract<Block, { kind: 'text' }>;
-        updatedBlocks[existingIdx] = {
-          ...existing,
-          content: existing.content + text,
-          isStreaming: true,
-        };
-      } else {
-        const newBlock: Block = {
-          kind: 'text',
-          id: `text:${turn}:${step}:${partIdx}`,
-          turnIdx: turn,
-          stepIdx: step,
-          partIdx,
-          content: text,
-          isStreaming: true,
-          createdAt: new Date().toISOString(),
-        };
-        updatedBlocks.push(newBlock);
+      const idx = blocks.findIndex((b) => b.kind === 'text' && b.id === payload.id);
+      if (idx >= 0) {
+        const existing = blocks[idx] as Extract<Block, { kind: 'text' }>;
+        const next = [...blocks];
+        next[idx] = payload.final
+          ? { ...existing, content: payload.text, isStreaming: false }
+          : { ...existing, content: existing.content + payload.text, isStreaming: true };
+        return next;
       }
-      break;
+      const newBlock: Block = {
+        kind: 'text',
+        id: payload.id,
+        content: payload.text,
+        isStreaming: !payload.final,
+        createdAt: now(),
+      };
+      return [...blocks, newBlock];
     }
+
     case 'thinking_delta': {
-      const turn = context.liveTurnIdx ?? 0;
-      const step = context.liveStepIdx ?? 0;
-      const thinking = typeof payload === 'string' ? payload : (payload.thinking ?? '');
-      const encrypted = typeof payload === 'object' ? !!payload.encrypted : false;
-      const partIdx =
-        typeof payload === 'object' && typeof payload.partIdx === 'number' ? payload.partIdx : 0;
-      const existingIdx = updatedBlocks.findIndex(
-        (b) =>
-          b.kind === 'thinking' &&
-          b.turnIdx === turn &&
-          b.stepIdx === step &&
-          b.partIdx === partIdx,
-      );
-      if (existingIdx >= 0) {
-        const existing = updatedBlocks[existingIdx] as Extract<Block, { kind: 'thinking' }>;
-        updatedBlocks[existingIdx] = {
-          ...existing,
-          content: existing.content + thinking,
-          isStreaming: true,
-        };
-      } else {
-        const newBlock: Block = {
-          kind: 'thinking',
-          id: `thinking:${turn}:${step}:${partIdx}`,
-          turnIdx: turn,
-          stepIdx: step,
-          partIdx,
-          content: thinking,
-          encrypted,
-          isStreaming: true,
-          createdAt: new Date().toISOString(),
-        };
-        updatedBlocks.push(newBlock);
+      const idx = blocks.findIndex((b) => b.kind === 'thinking' && b.id === payload.id);
+      if (idx >= 0) {
+        const existing = blocks[idx] as Extract<Block, { kind: 'thinking' }>;
+        const next = [...blocks];
+        next[idx] = payload.final
+          ? {
+              ...existing,
+              content: payload.thinking,
+              encrypted: !!payload.encrypted,
+              isStreaming: false,
+            }
+          : {
+              ...existing,
+              content: existing.content + payload.thinking,
+              encrypted: !!payload.encrypted,
+              isStreaming: true,
+            };
+        return next;
       }
-      break;
+      const newBlock: Block = {
+        kind: 'thinking',
+        id: payload.id,
+        content: payload.thinking,
+        encrypted: !!payload.encrypted,
+        isStreaming: !payload.final,
+        createdAt: now(),
+      };
+      return [...blocks, newBlock];
     }
+
     case 'tool_call': {
+      // Upsert by id. A `tool_call` after streaming deltas carries the full,
+      // parsed `arguments` — set it and clear streaming. Tool calls never carry
+      // their own streaming spinner; the timeline derives status from whether a
+      // tool_result is present.
+      const idx = blocks.findIndex((b) => b.kind === 'tool_call' && b.toolCallId === payload.id);
+      if (idx >= 0) {
+        const existing = blocks[idx] as Extract<Block, { kind: 'tool_call' }>;
+        const next = [...blocks];
+        next[idx] = {
+          ...existing,
+          name: payload.name,
+          args: payload.arguments,
+          isStreaming: false,
+        };
+        return next;
+      }
       const newBlock: Block = {
         kind: 'tool_call',
-        id: `tool_call:${payload.id}`,
+        id: payload.id,
         toolCallId: payload.id,
         name: payload.name,
         args: payload.arguments,
         isStreaming: false,
-        createdAt: new Date().toISOString(),
+        createdAt: now(),
       };
-      updatedBlocks.push(newBlock);
-      break;
+      return [...blocks, newBlock];
     }
+
     case 'tool_call_delta': {
-      const existingIdx = updatedBlocks.findIndex(
-        (b) => b.kind === 'tool_call' && b.toolCallId === payload.id,
-      );
-      if (existingIdx >= 0) {
-        const existing = updatedBlocks[existingIdx] as Extract<Block, { kind: 'tool_call' }>;
-        // Don't re-arm isStreaming if the result has already arrived (late delta).
-        const hasResult = updatedBlocks.some(
-          (b) => b.kind === 'tool_result' && b.toolCallId === payload.id,
-        );
-        updatedBlocks[existingIdx] = {
-          ...existing,
-          argsStreaming: (existing.argsStreaming ?? '') + payload.argumentsPart,
-          isStreaming: !hasResult,
-        };
-      }
-      break;
+      const idx = blocks.findIndex((b) => b.kind === 'tool_call' && b.toolCallId === payload.id);
+      if (idx < 0) return blocks;
+      const existing = blocks[idx] as Extract<Block, { kind: 'tool_call' }>;
+      const next = [...blocks];
+      // Append raw argument text only. Adapters parse `argsStreaming` (head+tail)
+      // as a fallback for partial JSON; never set `args` from a delta.
+      next[idx] = {
+        ...existing,
+        argsStreaming: (existing.argsStreaming ?? '') + payload.argumentsPart,
+      };
+      return next;
     }
+
     case 'tool_result': {
-      const toolName = context.findToolCallName(payload.toolCallId);
-      const newBlock: Block = {
+      const toolName = findToolCallNameInBlocks(blocks, payload.toolCallId);
+      const resultBlock: Block = {
         kind: 'tool_result',
-        id: `tool_result:${payload.toolCallId}`,
+        id: payload.toolCallId,
         toolCallId: payload.toolCallId,
         toolName,
         output: payload.output,
         message: payload.message ?? null,
         displayBlocks: (payload.displayBlocks as DisplayBlock[]) ?? [],
         isError: payload.isError,
-        createdAt: new Date().toISOString(),
+        createdAt: now(),
       };
-      // Mark tool call as not streaming
-      updatedBlocks = updatedBlocks.map((b) => {
-        if (b.kind === 'tool_call' && b.toolCallId === payload.toolCallId) {
-          return { ...b, isStreaming: false };
-        }
-        return b;
-      });
-      updatedBlocks.push(newBlock);
-      break;
+      // Stop the matching tool_call from streaming, then append the result.
+      const next = blocks.map((b) =>
+        b.kind === 'tool_call' && b.toolCallId === payload.toolCallId
+          ? { ...b, isStreaming: false }
+          : b,
+      );
+      return [...next, resultBlock];
     }
+
     case 'approval_request': {
+      const id = `approval:${payload.requestId}`;
+      if (blocks.some((b) => b.kind === 'approval_request' && b.id === id)) return blocks;
       const newBlock: Block = {
         kind: 'approval_request',
-        id: `approval:${payload.requestId}`,
+        id,
         requestId: payload.requestId,
         toolCallId: payload.id,
         action: payload.action,
         description: payload.description,
-        createdAt: new Date().toISOString(),
+        createdAt: now(),
       };
-      updatedBlocks.push(newBlock);
-      break;
+      return [...blocks, newBlock];
     }
+
     case 'approval_response': {
-      updatedBlocks = updatedBlocks.map((b) => {
-        if (b.kind === 'approval_request' && b.requestId === payload.requestId) {
-          return { ...b, resolution: payload.response };
-        }
-        return b;
-      });
-      break;
+      return blocks.map((b) =>
+        b.kind === 'approval_request' && b.requestId === payload.requestId
+          ? { ...b, resolution: payload.response }
+          : b,
+      );
     }
+
     case 'question_request': {
+      const id = `question:${payload.requestId}`;
+      if (blocks.some((b) => b.kind === 'question_request' && b.id === id)) return blocks;
       const newBlock: Block = {
         kind: 'question_request',
-        id: `question:${payload.requestId}`,
+        id,
         requestId: payload.requestId,
-        // QuestionRequestPayload.id carries the SDK tool_call_id (see ws/events.ts).
+        // QuestionRequestPayload.id carries the SDK tool_call_id.
         toolCallId: payload.id,
-        questions: payload.questions,
-        createdAt: new Date().toISOString(),
+        questions: payload.questions as QuestionItemDTO[],
+        createdAt: now(),
       };
-      updatedBlocks.push(newBlock);
-      break;
+      return [...blocks, newBlock];
     }
-    case 'steer_input': {
-      const steerCount = updatedBlocks.filter((b) => b.kind === 'steer').length;
-      const newBlock: Block = {
-        kind: 'steer',
-        id: `steer:${steerCount}`,
-        content: payload.content,
-        createdAt: new Date().toISOString(),
-      };
-      updatedBlocks.push(newBlock);
-      break;
-    }
+
     case 'subagent_event': {
-      if (context.applySubagentEvent) {
-        context.applySubagentEvent(payload.parentToolCallId, payload.event);
-      }
-      break;
+      return applySubagentEvent(blocks, payload, seq);
     }
-    case 'step_interrupted':
+
     case 'turn_end': {
-      updatedBlocks = updatedBlocks.map((b) => {
-        if (
-          (b.kind === 'text' ||
-            b.kind === 'thinking' ||
-            b.kind === 'tool_call' ||
-            b.kind === 'subagent') &&
-          b.isStreaming
-        ) {
-          return { ...b, isStreaming: false };
-        }
-        return b;
-      });
-      break;
+      return blocks.map((b) =>
+        (b.kind === 'text' ||
+          b.kind === 'thinking' ||
+          b.kind === 'tool_call' ||
+          b.kind === 'subagent') &&
+        b.isStreaming
+          ? { ...b, isStreaming: false }
+          : b,
+      );
     }
+
     case 'error': {
       const newBlock: Block = {
         kind: 'error',
-        id: `error:${Date.now()}`,
+        id: `error:${seq}`,
         code: payload.code,
         message: payload.message,
-        createdAt: new Date().toISOString(),
+        createdAt: now(),
       };
-      updatedBlocks.push(newBlock);
-      break;
+      return [...blocks, newBlock];
     }
+
     default:
-      break;
+      return blocks;
+  }
+}
+
+/**
+ * Find or create the `subagent` block for `parentToolCallId`, recurse the inner
+ * event into its own block list via the same applicator, and write it back
+ * immutably (matched by id — no index hacks). The subagent is attached right
+ * after its parent tool_call when first created; if the parent is absent it is
+ * appended at the end.
+ */
+function applySubagentEvent(blocks: Block[], payload: any, seq: number): Block[] {
+  const subagentId = `subagent:${payload.parentToolCallId}`;
+  let next = [...blocks];
+
+  let idx = next.findIndex((b) => b.kind === 'subagent' && b.id === subagentId);
+  if (idx < 0) {
+    const newSubagent: Block = {
+      kind: 'subagent',
+      id: subagentId,
+      parentToolCallId: payload.parentToolCallId,
+      subagentType: payload.subagentType,
+      description: payload.description,
+      blocks: [],
+      isStreaming: true,
+      createdAt: now(),
+    };
+    const parentIdx = next.findIndex(
+      (b) => b.kind === 'tool_call' && b.toolCallId === payload.parentToolCallId,
+    );
+    if (parentIdx >= 0) {
+      next = [...next.slice(0, parentIdx + 1), newSubagent, ...next.slice(parentIdx + 1)];
+      idx = parentIdx + 1;
+    } else {
+      next.push(newSubagent);
+      idx = next.length - 1;
+    }
   }
 
-  return updatedBlocks;
+  const current = next[idx];
+  if (current?.kind !== 'subagent') return next;
+
+  const updated: Block = { ...current };
+  // Header-only frames (inner === null) just carry subagentType/description.
+  if (payload.subagentType !== undefined) updated.subagentType = payload.subagentType;
+  if (payload.description !== undefined) updated.description = payload.description;
+
+  const inner = payload.inner as { type: WSMessageType; payload: unknown } | null;
+  if (inner) {
+    updated.blocks = applyEventToBlocks(updated.blocks, inner.type, inner.payload as any, seq);
+    // A nested turn_end ends the subagent's own streaming; any other inner
+    // event means it is still active.
+    updated.isStreaming = inner.type !== 'turn_end';
+  }
+
+  next[idx] = updated;
+  return next;
 }
 
 export const useChatStore = create<ChatStore>((set, get) => ({
@@ -338,196 +372,76 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   },
 
   loadSnapshot: (sessionId: string, payload: SnapshotPayload) => {
-    set((state) => {
-      const sessions = { ...state.sessions };
-      sessions[sessionId] = {
-        blocks: payload.blocks,
-        tokenUsage: payload.totalTokens,
-        contextUsage: null,
-        title: payload.title,
-        slashCommands: payload.slashCommands ?? [],
-        pendingPrompt: payload.pendingPrompt,
-        isTurnInProgress: payload.live.turnInProgress,
-        thinking: payload.thinking ?? true,
-        yoloMode: payload.yoloMode ?? false,
-        approvalMode: payload.approvalMode ?? 'ask',
-        liveTurnIdx: payload.live.turnIdx,
-        liveStepIdx: payload.live.stepIdx,
-        subagentStates: {},
-      };
-      return { sessions };
-    });
+    set((state) => ({
+      sessions: {
+        ...state.sessions,
+        // Server is authoritative: replace blocks wholesale. Blocks already
+        // carry stable ids and are fully rendered. The server sends snapshot OR
+        // replay (never both), so replayed deltas append safely afterwards.
+        [sessionId]: {
+          blocks: payload.blocks,
+          totalTokens: payload.totalTokens,
+          contextUsage: payload.contextUsage,
+          contextEpoch: 0,
+          totalCostUsd: payload.totalCostUsd ?? null,
+          title: payload.title,
+          pendingPrompt: payload.pendingPrompt,
+          isTurnInProgress: payload.live.turnInProgress,
+          thinking: payload.thinking ?? true,
+          approvalMode: payload.approvalMode ?? 'ask',
+          effort: payload.effort ?? null,
+        },
+      },
+    }));
   },
 
-  applyEvent: (sessionId: string, type: WSMessageType, payload: any) => {
-    // Ensure session is initialized
+  applyEvent: (sessionId: string, type: WSMessageType, payload: any, seq?: number) => {
     get().getOrCreateSession(sessionId);
 
     set((state) => {
       const existing = state.sessions[sessionId];
       if (!existing) return state;
-      const sessions = { ...state.sessions };
-      const session = { ...existing };
 
-      // Copy subagentStates to edit
-      const subagentStates = { ...session.subagentStates };
+      const effectiveSeq = seq ?? ++localSeqFallback;
+      const session: ChatSessionState = { ...existing };
 
-      // Helper context for blocks folder
-      const context = {
-        liveTurnIdx: session.liveTurnIdx,
-        liveStepIdx: session.liveStepIdx,
-        setLiveTurnIdx: (val: number | null) => {
-          session.liveTurnIdx = val;
-        },
-        setLiveStepIdx: (val: number | null) => {
-          session.liveStepIdx = val;
-        },
-        findToolCallName: (toolCallId: string) => {
-          return findToolCallNameInBlocks(session.blocks, toolCallId);
-        },
-        applySubagentEvent: (parentToolCallId: string, nestedEvent: any) => {
-          // 1. Ensure subagent block exists
-          let subagentIdx = session.blocks.findIndex(
-            (b) => b.kind === 'subagent' && b.parentToolCallId === parentToolCallId,
-          );
+      // Apply the event to the block list via the pure applicator.
+      session.blocks = applyEventToBlocks(existing.blocks, type, payload, effectiveSeq);
 
-          if (subagentIdx < 0) {
-            // Find parent tool_call index
-            const toolCallIdx = session.blocks.findIndex(
-              (b) => b.kind === 'tool_call' && b.toolCallId === parentToolCallId,
-            );
-            if (toolCallIdx >= 0) {
-              const newSubagentBlock: Block = {
-                kind: 'subagent',
-                id: `subagent:${parentToolCallId}`,
-                parentToolCallId,
-                blocks: [],
-                isStreaming: true,
-                createdAt: new Date().toISOString(),
-              };
-              session.blocks = [
-                ...session.blocks.slice(0, toolCallIdx + 1),
-                newSubagentBlock,
-                ...session.blocks.slice(toolCallIdx + 1),
-              ];
-              subagentIdx = toolCallIdx + 1;
-            }
-          }
-
-          // If still not found (no parent tool_call either), we ignore or append
-          if (subagentIdx < 0) {
-            const newSubagentBlock: Block = {
-              kind: 'subagent',
-              id: `subagent:${parentToolCallId}`,
-              parentToolCallId,
-              blocks: [],
-              isStreaming: true,
-              createdAt: new Date().toISOString(),
-            };
-            session.blocks = [...session.blocks, newSubagentBlock];
-            subagentIdx = session.blocks.length - 1;
-          }
-
-          const blockAtIdx = session.blocks[subagentIdx];
-          if (blockAtIdx?.kind !== 'subagent') return;
-          const subagentBlock = { ...blockAtIdx };
-
-          // 2. Initialize subagent states if not present
-          const existingSubState = subagentStates[parentToolCallId] ?? {
-            liveTurnIdx: null,
-            liveStepIdx: null,
-          };
-          subagentStates[parentToolCallId] = existingSubState;
-          const subState = { ...existingSubState };
-
-          // 3. Recurse event applying to subagent blocks
-          const subContext = {
-            liveTurnIdx: subState.liveTurnIdx,
-            liveStepIdx: subState.liveStepIdx,
-            setLiveTurnIdx: (val: number | null) => {
-              subState.liveTurnIdx = val;
-            },
-            setLiveStepIdx: (val: number | null) => {
-              subState.liveStepIdx = val;
-            },
-            findToolCallName: (toolCallId: string) => {
-              return findToolCallNameInBlocks(subagentBlock.blocks, toolCallId);
-            },
-          };
-
-          subagentBlock.blocks = applyEventToBlocks(
-            subagentBlock.blocks,
-            nestedEvent.type,
-            nestedEvent.payload,
-            subContext,
-          );
-
-          // If nested event indicates turn/step finished or subagent complete, we can update flags
-          if (nestedEvent.type === 'turn_end' || nestedEvent.type === 'step_interrupted') {
-            subagentBlock.isStreaming = false;
-          } else {
-            subagentBlock.isStreaming = true;
-          }
-
-          // Write back
-          subagentStates[parentToolCallId] = subState;
-          session.blocks = [
-            ...session.blocks.slice(0, subagentIdx),
-            subagentBlock,
-            ...session.blocks.slice(subagentIdx + 1),
-          ];
-        },
-      };
-
-      // Apply the main event to top-level blocks
-      session.blocks = applyEventToBlocks(session.blocks, type, payload, context);
-
-      // Handle top-level metadata and lifecycle actions
+      // Top-level lifecycle + metadata that lives outside the block list.
       switch (type) {
         case 'turn_begin':
-          session.pendingPrompt = null;
           session.isTurnInProgress = true;
-          break;
-        case 'step_interrupted':
+          session.pendingPrompt = null;
           break;
         case 'turn_end':
           session.isTurnInProgress = false;
-          // Set all streaming subagent blocks to false
-          session.blocks = session.blocks.map((b) => {
-            if (b.kind === 'subagent') {
-              return { ...b, isStreaming: false };
-            }
-            return b;
-          });
+          // Signal a context-usage change (covers normal turns and the turn that
+          // wraps a /compact). Subscribers re-request usage off this counter.
+          session.contextEpoch += 1;
           break;
-        case 'status_update':
-          if (payload) {
-            session.tokenUsage = payload.tokenUsage;
-            session.contextUsage = payload.contextUsage;
-          }
+        case 'error':
+          session.isTurnInProgress = false;
           break;
-        case 'title_update':
-          if (payload?.title) {
-            session.title = payload.title;
-          }
-          break;
-        case 'slash_commands': {
-          const commands = (payload as SlashCommandsPayload)?.commands;
-          if (Array.isArray(commands)) {
-            session.slashCommands = commands;
+        case 'status_update': {
+          const p = payload as StatusUpdatePayload;
+          if (p) {
+            session.totalTokens = p.tokenUsage;
+            if (p.totalCostUsd !== undefined) session.totalCostUsd = p.totalCostUsd;
           }
           break;
         }
-        case 'error':
-          session.isTurnInProgress = false;
+        case 'context_usage':
+          session.contextUsage = payload as ContextUsagePayload;
+          break;
+        case 'title_update':
+          if (payload?.title) session.title = payload.title;
           break;
         default:
           break;
       }
 
-      session.subagentStates = subagentStates;
-      sessions[sessionId] = session;
-      return { sessions };
+      return { sessions: { ...state.sessions, [sessionId]: session } };
     });
   },
 
@@ -536,23 +450,23 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     set((state) => {
       const existing = state.sessions[sessionId];
       if (!existing) return state;
-      const sessions = { ...state.sessions };
-      const session = { ...existing };
 
+      const pendingId = `user:pending:${sessionId}`;
       const pendingBlock: Block = {
         kind: 'user',
-        id: `user:pending:${sessionId}`,
+        id: pendingId,
         content: text,
-        createdAt: new Date().toISOString(),
         status: 'pending',
+        createdAt: now(),
       };
 
-      const filtered = session.blocks.filter((b) => b.id !== `user:pending:${sessionId}`);
-      session.blocks = [...filtered, pendingBlock];
-      session.pendingPrompt = { text, enqueuedAt: new Date().toISOString() };
-
-      sessions[sessionId] = session;
-      return { sessions };
+      const filtered = existing.blocks.filter((b) => b.id !== pendingId);
+      const session: ChatSessionState = {
+        ...existing,
+        blocks: [...filtered, pendingBlock],
+        pendingPrompt: { text, enqueuedAt: now() },
+      };
+      return { sessions: { ...state.sessions, [sessionId]: session } };
     });
   },
 
@@ -561,13 +475,19 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     set((state) => {
       const existing = state.sessions[sessionId];
       if (!existing) return state;
-      const sessions = { ...state.sessions };
-      const session = { ...existing };
+      const session: ChatSessionState = { ...existing };
       if (flags.thinking !== undefined) session.thinking = flags.thinking;
-      if (flags.yoloMode !== undefined) session.yoloMode = flags.yoloMode;
       if (flags.approvalMode !== undefined) session.approvalMode = flags.approvalMode;
-      sessions[sessionId] = session;
-      return { sessions };
+      if (flags.effort !== undefined) session.effort = flags.effort;
+      return { sessions: { ...state.sessions, [sessionId]: session } };
+    });
+  },
+
+  removeSession: (sessionId: string) => {
+    set((state) => {
+      if (!(sessionId in state.sessions)) return state;
+      const { [sessionId]: _removed, ...rest } = state.sessions;
+      return { sessions: rest };
     });
   },
 }));
@@ -576,5 +496,29 @@ export function useSessionChat(sessionId: string | undefined): ChatSessionState 
   return useChatStore((state) => {
     if (!sessionId) return null;
     return state.sessions[sessionId] ?? null;
+  });
+}
+
+type TodoItems = Extract<DisplayBlock, { type: 'todo' }>['items'];
+
+/**
+ * Hook: scan the session's blocks from the end for the most recent `tool_result`
+ * whose `displayBlocks` carries a `{ type: 'todo' }` entry, and return its
+ * items. Returns `null` when no todo display block exists yet.
+ */
+export function useLatestTodos(sessionId: string | undefined): TodoItems | null {
+  return useChatStore((state) => {
+    if (!sessionId) return null;
+    const session = state.sessions[sessionId];
+    if (!session) return null;
+    for (let i = session.blocks.length - 1; i >= 0; i--) {
+      const b = session.blocks[i];
+      if (b?.kind !== 'tool_result') continue;
+      const todo = b.displayBlocks?.find(
+        (d): d is Extract<DisplayBlock, { type: 'todo' }> => d.type === 'todo',
+      );
+      if (todo) return todo.items;
+    }
+    return null;
   });
 }
