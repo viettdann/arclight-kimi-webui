@@ -119,7 +119,7 @@ export function Transcript() {
     if (!el) return;
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
     const nearBottom = distanceFromBottom < 120;
-    if (isTurnInProgress || nearBottom) {
+    if (nearBottom) {
       el.scrollTo({ top: el.scrollHeight, behavior: isTurnInProgress ? 'smooth' : 'auto' });
     }
   }, [blocks.length, isTurnInProgress]);
