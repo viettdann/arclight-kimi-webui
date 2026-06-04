@@ -4,7 +4,7 @@ import {
   ChevronDown,
   FolderGit2,
   Gauge,
-  Send,
+  CornerDownLeft,
   ShieldCheck,
   Square,
   Zap,
@@ -572,17 +572,13 @@ export function ChatInput() {
           disabled={!canCompose || noModelsAvailable}
           aria-label="Chat input"
           rows={1}
-          className="w-full resize-none bg-transparent px-4 pt-3.5 pb-3 text-sm outline-none placeholder:text-muted-foreground/60 disabled:cursor-not-allowed"
+          className="w-full resize-none bg-transparent px-4 pt-3.5 pb-1 text-sm outline-none placeholder:text-muted-foreground/60 disabled:cursor-not-allowed"
           style={{ minHeight: '44px', maxHeight: '144px' }}
         />
-      </div>
-
-      {/* Send controls live BELOW the input box (outside its border): Approval +
-          Model (reasoning nested) on the left, Send/Stop on the right. Project
-          selection (Welcome) stays inside the box above; these are message
-          attributes, not context. */}
-      <div className="flex items-center justify-between gap-2 px-1 pt-2">
-        <div className="flex min-w-0 items-center gap-2">
+        {/* Controls bar inside the input box: Approval + Model on the left,
+            Send/Stop on the right. */}
+        <div className="flex items-center justify-between gap-2 px-3 pb-2.5">
+          <div className="flex min-w-0 items-center gap-2">
           <span className="inline-flex min-w-0 items-center rounded-xl border border-border bg-card-2 px-1 transition-colors hover:bg-muted">
             <DropdownMenu
               align="start"
@@ -821,30 +817,32 @@ export function ChatInput() {
         </div>
 
         {isTurnInProgress ? (
-          <Button
+          <button
             type="button"
-            size="icon-sm"
-            variant="destructive"
             onClick={handlePrimaryAction}
             disabled={!canCompose}
             aria-label="Stop turn"
             title="Stop the running agent"
-            className="cursor-pointer"
+            className="cursor-pointer rounded-lg p-1.5 text-destructive hover:bg-destructive/10 transition-colors"
           >
-            <Square />
-          </Button>
+            <Square className="h-4 w-4" />
+          </button>
         ) : (
-          <Button
+          <button
             type="button"
-            size="icon-sm"
             onClick={handlePrimaryAction}
             disabled={!text.trim() || !canCompose || noModelsAvailable || needsSelection}
             aria-label="Send message"
-            className="cursor-pointer"
+            className={`p-1.5 transition-colors ${
+              text.trim() && canCompose && !noModelsAvailable && !needsSelection
+                ? 'cursor-pointer text-primary'
+                : 'text-muted-foreground/40'
+            }`}
           >
-            <Send />
-          </Button>
+            <CornerDownLeft className="h-4 w-4" />
+          </button>
         )}
+      </div>
       </div>
 
       <ConfirmBypassDialog
