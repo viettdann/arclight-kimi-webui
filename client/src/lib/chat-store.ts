@@ -1,11 +1,13 @@
 // biome-ignore-all lint/suspicious/noExplicitAny: WS event payloads are dynamically shaped per WSMessageType; consumed by the applyEvent switch
 import type {
+  ApiRetryPayload,
   ApprovalMode,
   Block,
   ContextUsagePayload,
   DisplayBlock,
   EffortLevel,
   QuestionItemDTO,
+  RateLimitPayload,
   SnapshotPayload,
   StatusUpdatePayload,
   WSMessageType,
@@ -34,6 +36,10 @@ export interface ChatSessionState {
   approvalMode: ApprovalMode;
   /** Reasoning effort, applied from the prompt it rides with onward; `null` is the provider default. */
   effort: EffortLevel | null;
+  /** Latest provider quota status from `rate_limit`; null when the provider never reports it. */
+  rateLimit: RateLimitPayload | null;
+  /** In-flight API retry notice from `api_retry`; cleared on the next stream activity. */
+  apiRetry: ApiRetryPayload | null;
 }
 
 interface ChatStore {
@@ -63,6 +69,8 @@ const createDefaultSessionState = (): ChatSessionState => ({
   thinking: true,
   approvalMode: 'ask',
   effort: null,
+  rateLimit: null,
+  apiRetry: null,
 });
 
 const now = (): string => new Date().toISOString();
@@ -227,11 +235,17 @@ function applyEventToBlocks(
         createdAt: now(),
       };
       // Stop the matching tool_call from streaming, then append the result.
-      const next = blocks.map((b) =>
-        b.kind === 'tool_call' && b.toolCallId === payload.toolCallId
-          ? { ...b, isStreaming: false }
-          : b,
-      );
+      // A question_request sharing the toolCallId has been answered (or denied
+      // on abort) — mark it resolved so the dock and inline anchor settle.
+      const next = blocks.map((b) => {
+        if (b.kind === 'tool_call' && b.toolCallId === payload.toolCallId) {
+          return { ...b, isStreaming: false };
+        }
+        if (b.kind === 'question_request' && b.toolCallId === payload.toolCallId && !b.resolved) {
+          return { ...b, resolved: true };
+        }
+        return b;
+      });
       return [...next, resultBlock];
     }
 
@@ -271,6 +285,17 @@ function applyEventToBlocks(
         createdAt: now(),
       };
       return [...blocks, newBlock];
+    }
+
+    // Client-local echo (never broadcast by the server): applied by QuestionCard
+    // on submit so the dock advances and the inline anchor flips to the answer
+    // summary without waiting for the tool_result round-trip.
+    case 'answer_question': {
+      return blocks.map((b) =>
+        b.kind === 'question_request' && b.requestId === payload.requestId
+          ? { ...b, resolved: true, answers: payload.answers as Record<string, string> }
+          : b,
+      );
     }
 
     case 'subagent_event': {
@@ -390,6 +415,10 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           thinking: payload.thinking ?? true,
           approvalMode: payload.approvalMode ?? 'ask',
           effort: payload.effort ?? null,
+          // Provider quota status survives a re-snapshot (it is provider-level,
+          // not transcript state); the transient retry notice does not.
+          rateLimit: state.sessions[sessionId]?.rateLimit ?? null,
+          apiRetry: null,
         },
       },
     }));
@@ -434,11 +463,23 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         case 'context_usage':
           session.contextUsage = payload as ContextUsagePayload;
           break;
+        case 'rate_limit':
+          session.rateLimit = payload as RateLimitPayload;
+          break;
+        case 'api_retry':
+          session.apiRetry = payload as ApiRetryPayload;
+          break;
         case 'title_update':
           if (payload?.title) session.title = payload.title;
           break;
         default:
           break;
+      }
+
+      // The retry notice is transient: any other session event means the stream
+      // moved on (retry succeeded, errored out, or the turn ended) — clear it.
+      if (session.apiRetry && type !== 'api_retry' && type !== 'rate_limit') {
+        session.apiRetry = null;
       }
 
       return { sessions: { ...state.sessions, [sessionId]: session } };
@@ -484,6 +525,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   },
 
   removeSession: (sessionId: string) => {
+    todoFoldCache.delete(sessionId);
     set((state) => {
       if (!(sessionId in state.sessions)) return state;
       const { [sessionId]: _removed, ...rest } = state.sessions;
@@ -500,25 +542,89 @@ export function useSessionChat(sessionId: string | undefined): ChatSessionState 
 }
 
 type TodoItems = Extract<DisplayBlock, { type: 'todo' }>['items'];
+type TodoTaskBlock = Extract<DisplayBlock, { type: 'todo' | 'task' }>;
+
+/** Collect the todo/task display blocks from the timeline, in order. */
+function collectTodoBlocks(blocks: Block[]): TodoTaskBlock[] {
+  const out: TodoTaskBlock[] = [];
+  for (const b of blocks) {
+    if (b.kind !== 'tool_result') continue;
+    for (const d of b.displayBlocks ?? []) {
+      if (d.type === 'todo' || d.type === 'task') out.push(d);
+    }
+  }
+  return out;
+}
 
 /**
- * Hook: scan the session's blocks from the end for the most recent `tool_result`
- * whose `displayBlocks` carries a `{ type: 'todo' }` entry, and return its
- * items. Returns `null` when no todo display block exists yet.
+ * Fold todo/task display blocks, in timeline order, into the current
+ * checklist. `todo` blocks (TodoWrite) and `task` list snapshots (TaskList)
+ * replace the whole list; `task` create/update blocks (TaskCreate/TaskUpdate)
+ * mutate one entry by id, `status: 'deleted'` removes it. TodoWrite keys by
+ * position, task ops by task id — switching source families resets the map so
+ * the two key vocabularies never coexist. Returns `null` when no todo/task
+ * display block exists yet.
+ */
+function foldTodos(folded: TodoTaskBlock[]): TodoItems | null {
+  if (folded.length === 0) return null;
+  let items = new Map<string, TodoItems[number]>();
+  let family: 'todo' | 'task' | null = null;
+  for (const d of folded) {
+    if (d.type === 'todo') {
+      family = 'todo';
+      items = new Map(d.items.map((it, i) => [String(i), it]));
+    } else {
+      if (family !== 'task') items = new Map();
+      family = 'task';
+      if (d.op === 'create') {
+        items.set(d.id, { title: d.title, status: 'pending' });
+      } else if (d.op === 'update') {
+        const prev = items.get(d.id);
+        if (d.status === 'deleted') {
+          items.delete(d.id);
+        } else if (prev || d.title) {
+          // Updates for tasks created outside this timeline (e.g. by a
+          // subagent) carry no title — nothing meaningful to show; skip.
+          items.set(d.id, {
+            title: d.title ?? prev?.title ?? '',
+            status: d.status ?? prev?.status ?? 'pending',
+          });
+        }
+      } else {
+        items = new Map(d.items.map((it) => [it.id, { title: it.title, status: it.status }]));
+      }
+    }
+  }
+  return [...items.values()];
+}
+
+// Per-session fold cache. Streaming deltas replace `session.blocks` identity
+// many times per second while the todo/task display blocks (created once per
+// tool_result) keep theirs — comparing those identities lets the selector
+// return a stable array (no TodoPanel re-render, no re-fold) until a todo/task
+// block is actually appended.
+const todoFoldCache = new Map<string, { key: TodoTaskBlock[]; value: TodoItems | null }>();
+
+/**
+ * Hook: the session's current todo checklist, folded from TodoWrite snapshots
+ * and incremental TaskCreate/TaskUpdate/TaskList events (see `foldTodos`).
  */
 export function useLatestTodos(sessionId: string | undefined): TodoItems | null {
   return useChatStore((state) => {
     if (!sessionId) return null;
     const session = state.sessions[sessionId];
     if (!session) return null;
-    for (let i = session.blocks.length - 1; i >= 0; i--) {
-      const b = session.blocks[i];
-      if (b?.kind !== 'tool_result') continue;
-      const todo = b.displayBlocks?.find(
-        (d): d is Extract<DisplayBlock, { type: 'todo' }> => d.type === 'todo',
-      );
-      if (todo) return todo.items;
+    const relevant = collectTodoBlocks(session.blocks);
+    const cached = todoFoldCache.get(sessionId);
+    if (
+      cached &&
+      cached.key.length === relevant.length &&
+      cached.key.every((d, i) => d === relevant[i])
+    ) {
+      return cached.value;
     }
-    return null;
+    const value = foldTodos(relevant);
+    todoFoldCache.set(sessionId, { key: relevant, value });
+    return value;
   });
 }

@@ -5,15 +5,22 @@ import type { Block } from 'shared/types';
 import { Button } from '@/components/ui/button';
 import { useChatStore } from '../lib/chat-store';
 import { sendWS } from '../lib/ws-send';
+import { QuestionCard } from './blocks/question-card';
 import { readArgString } from './blocks/timeline/types';
 
 type Resolution = 'approve' | 'approve_for_session' | 'reject';
 type ApprovalBlock = Extract<Block, { kind: 'approval_request' }>;
+type QuestionBlock = Extract<Block, { kind: 'question_request' }>;
 type ToolCallBlock = Extract<Block, { kind: 'tool_call' }>;
 
-function collectPending(blocks: Block[], out: ApprovalBlock[]): void {
+type PendingItem =
+  | { kind: 'approval'; block: ApprovalBlock }
+  | { kind: 'question'; block: QuestionBlock };
+
+function collectPending(blocks: Block[], out: PendingItem[]): void {
   for (const b of blocks) {
-    if (b.kind === 'approval_request' && !b.resolution) out.push(b);
+    if (b.kind === 'approval_request' && !b.resolution) out.push({ kind: 'approval', block: b });
+    if (b.kind === 'question_request' && !b.resolved) out.push({ kind: 'question', block: b });
     if (b.kind === 'subagent') collectPending(b.blocks, out);
   }
 }
@@ -30,34 +37,37 @@ function findToolCall(blocks: Block[], toolCallId: string): ToolCallBlock | null
 }
 
 /**
- * Sticky approval panel pinned just above ChatInput.
+ * Sticky interaction panel pinned just above ChatInput, hosting whatever the
+ * agent is currently blocked on: tool approvals AND AskUserQuestion prompts.
  *
- * Subscribes to chat-store; when one or more `approval_request` blocks for
- * the current session are unresolved, renders the oldest as a decision card.
- * Inline timeline rows show the request as an anchor (badge + command
- * preview) but no longer carry the action buttons — those live here so the
- * user can act without scrolling. All actions require an explicit click.
+ * Subscribes to chat-store; when one or more `approval_request` /
+ * `question_request` blocks for the current session are unresolved, renders
+ * the oldest as a decision card. Inline transcript rows show the request as a
+ * passive anchor but carry no action UI — that lives here so the user can act
+ * (and notice the prompt at all) without scrolling. All actions require an
+ * explicit click.
  */
 export function PendingApprovalDock() {
   const { id: sessionId } = useParams<{ id: string }>();
   const blocks = useChatStore((s) => (sessionId ? s.sessions[sessionId]?.blocks : null));
 
   const { pending, current, toolCall } = useMemo(() => {
-    if (!blocks) return { pending: [] as ApprovalBlock[], current: null, toolCall: null };
-    const list: ApprovalBlock[] = [];
+    if (!blocks) return { pending: [] as PendingItem[], current: null, toolCall: null };
+    const list: PendingItem[] = [];
     collectPending(blocks, list);
     const first = list[0] ?? null;
-    const call = first ? findToolCall(blocks, first.toolCallId) : null;
+    const call =
+      first?.kind === 'approval' ? findToolCall(blocks, first.block.toolCallId) : null;
     return { pending: list, current: first, toolCall: call };
   }, [blocks]);
 
   const resolve = (response: Resolution) => {
-    if (!sessionId || !current) return;
+    if (!sessionId || current?.kind !== 'approval') return;
     useChatStore.getState().applyEvent(sessionId, 'approval_response', {
-      requestId: current.requestId,
+      requestId: current.block.requestId,
       response,
     });
-    sendWS('approve_tool', { requestId: current.requestId, response }, sessionId);
+    sendWS('approve_tool', { requestId: current.block.requestId, response }, sessionId);
   };
 
   // Report the dock's rendered height via a CSS variable so the Transcript
@@ -84,14 +94,46 @@ export function PendingApprovalDock() {
       ro.disconnect();
       root.style.removeProperty('--approval-dock-h');
     };
-  }, [current?.requestId]);
+  }, [current?.block.requestId]);
 
   if (!current) return null;
 
+  const queueExtra = pending.length - 1;
+
+  if (current.kind === 'question') {
+    return (
+      <div
+        className="absolute left-0 right-0 bottom-full z-20 px-3 md:px-4 pb-2 pointer-events-none select-none animate-in slide-in-from-bottom-2 fade-in duration-200"
+        role="dialog"
+        aria-label="Question from assistant"
+      >
+        <div className="mx-auto max-w-3xl pointer-events-auto">
+          {/* Solid backing — the card's translucent primary tint alone would
+              let transcript content bleed through the floating dock. */}
+          <div ref={cardRef} className="rounded-xl bg-card shadow-lg">
+            {/* Keyed by requestId so local answer state never bleeds between
+                queued questions when the dock advances. */}
+            <QuestionCard
+              key={current.block.requestId}
+              requestId={current.block.requestId}
+              questions={current.block.questions}
+              variant="dock"
+            />
+            {queueExtra > 0 && (
+              <div className="px-1 pt-1 text-right text-[11px] text-muted-foreground">
+                {queueExtra} more queued
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const approval = current.block;
   const isShell = toolCall?.name === 'Bash';
   const command = isShell && toolCall ? readArgString(toolCall, 'command') : '';
-  const headline = (current.description ?? '').trim() || (current.action ?? '').trim();
-  const queueExtra = pending.length - 1;
+  const headline = (approval.description ?? '').trim() || (approval.action ?? '').trim();
 
   return (
     <div

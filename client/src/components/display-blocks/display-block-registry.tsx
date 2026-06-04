@@ -17,6 +17,10 @@ export function DisplayBlockRegistry({ block }: DisplayBlockRegistryProps) {
       return <DiffBlock path={block.path} oldText={block.oldText} newText={block.newText} />;
     case 'todo':
       return <TodoBlock items={block.items} />;
+    case 'task':
+      // Sidebar-only signal (folded into the Todo panel); the timeline row
+      // already names the Task tool, an extra card would be noise.
+      return null;
     case 'brief':
       return <BriefBlock text={block.text} />;
     default:

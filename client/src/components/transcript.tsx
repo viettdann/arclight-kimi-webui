@@ -1,5 +1,5 @@
 import { Terminal } from 'lucide-react';
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useParams } from 'react-router';
 import type { Block } from 'shared/types';
 import { useChatStore, useSessionChat } from '../lib/chat-store';
@@ -78,6 +78,8 @@ export function Transcript() {
   const session = useSessionChat(sessionId);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const bottomAnchorRef = useRef<HTMLDivElement>(null);
+  // Session id whose transcript has already received its initial bottom-jump.
+  const initialScrolledSessionRef = useRef<string | null>(null);
 
   const blocks = session?.blocks || [];
   const isTurnInProgress = session?.isTurnInProgress || false;
@@ -109,20 +111,28 @@ export function Transcript() {
   // makes it over-scroll the document, shoving the composer toward the middle.
   // Guard on near-bottom so reading scrollback isn't yanked back down.
   //
-  // `blocks.length` is the intended trigger, not a read value: each new
-  // streamed block must re-run the effect so it re-measures `scrollHeight` and
-  // follows the bottom. Biome flags it as "unnecessary" because the body never
-  // reads it directly — removing it would break auto-scroll, so suppress.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: blocks.length is a deliberate re-run trigger; the effect reads the derived scrollHeight, not the length itself.
-  useEffect(() => {
+  // First render of a session's transcript (F5 / deep link / session switch)
+  // force-jumps to the bottom regardless of the near-bottom guard — the
+  // snapshot lands as one batch with scrollTop still at 0, which would
+  // otherwise leave the view stuck at the top. useLayoutEffect so the jump
+  // happens before paint (no flash of the oldest messages).
+  useLayoutEffect(() => {
     const el = scrollContainerRef.current;
-    if (!el) return;
+    if (!el || !sessionId) return;
+
+    if (initialScrolledSessionRef.current !== sessionId) {
+      if (blocks.length === 0) return; // snapshot not hydrated yet
+      initialScrolledSessionRef.current = sessionId;
+      el.scrollTo({ top: el.scrollHeight, behavior: 'auto' });
+      return;
+    }
+
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
     const nearBottom = distanceFromBottom < 120;
-    if (isTurnInProgress || nearBottom) {
+    if (nearBottom) {
       el.scrollTo({ top: el.scrollHeight, behavior: isTurnInProgress ? 'smooth' : 'auto' });
     }
-  }, [blocks.length, isTurnInProgress]);
+  }, [blocks.length, isTurnInProgress, sessionId]);
 
   if (!sessionId) {
     return (

@@ -105,6 +105,177 @@ describe('consumeQueryOutput — assistant content-block id parity', () => {
   });
 });
 
+describe('consumeQueryOutput — API limit / failure surfacing', () => {
+  it('emits a structured error block for an assistant-level API error (no text_delta)', async () => {
+    // A rejected API request surfaces as an assistant message whose `error`
+    // field carries the SDK classification and whose text is the readable
+    // detail. The consumer must emit ONE error block, not stream the text.
+    broadcasts.length = 0;
+    const sm = new SessionManager();
+    const active = sm.register({
+      sessionId: 's-api-err',
+      userId: 'u1',
+      workDir: '/tmp/w',
+      approvalMode: 'ask',
+    });
+    const detail = 'API Error: Request rejected (429) · You have exceeded the 5-hour usage quota.';
+    active.query = makeQuery([
+      {
+        type: 'assistant',
+        parent_tool_use_id: null,
+        error: 'rate_limit',
+        message: { id: 'msg_E', content: [{ type: 'text', text: detail }] },
+      },
+    ]);
+
+    await consumeQueryOutput(active);
+
+    expect(broadcasts.filter((b) => b.type === 'text_delta')).toEqual([]);
+    const errs = broadcasts.filter((b) => b.type === 'error');
+    expect(errs).toHaveLength(1);
+    expect(errs[0]?.payload.code).toBe('rate_limit');
+    expect(errs[0]?.payload.message).toBe(detail);
+    expect(errs[0]?.payload.retryable).toBe(true);
+  });
+
+  it('mirrors rate_limit_event as a rate_limit broadcast', async () => {
+    broadcasts.length = 0;
+    const sm = new SessionManager();
+    const active = sm.register({
+      sessionId: 's-rl',
+      userId: 'u1',
+      workDir: '/tmp/w',
+      approvalMode: 'ask',
+    });
+    active.query = makeQuery([
+      {
+        type: 'rate_limit_event',
+        rate_limit_info: {
+          status: 'allowed_warning',
+          resetsAt: 1764864000,
+          rateLimitType: 'five_hour',
+          utilization: 87,
+        },
+        uuid: 'u-rl',
+        session_id: 'sdk-rl',
+      },
+    ]);
+
+    await consumeQueryOutput(active);
+
+    const rl = broadcasts.find((b) => b.type === 'rate_limit');
+    expect(rl?.payload).toEqual({
+      status: 'allowed_warning',
+      resetsAt: 1764864000,
+      rateLimitType: 'five_hour',
+      utilization: 87,
+    });
+  });
+
+  it('surfaces system api_retry as an api_retry broadcast', async () => {
+    broadcasts.length = 0;
+    const sm = new SessionManager();
+    const active = sm.register({
+      sessionId: 's-retry',
+      userId: 'u1',
+      workDir: '/tmp/w',
+      approvalMode: 'ask',
+    });
+    active.query = makeQuery([
+      {
+        type: 'system',
+        subtype: 'api_retry',
+        attempt: 2,
+        max_retries: 10,
+        retry_delay_ms: 8000,
+        error_status: 429,
+        error: 'rate_limit',
+        uuid: 'u-r',
+        session_id: 'sdk-r',
+      },
+    ]);
+
+    await consumeQueryOutput(active);
+
+    const retry = broadcasts.find((b) => b.type === 'api_retry');
+    expect(retry?.payload).toEqual({
+      attempt: 2,
+      maxRetries: 10,
+      retryDelayMs: 8000,
+      errorStatus: 429,
+      errorCode: 'rate_limit',
+    });
+  });
+
+  it('carries result errors on turn_end and emits the error block once', async () => {
+    // An error result whose failure was NOT already surfaced by an
+    // assistant-level error block gets its own error broadcast.
+    broadcasts.length = 0;
+    const sm = new SessionManager();
+    const active = sm.register({
+      sessionId: 's-res-err',
+      userId: 'u1',
+      workDir: '/tmp/w',
+      approvalMode: 'ask',
+    });
+    active.query = makeQuery([
+      {
+        type: 'result',
+        subtype: 'error_during_execution',
+        num_turns: 1,
+        total_cost_usd: 0,
+        usage: {},
+        errors: ['API Error: Request rejected (429)'],
+      },
+    ]);
+
+    await consumeQueryOutput(active);
+
+    const turnEnd = broadcasts.find((b) => b.type === 'turn_end');
+    expect(turnEnd?.payload.status).toBe('error');
+    expect(turnEnd?.payload.errors).toEqual(['API Error: Request rejected (429)']);
+    const errs = broadcasts.filter((b) => b.type === 'error');
+    expect(errs).toHaveLength(1);
+    expect(errs[0]?.payload.code).toBe('error_during_execution');
+  });
+
+  it('does NOT duplicate the error block when the assistant already surfaced it', async () => {
+    broadcasts.length = 0;
+    const sm = new SessionManager();
+    const active = sm.register({
+      sessionId: 's-no-dup',
+      userId: 'u1',
+      workDir: '/tmp/w',
+      approvalMode: 'ask',
+    });
+    const detail = 'API Error: Request rejected (429) · quota exceeded';
+    active.query = makeQuery([
+      {
+        type: 'assistant',
+        parent_tool_use_id: null,
+        error: 'rate_limit',
+        message: { id: 'msg_D', content: [{ type: 'text', text: detail }] },
+      },
+      {
+        type: 'result',
+        subtype: 'error_during_execution',
+        num_turns: 1,
+        total_cost_usd: 0,
+        usage: {},
+        errors: [detail],
+      },
+    ]);
+
+    await consumeQueryOutput(active);
+
+    const errs = broadcasts.filter((b) => b.type === 'error');
+    expect(errs).toHaveLength(1); // the assistant-level block only
+    expect(errs[0]?.payload.code).toBe('rate_limit');
+    const turnEnd = broadcasts.find((b) => b.type === 'turn_end');
+    expect(turnEnd?.payload.errors).toEqual([detail]);
+  });
+});
+
 describe('consumeQueryOutput — store mirror_error surfacing', () => {
   it('broadcasts a non-retryable error when the SDK reports a mirror_error', async () => {
     // The SDK store `append()` exhausted its retries and dropped a transcript

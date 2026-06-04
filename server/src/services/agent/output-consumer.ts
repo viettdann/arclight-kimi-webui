@@ -1,4 +1,5 @@
 import type {
+  SDKAPIRetryMessage,
   SDKAssistantMessage,
   SDKMessage,
   SDKMirrorErrorMessage,
@@ -10,7 +11,9 @@ import type {
 } from '@anthropic-ai/claude-agent-sdk';
 import { eq } from 'drizzle-orm';
 import type {
+  ApiRetryPayload,
   ErrorPayload,
+  RateLimitPayload,
   StatusUpdatePayload,
   SubagentEventPayload,
   TextDeltaPayload,
@@ -93,7 +96,7 @@ function mapTurnStatus(subtype: SDKResultMessage['subtype']): TurnEndStatus {
       return 'max_steps_reached';
     default:
       // error_during_execution / error_max_budget_usd / error_max_structured_output_retries
-      return 'finished';
+      return 'error';
   }
 }
 
@@ -106,7 +109,9 @@ function classifyError(err: unknown): string {
   ) {
     return 'process_died';
   }
-  if (/\brate[_\s-]?limit\b|\boverloaded\b|\b529\b|\b503\b/i.test(message)) return 'api_error';
+  if (/\brate[_\s-]?limit\b|\boverloaded\b|\bquota\b|\b429\b|\b529\b|\b503\b/i.test(message)) {
+    return 'api_error';
+  }
   return 'unknown';
 }
 
@@ -153,6 +158,9 @@ export async function consumeQueryOutput(active: ActiveSession): Promise<void> {
   // and the reload renderer's `contentBlockIndex`. (The array-local index is
   // always 0 here, which would collide text onto the first block's id.)
   const assistantBlockCursor = new Map<string, { messageId: string; index: number }>();
+  // True once an assistant-level API error block was emitted this turn — stops
+  // `handleResult` from duplicating the same failure as a second error block.
+  let apiErrorEmitted = false;
 
   function getIndexMap(scope: string): Map<number, string> {
     let m = toolUseIdByIndex.get(scope);
@@ -258,6 +266,25 @@ export async function consumeQueryOutput(active: ActiveSession): Promise<void> {
     const scope = scopeOf(parent);
     const messageId = msg.message.id;
     const content: AssistantContentBlock[] = msg.message.content ?? [];
+
+    // API-level failure surfaced as an assistant message: `error` carries the
+    // SDK classification ('rate_limit', 'server_error', …) and the text content
+    // is the human-readable detail ("API Error: Request rejected (429) · …").
+    // Emit a structured error block instead of streaming it as plain text.
+    if (msg.error) {
+      const text = content
+        .map((b) => (b.type === 'text' ? b.text : ''))
+        .filter(Boolean)
+        .join('\n');
+      const payload: ErrorPayload = {
+        code: msg.error,
+        message: text || msg.error,
+        retryable: msg.error === 'rate_limit' || msg.error === 'server_error',
+      };
+      emit(parent, 'error', payload);
+      if (parent === null) apiErrorEmitted = true;
+      return;
+    }
 
     // Resolve the running block index for this message.id within this scope,
     // resetting whenever the id changes (a new assistant message group begins).
@@ -397,14 +424,30 @@ export async function consumeQueryOutput(active: ActiveSession): Promise<void> {
         );
         const payload: ErrorPayload = {
           code: 'mirror_error',
-          message: 'Storage mirror interrupted — some transcript may be missing from the server copy.',
+          message:
+            'Storage mirror interrupted — some transcript may be missing from the server copy.',
           retryable: false,
         };
         broadcastEvent(active, 'error', payload, sessionManager);
         break;
       }
+      case 'api_retry': {
+        // Retryable API failure (429 / 5xx / connection) — the subprocess waits
+        // and retries on its own; surface progress so the UI isn't silently
+        // stalled for the duration of the backoff.
+        const m = msg as SDKAPIRetryMessage;
+        const payload: ApiRetryPayload = {
+          attempt: m.attempt,
+          maxRetries: m.max_retries,
+          retryDelayMs: m.retry_delay_ms,
+          errorStatus: m.error_status,
+          errorCode: m.error,
+        };
+        broadcastEvent(active, 'api_retry', payload, sessionManager);
+        break;
+      }
       // task_progress / task_updated / thinking_tokens / permission_denied /
-      // status / api_retry / etc. → skipped (no client-facing surface in MVP).
+      // status / etc. → skipped (no client-facing surface in MVP).
       default:
         break;
     }
@@ -434,6 +477,20 @@ export async function consumeQueryOutput(active: ActiveSession): Promise<void> {
     }
 
     const turnEnd: TurnEndPayload = { status: mapTurnStatus(msg.subtype), steps: msg.num_turns };
+    if (msg.subtype !== 'success' && msg.errors?.length) {
+      turnEnd.errors = msg.errors;
+      // Make the failure visible as an error block, unless the assistant-level
+      // API error (same failure, richer text) already emitted one this turn.
+      if (!apiErrorEmitted) {
+        const payload: ErrorPayload = {
+          code: msg.subtype,
+          message: msg.errors.join('\n'),
+          retryable: false,
+        };
+        broadcastEvent(active, 'error', payload, sessionManager);
+      }
+    }
+    apiErrorEmitted = false;
     broadcastEvent(active, 'turn_end', turnEnd, sessionManager);
     active.turnInProgress = false;
 
@@ -545,8 +602,22 @@ export async function consumeQueryOutput(active: ActiveSession): Promise<void> {
         case 'result':
           await handleResult(msg);
           break;
-        // user_replay / rate_limit_event / tool_progress / task_progress /
-        // hook_* / etc. → no client-facing surface in MVP.
+        case 'rate_limit_event': {
+          // Quota status (5-hour / weekly window) mirrored from the provider's
+          // unified rate-limit headers. Best-effort: providers that don't send
+          // the headers never emit this, and the client shows no indicator.
+          const info = msg.rate_limit_info;
+          const payload: RateLimitPayload = {
+            status: info.status,
+            resetsAt: info.resetsAt,
+            rateLimitType: info.rateLimitType,
+            utilization: info.utilization,
+          };
+          broadcastEvent(active, 'rate_limit', payload, sessionManager);
+          break;
+        }
+        // user_replay / tool_progress / task_progress / hook_* / etc.
+        // → no client-facing surface in MVP.
         default:
           break;
       }

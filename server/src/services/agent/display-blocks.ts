@@ -7,7 +7,7 @@
 // Imported by BOTH this renderer (reload path) and the live output-consumer
 // under the exact signature below. Do NOT change the signature.
 
-import type { DisplayBlock } from 'shared/types';
+import type { DisplayBlock, TodoStatus } from 'shared/types';
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null;
@@ -51,7 +51,7 @@ function reconstructFromPatch(patch: unknown): { oldText: string; newText: strin
 }
 
 /** Normalize a TodoWrite status onto the DisplayBlock todo vocabulary. */
-function mapTodoStatus(status: unknown): 'pending' | 'in_progress' | 'done' {
+function mapTodoStatus(status: unknown): TodoStatus {
   switch (status) {
     case 'in_progress':
       return 'in_progress';
@@ -60,6 +60,24 @@ function mapTodoStatus(status: unknown): 'pending' | 'in_progress' | 'done' {
       return 'done';
     default:
       return 'pending';
+  }
+}
+
+/**
+ * Normalize a TaskUpdate status. Unlike `mapTodoStatus`, an absent/unknown
+ * value yields undefined (the update didn't touch status) and 'deleted'
+ * survives so the client can drop the task from the checklist.
+ */
+function mapTaskStatus(status: unknown): TodoStatus | 'deleted' | undefined {
+  switch (status) {
+    case 'deleted':
+      return 'deleted';
+    case 'pending':
+    case 'in_progress':
+    case 'completed':
+      return mapTodoStatus(status);
+    default:
+      return undefined;
   }
 }
 
@@ -115,6 +133,56 @@ export function toDisplayBlocks(
             const title = str(todo.content) || str(todo.title);
             return { title, status: mapTodoStatus(todo.status) };
           }),
+        },
+      ];
+    }
+
+    case 'TaskCreate': {
+      // Incremental: one task per call; the id only exists in the structured
+      // result. A failed create has no result.task → no block.
+      const task = isRecord(result?.task) ? result.task : undefined;
+      const id = str(task?.id);
+      const title = str(args.subject) || str(task?.subject);
+      if (!id || !title) return [];
+      return [{ type: 'task', op: 'create', id, title }];
+    }
+
+    case 'TaskUpdate': {
+      // A rejected update (success: false) changed nothing. Description /
+      // metadata-only updates don't affect the checklist either.
+      if (result?.success === false) return [];
+      const id = str(args.taskId) || str(result?.taskId);
+      if (!id) return [];
+      const title = str(args.subject);
+      const status = mapTaskStatus(args.status);
+      if (!title && !status) return [];
+      return [
+        {
+          type: 'task',
+          op: 'update',
+          id,
+          ...(title ? { title } : {}),
+          ...(status ? { status } : {}),
+        },
+      ];
+    }
+
+    case 'TaskList': {
+      const tasks = Array.isArray(result?.tasks) ? result.tasks : null;
+      if (!tasks) return [];
+      return [
+        {
+          type: 'task',
+          op: 'list',
+          items: tasks
+            .filter(isRecord)
+            .map((t) => ({
+              id: str(t.id),
+              title: str(t.subject),
+              status: mapTodoStatus(t.status),
+            }))
+            // id-less entries can't be folded by id — mirror TaskCreate's guard.
+            .filter((it) => it.id !== ''),
         },
       ];
     }
