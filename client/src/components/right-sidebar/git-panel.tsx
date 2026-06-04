@@ -4,6 +4,7 @@ import {
   Check,
   ChevronDown,
   GitBranch,
+  GitCommitHorizontal,
   KeyRound,
   RefreshCw,
   TriangleAlert,
@@ -30,6 +31,7 @@ import { DropdownItem, DropdownMenu, DropdownSeparator } from '@/components/ui/d
 import { useGitCredentialsStore } from '../../lib/git-credentials-store';
 import { useGitPanelStore } from '../../lib/git-panel-store';
 import { useSessionsStore } from '../../lib/sessions-store';
+import { CommitDialog } from './commit-dialog';
 
 interface GitPanelProps {
   sessionId: string | undefined;
@@ -55,9 +57,9 @@ function shortBranchName(name: string): string {
 // porcelain v2 XY status code → a single badge letter + colour tone. X is the
 // staged state, Y the unstaged; we collapse to the single most meaningful
 // signal so each file reads as one glyph rather than two cryptic columns.
-type StatusTone = 'modified' | 'added' | 'deleted' | 'untracked' | 'renamed';
+export type StatusTone = 'modified' | 'added' | 'deleted' | 'untracked' | 'renamed';
 
-const TONE_BADGE: Record<StatusTone, string> = {
+export const TONE_BADGE: Record<StatusTone, string> = {
   modified: 'bg-warning-wash text-warning',
   added: 'bg-success-wash text-success',
   deleted: 'bg-destructive-wash text-destructive',
@@ -65,7 +67,7 @@ const TONE_BADGE: Record<StatusTone, string> = {
   renamed: 'bg-muted text-info',
 };
 
-function classifyStatus(code: string): { letter: string; tone: StatusTone } {
+export function classifyStatus(code: string): { letter: string; tone: StatusTone } {
   const c = code.trim();
   if (c.startsWith('?')) return { letter: 'U', tone: 'untracked' };
   if (c.includes('D')) return { letter: 'D', tone: 'deleted' };
@@ -259,10 +261,48 @@ function ChangeRow({ entry }: { entry: GitStatusEntry }) {
   );
 }
 
-function ChangesList({ entries }: { entries: GitStatusEntry[] }) {
+function ChangesList({
+  entries,
+  isBusy,
+  isRefreshing,
+  onRefresh,
+  onCommit,
+}: {
+  entries: GitStatusEntry[];
+  isBusy: boolean;
+  isRefreshing: boolean;
+  onRefresh: () => void;
+  onCommit: () => void;
+}) {
   return (
     <section className="space-y-1.5">
-      <SectionLabel>{entries.length > 0 ? `Changes · ${entries.length}` : 'Changes'}</SectionLabel>
+      <div className="flex items-center justify-between gap-2">
+        <SectionLabel>
+          {entries.length > 0 ? `Changes · ${entries.length}` : 'Changes'}
+        </SectionLabel>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={onRefresh}
+            disabled={isRefreshing}
+            title="Refresh status"
+            className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+          </button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={entries.length === 0 || isBusy}
+            onClick={onCommit}
+            className="h-6 px-2 text-xs"
+          >
+            <GitCommitHorizontal className="h-3.5 w-3.5" />
+            Commit
+          </Button>
+        </div>
+      </div>
       {entries.length === 0 ? (
         <p className="flex items-center gap-1.5 text-sm text-success">
           <Check className="h-4 w-4 shrink-0" />
@@ -326,13 +366,19 @@ function AuthBanner({
   onDismiss: () => void;
 }) {
   const linkedCredentialId = useGitPanelStore((s) => s.linkedCredentialId);
+  const authKind = useGitPanelStore((s) => s.authKind);
+  const forbidden = authKind === 'forbidden';
+  const title = forbidden ? 'Permission denied' : 'Authentication required';
+  const detail = forbidden
+    ? 'The credential was applied but the remote refused — the PAT likely lacks write scope (e.g. Code Read & Write). Pick a credential with write access, then retry.'
+    : 'Pick a credential below, then retry.';
   return (
     <div className="space-y-2 rounded-lg border border-warning/40 bg-warning-wash p-2.5">
       <p className="flex items-center gap-1.5 text-sm font-medium text-warning">
         <TriangleAlert className="h-4 w-4 shrink-0" />
-        Authentication required
+        {title}
       </p>
-      <p className="text-xs text-muted-foreground">Pick a credential below, then retry.</p>
+      <p className="text-xs text-muted-foreground">{detail}</p>
       <div className="flex gap-2">
         <Button
           type="button"
@@ -488,10 +534,12 @@ export function GitPanel({ sessionId }: GitPanelProps) {
   const executeCommand = useGitPanelStore((s) => s.executeCommand);
   const linkCredential = useGitPanelStore((s) => s.linkCredential);
   const dismissAuth = useGitPanelStore((s) => s.dismissAuth);
+  const refreshStatus = useGitPanelStore((s) => s.refreshStatus);
 
   const ensureCredentialsLoaded = useGitCredentialsStore((s) => s.ensureLoaded);
 
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [commitOpen, setCommitOpen] = useState(false);
 
   useEffect(() => {
     setProject(projectName);
@@ -542,7 +590,13 @@ export function GitPanel({ sessionId }: GitPanelProps) {
       <GitHeader onSwitch={handleBranchSwitch} isBusy={isBusy} />
       {authRequired && <AuthBanner isBusy={isBusy} onRetry={handleRetry} onDismiss={dismissAuth} />}
       <RemoteActions onAction={handleAction} isBusy={isBusy} ahead={ahead} behind={behind} />
-      <ChangesList entries={entries} />
+      <ChangesList
+        entries={entries}
+        isBusy={isBusy}
+        isRefreshing={status === 'loading'}
+        onRefresh={() => void refreshStatus()}
+        onCommit={() => setCommitOpen(true)}
+      />
       <HistoryList />
       <CredentialFooter onEdit={() => setDialogOpen(true)} />
       <CredentialDialog
@@ -550,6 +604,7 @@ export function GitPanel({ sessionId }: GitPanelProps) {
         onOpenChange={setDialogOpen}
         onSave={(id) => void linkCredential(id)}
       />
+      <CommitDialog open={commitOpen} onOpenChange={setCommitOpen} />
     </div>
   );
 }

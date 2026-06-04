@@ -1,22 +1,32 @@
 import { describe, expect, it } from 'bun:test';
-import { buildArgs, parseBranches, parseStatus } from '../../../src/services/git/commands';
 import type { GitCommandResponse } from 'shared/types/git-credentials';
+import {
+  buildArgs,
+  classifyRemoteFailure,
+  parseBranches,
+  parseStatus,
+} from '../../../src/services/git/commands';
+
+// Build a NUL-separated porcelain v2 -z stdout from records. Real git emits a
+// trailing NUL after the last record; the join + '\0' tail mirrors that.
+function porcelainZ(records: string[]): string {
+  return records.map((r) => `${r}\0`).join('');
+}
 
 describe('parseStatus', () => {
   it('parses branch name, ahead/behind, and entries correctly', () => {
     const raw: GitCommandResponse = {
       exitCode: 0,
-      stdout: [
+      stdout: porcelainZ([
         '# branch.oid abc123',
         '# branch.head main',
         '# branch.upstream origin/main',
         '# branch.ab +2 -3',
-        '1 .M sub ... path/to/file.ts',
-        '1 M. sub ... another/file.ts',
+        '1 .M N... 100644 100644 100644 hH hI path/to/file.ts',
+        '1 M. N... 100644 100644 100644 hH hI another/file.ts',
         '? untracked.txt',
         '! ignored.txt',
-        '',
-      ].join('\n'),
+      ]),
       stderr: '',
       timedOut: false,
     };
@@ -34,10 +44,75 @@ describe('parseStatus', () => {
     expect(result.entries[3]).toEqual({ statusCode: '! ', path: 'ignored.txt' });
   });
 
+  it('keeps spaces in paths intact (no quoting with -z)', () => {
+    const raw: GitCommandResponse = {
+      exitCode: 0,
+      stdout: porcelainZ([
+        '# branch.head main',
+        '1 .M N... 100644 100644 100644 hH hI my file.txt',
+        '? a new file.txt',
+      ]),
+      stderr: '',
+      timedOut: false,
+    };
+
+    const result = parseStatus(raw);
+    expect(result.entries[0]).toEqual({ statusCode: '.M', path: 'my file.txt' });
+    expect(result.entries[1]).toEqual({ statusCode: '? ', path: 'a new file.txt' });
+  });
+
+  it('preserves unicode paths', () => {
+    const raw: GitCommandResponse = {
+      exitCode: 0,
+      stdout: porcelainZ(['# branch.head main', '? tài liệu.md']),
+      stderr: '',
+      timedOut: false,
+    };
+
+    const result = parseStatus(raw);
+    expect(result.entries[0]).toEqual({ statusCode: '? ', path: 'tài liệu.md' });
+  });
+
+  it('parses a rename entry with origPath as the following record', () => {
+    const raw: GitCommandResponse = {
+      exitCode: 0,
+      stdout: porcelainZ([
+        '# branch.head main',
+        '2 R. N... 100644 100644 100644 hH hI R100 new name.txt',
+        'old name.txt',
+        '1 .M N... 100644 100644 100644 hH hI plain.txt',
+      ]),
+      stderr: '',
+      timedOut: false,
+    };
+
+    const result = parseStatus(raw);
+    expect(result.entries).toHaveLength(2);
+    expect(result.entries[0]).toEqual({
+      statusCode: 'R.',
+      path: 'new name.txt',
+      origPath: 'old name.txt',
+    });
+    // The origPath record must NOT be re-parsed as its own entry.
+    expect(result.entries[1]).toEqual({ statusCode: '.M', path: 'plain.txt' });
+  });
+
+  it('lists files inside untracked subdirectories', () => {
+    const raw: GitCommandResponse = {
+      exitCode: 0,
+      stdout: porcelainZ(['# branch.head main', '? udir/inner.txt', '? udir/nested/deep.txt']),
+      stderr: '',
+      timedOut: false,
+    };
+
+    const result = parseStatus(raw);
+    expect(result.entries.map((e) => e.path)).toEqual(['udir/inner.txt', 'udir/nested/deep.txt']);
+  });
+
   it('marks branch as null when detached', () => {
     const raw: GitCommandResponse = {
       exitCode: 0,
-      stdout: '# branch.head (detached)\n',
+      stdout: porcelainZ(['# branch.head (detached)']),
       stderr: '',
       timedOut: false,
     };
@@ -68,8 +143,14 @@ describe('buildArgs', () => {
     expect(buildArgs('diff', ['--', 'path/to/file'])).toEqual(['diff', '--', 'path/to/file']);
   });
 
-  it('returns status args with porcelain=v2 and branch', () => {
-    expect(buildArgs('status', [])).toEqual(['status', '--porcelain=v2', '--branch']);
+  it('returns status args with porcelain=v2, branch, all-untracked and -z', () => {
+    expect(buildArgs('status', [])).toEqual([
+      'status',
+      '--porcelain=v2',
+      '--branch',
+      '--untracked-files=all',
+      '-z',
+    ]);
   });
 
   it('returns log args with oneline and limit', () => {
@@ -116,17 +197,52 @@ describe('buildArgs', () => {
   });
 });
 
+describe('classifyRemoteFailure', () => {
+  // A bare "HTTP 403" matches BOTH the forbidden pattern (/HTTP 403/) and the
+  // generic auth pattern (/HTTP 4\d{2}/), so it exercises the ordering rule:
+  // when a credential is applied, forbidden must win; otherwise it falls to auth.
+  it('classifies a 403 as forbidden when a credential was applied', () => {
+    const stderr = 'fatal: unable to access ...: HTTP 403';
+    expect(classifyRemoteFailure(128, stderr, true)).toBe('forbidden');
+  });
+
+  it('classifies a 403 as auth when no credential was applied', () => {
+    const stderr = 'fatal: unable to access ...: HTTP 403';
+    expect(classifyRemoteFailure(128, stderr, false)).toBe('auth');
+  });
+
+  it('classifies an authentication failure as auth even when a credential was applied', () => {
+    const stderr = 'fatal: Authentication failed for ...';
+    expect(classifyRemoteFailure(128, stderr, true)).toBe('auth');
+  });
+
+  it('classifies GitHub "Permission to x/y denied" as forbidden when applied', () => {
+    const stderr = 'remote: Permission to x/y.git denied to user.';
+    expect(classifyRemoteFailure(128, stderr, true)).toBe('forbidden');
+  });
+
+  it('classifies an Azure DevOps TF40xxxx error as forbidden when applied', () => {
+    const stderr = 'remote: TF401027: You need the Git ... permission.';
+    expect(classifyRemoteFailure(128, stderr, true)).toBe('forbidden');
+  });
+
+  it('returns null when exitCode is 0', () => {
+    expect(classifyRemoteFailure(0, 'The requested URL returned error: 403', true)).toBeNull();
+  });
+
+  it('returns null when stderr matches no pattern', () => {
+    expect(classifyRemoteFailure(1, 'fatal: not a git repository', true)).toBeNull();
+    expect(classifyRemoteFailure(1, 'fatal: not a git repository', false)).toBeNull();
+  });
+});
+
 describe('parseBranches', () => {
   it('detects current branch and remote branches', () => {
     const raw: GitCommandResponse = {
       exitCode: 0,
-      stdout: [
-        '* main',
-        '  feature',
-        '+ remotes/origin/main',
-        '  remotes/origin/feature',
-        '',
-      ].join('\n'),
+      stdout: ['* main', '  feature', '+ remotes/origin/main', '  remotes/origin/feature', ''].join(
+        '\n',
+      ),
       stderr: '',
       timedOut: false,
     };
@@ -138,8 +254,16 @@ describe('parseBranches', () => {
 
     expect(result.branches[0]).toEqual({ name: 'main', isCurrent: true, isRemote: false });
     expect(result.branches[1]).toEqual({ name: 'feature', isCurrent: false, isRemote: false });
-    expect(result.branches[2]).toEqual({ name: 'remotes/origin/main', isCurrent: false, isRemote: true });
-    expect(result.branches[3]).toEqual({ name: 'remotes/origin/feature', isCurrent: false, isRemote: true });
+    expect(result.branches[2]).toEqual({
+      name: 'remotes/origin/main',
+      isCurrent: false,
+      isRemote: true,
+    });
+    expect(result.branches[3]).toEqual({
+      name: 'remotes/origin/feature',
+      isCurrent: false,
+      isRemote: true,
+    });
   });
 
   it('handles empty stdout', () => {

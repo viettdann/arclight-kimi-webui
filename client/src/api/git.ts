@@ -2,6 +2,7 @@ import type {
   GitBranchResponse,
   GitCommandRequest,
   GitCommandResponse,
+  GitCommitRequest,
   GitLogResponse,
   GitStatusResponse,
 } from 'shared/types/git-credentials';
@@ -56,6 +57,16 @@ export async function fetchGitBranches(projectName: string): Promise<GitBranchRe
 
 export async function executeGitCommand(body: GitCommandRequest): Promise<GitCommandResponse> {
   const res = await authFetch(`${BASE}/command`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
+
+export async function commitGit(body: GitCommitRequest): Promise<GitCommandResponse> {
+  const res = await authFetch(`${BASE}/commit`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),

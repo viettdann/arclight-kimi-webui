@@ -8,6 +8,7 @@ import type {
 import { toast } from 'sonner';
 import { create } from 'zustand';
 import {
+  commitGit,
   executeGitCommand,
   fetchGitBranches,
   fetchGitLog,
@@ -43,6 +44,12 @@ interface GitPanelState {
 
   // Auth prompt state
   authRequired: boolean;
+  /**
+   * Why the banner is showing: 'missing' (no/expired/wrong credential — re-pick
+   * helps) vs 'forbidden' (credential applied but remote refused on scope —
+   * pick one with more access). Null when no prompt is up.
+   */
+  authKind: 'missing' | 'forbidden' | null;
   authCommand: GitSubcommand | null;
   authArgs: string[] | null;
 
@@ -59,6 +66,8 @@ interface GitPanelState {
     args?: string[],
     credentialId?: string,
   ) => Promise<GitCommandResponse>;
+  /** Commit the given paths (GitStatusEntry.path) with a message. Resolves true on success. */
+  commitFiles: (files: string[], message: string) => Promise<boolean>;
   dismissAuth: () => void;
   clear: () => void;
 }
@@ -74,6 +83,7 @@ const initialState = {
   commandResult: null,
   isBusy: false,
   authRequired: false,
+  authKind: null,
   authCommand: null,
   authArgs: null,
 };
@@ -206,9 +216,13 @@ export const useGitPanelStore = create<GitPanelState>((set, get) => ({
         credentialId,
       });
 
-      if (result.requiresAuth) {
+      // requiresAuth → re-pickable auth failure; permissionDenied → credential
+      // was applied but lacks scope. Both raise the banner (the user may pick a
+      // different credential with more access), but with distinct copy.
+      if (result.requiresAuth || result.permissionDenied) {
         set({
           authRequired: true,
+          authKind: result.permissionDenied ? 'forbidden' : 'missing',
           authCommand: command,
           authArgs: args ?? [],
           isBusy: false,
@@ -227,7 +241,9 @@ export const useGitPanelStore = create<GitPanelState>((set, get) => ({
         commandResult: { type: isSuccess ? 'success' : 'error', message },
         isBusy: false,
         // Any clean run dismisses a pending auth prompt.
-        ...(isSuccess ? { authRequired: false, authCommand: null, authArgs: null } : {}),
+        ...(isSuccess
+          ? { authRequired: false, authKind: null, authCommand: null, authArgs: null }
+          : {}),
       });
 
       if (isSuccess) {
@@ -257,8 +273,43 @@ export const useGitPanelStore = create<GitPanelState>((set, get) => ({
     }
   },
 
+  commitFiles: async (files, message) => {
+    const { projectName } = get();
+    if (!projectName) throw new Error('no project');
+
+    set({ isBusy: true, commandResult: null });
+    try {
+      const result = await commitGit({ projectName, files, message });
+
+      const isSuccess = result.exitCode === 0;
+      const resultMessage = isSuccess
+        ? firstLine(result.stdout, result.stderr) || 'Commit complete'
+        : firstLine(result.stderr, result.stdout) || 'Commit failed';
+
+      set({
+        commandResult: { type: isSuccess ? 'success' : 'error', message: resultMessage },
+        isBusy: false,
+      });
+
+      if (isSuccess) {
+        toast.success(resultMessage);
+        void get().refreshStatus();
+        void get().refreshLog();
+      } else {
+        toast.error(resultMessage);
+      }
+
+      return isSuccess;
+    } catch (e) {
+      const resultMessage = e instanceof Error ? e.message : 'Commit failed';
+      set({ commandResult: { type: 'error', message: resultMessage }, isBusy: false });
+      toast.error(resultMessage);
+      return false;
+    }
+  },
+
   dismissAuth: () => {
-    set({ authRequired: false, authCommand: null, authArgs: null });
+    set({ authRequired: false, authKind: null, authCommand: null, authArgs: null });
   },
 
   clear: () => {
