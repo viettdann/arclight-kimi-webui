@@ -36,3 +36,5 @@ claude-config/
 agent-state/
 
 reference/
+playwright-report/
+test-results/
