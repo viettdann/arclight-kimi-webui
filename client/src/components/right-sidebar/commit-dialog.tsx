@@ -111,7 +111,7 @@ export function CommitDialog({
         <DialogHeader>
           <DialogTitle>{amend ? 'Amend commit' : 'Commit changes'}</DialogTitle>
           <DialogDescription>
-            Chọn file để commit và nhập message. Untracked và rename được server xử lý tự động.
+            Select files to commit and enter a message. Untracked and rename are handled automatically by the server.
           </DialogDescription>
         </DialogHeader>
 
@@ -147,7 +147,7 @@ export function CommitDialog({
 
         {entries.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            Working tree clean — không có gì để commit.
+            Working tree clean — nothing to commit.
           </p>
         ) : (
           <div className="flex flex-col gap-2">

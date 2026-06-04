@@ -162,7 +162,7 @@ export function Transcript() {
   return (
     <div
       ref={scrollContainerRef}
-      className="flex-1 overflow-y-auto px-4 md:px-8 py-4 space-y-4 scrollbar-thin select-none"
+      className="flex-1 overflow-y-auto px-4 md:px-8 py-4 space-y-4 scrollbar-thin"
     >
       <div className="mx-auto max-w-3xl space-y-6">
         {blocks.length === 0 ? (

@@ -261,7 +261,7 @@ describe('GET /api/sessions', () => {
       JSON.stringify({ type: 'permission-mode', mode: 'ask' }),
       JSON.stringify({
         type: 'user',
-        message: { role: 'user', content: 'Xin chào,\n  fix the   bug' },
+        message: { role: 'user', content: 'Hello,\n  fix the   bug' },
       }),
     ].join('\n');
     fake.selectQueue.push([
@@ -283,10 +283,10 @@ describe('GET /api/sessions', () => {
     const byId = Object.fromEntries(body.sessions.map((s) => [s.id, s]));
     // A set title is untouched; firstUserText is derived regardless of title.
     expect(byId.titled?.title).toBe('Real title');
-    expect(byId.titled?.firstUserText).toBe('Xin chào, fix the bug');
+    expect(byId.titled?.firstUserText).toBe('Hello, fix the bug');
     // Untitled session falls back to the (normalized) first user prompt.
     expect(byId.provisional?.title).toBeNull();
-    expect(byId.provisional?.firstUserText).toBe('Xin chào, fix the bug');
+    expect(byId.provisional?.firstUserText).toBe('Hello, fix the bug');
     // No transcript yet → no provisional title.
     expect(byId.empty?.firstUserText).toBeNull();
   });

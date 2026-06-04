@@ -123,13 +123,13 @@
     }
   body {
     @apply bg-background text-foreground;
-    /* Khóa chiều cao vào dynamic viewport: trên mobile, khi address bar
-       ẩn/hiện, body không bao giờ cao hơn vùng nhìn thấy nên trang không
-       scroll được — composer luôn dính đáy thay vì bị đẩy lên. */
+    /* Lock height to dynamic viewport: on mobile, when the address bar
+       hides/shows, body never exceeds the visible area so the page cannot
+       scroll — composer stays pinned at the bottom instead of being pushed up. */
     height: 100dvh;
     overflow: hidden;
-    /* Chặn pull-to-refresh / overscroll bounce khi kéo quá đáy/đỉnh, vốn
-       làm cả layout (kể cả composer) xê dịch trên mobile. */
+    /* Block pull-to-refresh / overscroll bounce when dragging past top/bottom,
+       which shifts the entire layout (including composer) on mobile. */
     overscroll-behavior: none;
     }
   html {

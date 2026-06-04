@@ -596,14 +596,14 @@ function CredentialDialog({
         <DialogHeader>
           <DialogTitle>Link git credential</DialogTitle>
           <DialogDescription>
-            Chọn PAT dùng cho pull/push/fetch của project này. Lưu vào DB để lần sau không phải chọn
-            lại.
+            Select a PAT for pull/push/fetch on this project. Saved to the DB so you won't have to choose
+            again next time.
           </DialogDescription>
         </DialogHeader>
 
         {credentials.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            Chưa có credential. Thêm trong Settings → Git Credentials.
+            No credential yet. Add one in Settings → Git Credentials.
           </p>
         ) : (
           <ul className="flex max-h-72 flex-col gap-1.5 overflow-y-auto">

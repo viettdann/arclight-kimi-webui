@@ -95,7 +95,7 @@ export function Shell() {
     }
   }, [status, lastClearReason]);
 
-  // Tự động đóng sidebar drawer trên di động khi chuyển phiên chat mới
+  // Auto-close sidebar drawer on mobile when switching to a new chat session
   // biome-ignore lint/correctness/useExhaustiveDependencies: sessionId is the trigger — close on every session switch
   useEffect(() => {
     setIsSidebarOpen(false);

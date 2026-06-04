@@ -43,10 +43,10 @@ const SID = 'sdk-inv-main';
 const SUBPATH = 'subagents/agent-aXYZ';
 
 const main: SessionStoreEntry[] = [
-  { type: 'user', uuid: 'u-1', message: { role: 'user', content: 'tìm chỗ định nghĩa logger' } },
+  { type: 'user', uuid: 'u-1', message: { role: 'user', content: 'find where logger is defined' } },
   {
     type: 'assistant',
-    message: { id: 'msg_R', content: [{ type: 'thinking', thinking: 'lên kế hoạch', signature: 'sig' }] },
+    message: { id: 'msg_R', content: [{ type: 'thinking', thinking: 'planning', signature: 'sig' }] },
   },
   { type: 'assistant', message: { id: 'msg_R', content: [{ type: 'text', text: 'Spawning a search' }] } },
   {
@@ -69,7 +69,7 @@ const main: SessionStoreEntry[] = [
   },
   {
     type: 'assistant',
-    message: { id: 'msg_S', content: [{ type: 'text', text: 'Logger ở server/src/lib/logger.ts' }] },
+    message: { id: 'msg_S', content: [{ type: 'text', text: 'Logger is at server/src/lib/logger.ts' }] },
   },
 ];
 

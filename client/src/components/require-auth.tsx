@@ -11,7 +11,7 @@ export function RequireAuth({ children }: { children?: React.ReactNode }) {
     // Plain loader — the UI track owns the polished shell.
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <span className="text-sm text-muted-foreground">Đang tải…</span>
+        <span className="text-sm text-muted-foreground">Loading…</span>
       </div>
     );
   }

@@ -11,7 +11,7 @@ export function RequireAdmin({ children }: { children?: React.ReactNode }) {
   if (status === 'unknown') {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <span className="text-sm text-muted-foreground">Đang tải…</span>
+        <span className="text-sm text-muted-foreground">Loading…</span>
       </div>
     );
   }
