@@ -227,11 +227,17 @@ function applyEventToBlocks(
         createdAt: now(),
       };
       // Stop the matching tool_call from streaming, then append the result.
-      const next = blocks.map((b) =>
-        b.kind === 'tool_call' && b.toolCallId === payload.toolCallId
-          ? { ...b, isStreaming: false }
-          : b,
-      );
+      // A question_request sharing the toolCallId has been answered (or denied
+      // on abort) — mark it resolved so the dock and inline anchor settle.
+      const next = blocks.map((b) => {
+        if (b.kind === 'tool_call' && b.toolCallId === payload.toolCallId) {
+          return { ...b, isStreaming: false };
+        }
+        if (b.kind === 'question_request' && b.toolCallId === payload.toolCallId && !b.resolved) {
+          return { ...b, resolved: true };
+        }
+        return b;
+      });
       return [...next, resultBlock];
     }
 
@@ -271,6 +277,17 @@ function applyEventToBlocks(
         createdAt: now(),
       };
       return [...blocks, newBlock];
+    }
+
+    // Client-local echo (never broadcast by the server): applied by QuestionCard
+    // on submit so the dock advances and the inline anchor flips to the answer
+    // summary without waiting for the tool_result round-trip.
+    case 'answer_question': {
+      return blocks.map((b) =>
+        b.kind === 'question_request' && b.requestId === payload.requestId
+          ? { ...b, resolved: true, answers: payload.answers as Record<string, string> }
+          : b,
+      );
     }
 
     case 'subagent_event': {

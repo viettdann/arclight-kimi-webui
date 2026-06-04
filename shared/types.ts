@@ -156,6 +156,8 @@ export type Block =
       questions: QuestionItemDTO[];
       /** True once the question's tool_call has resolved (user has answered). */
       resolved?: boolean;
+      /** Submitted answers keyed by question text (client-local echo of `answer_question`). */
+      answers?: Record<string, string>;
       createdAt: string;
     }
   | { kind: 'error'; id: string; code: string; message: string; createdAt: string };
@@ -498,6 +500,12 @@ export interface ApproveToolPayload {
 
 export interface AnswerQuestionPayload {
   requestId: string;
+  /**
+   * Keyed by QUESTION TEXT (`QuestionItemDTO.question`), value = chosen label
+   * or typed text; multi-select labels join with ", ". The SDK's AskUserQuestion
+   * tool looks answers up by question text — index-style keys (`q_0`) silently
+   * read as "did not answer".
+   */
   answers: Record<string, string>;
   /** Optional per-question free-text notes, forwarded into AskUserQuestion's
    *  `updatedInput.annotations`. */

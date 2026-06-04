@@ -65,6 +65,8 @@ export function BlockRegistry({ block }: BlockRegistryProps) {
           requestId={block.requestId}
           questions={block.questions}
           resolved={block.resolved}
+          answers={block.answers}
+          variant="inline"
         />
       );
     case 'error':

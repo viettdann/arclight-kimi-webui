@@ -6,10 +6,12 @@ import type {
   AdoptProjectPayload,
   AnswerQuestionPayload,
   ApprovalMode,
+  ApprovalRequestPayload,
   ApproveToolPayload,
   EffortLevel,
   ErrorPayload,
   ProjectAdoptedPayload,
+  QuestionRequestPayload,
   ReplayDonePayload,
   ResumeSessionPayload,
   SendMessagePayload,
@@ -383,6 +385,13 @@ function snapshotEnvelope(
  * never also replay buffered events — that would double-apply appends. The live
  * broadcast stream plus the `final:true` commits keep the client current after
  * attach.
+ *
+ * Pending interaction prompts are the exception: an awaited canUseTool prompt
+ * (approval / AskUserQuestion) was broadcast once when it parked, and the
+ * transcript renderer cannot reconstruct it (the tool hasn't executed yet). A
+ * client attaching mid-prompt (F5, second tab) would otherwise have no way to
+ * answer — the turn hangs until interrupted. Re-send them after the snapshot;
+ * the client's block reducer dedupes by request id.
  */
 async function sendSnapshot(ws: WS, active: ActiveSession): Promise<boolean> {
   const snap = await buildSnapshot({
@@ -399,6 +408,18 @@ async function sendSnapshot(ws: WS, active: ActiveSession): Promise<boolean> {
     ws,
     envelope<ReplayDonePayload>('replay_done', { lastSeq: active.lastSeq }, active.sessionId),
   );
+  for (const pending of active.pendingApprovals.values()) {
+    sendDirect(
+      ws,
+      envelope<ApprovalRequestPayload>('approval_request', pending.payload, active.sessionId),
+    );
+  }
+  for (const pending of active.pendingQuestions.values()) {
+    sendDirect(
+      ws,
+      envelope<QuestionRequestPayload>('question_request', pending.payload, active.sessionId),
+    );
+  }
   return true;
 }
 

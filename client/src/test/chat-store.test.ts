@@ -285,6 +285,39 @@ describe('useChatStore', () => {
       });
     });
 
+    it('answer_question local echo marks the question resolved and records answers', () => {
+      useChatStore.getState().applyEvent(sessionId, 'question_request', {
+        requestId: 'q-1',
+        id: 'call-1',
+        questions: [{ question: 'Are you sure?', options: [] }],
+      });
+      useChatStore.getState().applyEvent(sessionId, 'answer_question', {
+        requestId: 'q-1',
+        answers: { 'Are you sure?': 'Yes' },
+      });
+
+      const block = useChatStore.getState().sessions[sessionId]!.blocks[0] as any;
+      expect(block.resolved).toBe(true);
+      expect(block.answers).toEqual({ 'Are you sure?': 'Yes' });
+    });
+
+    it('tool_result resolves the question_request sharing its toolCallId', () => {
+      useChatStore.getState().applyEvent(sessionId, 'question_request', {
+        requestId: 'q-1',
+        id: 'call-1',
+        questions: [{ question: 'Are you sure?', options: [] }],
+      });
+      useChatStore.getState().applyEvent(sessionId, 'tool_result', {
+        toolCallId: 'call-1',
+        output: 'Your questions have been answered',
+        isError: false,
+      });
+
+      const block = useChatStore.getState().sessions[sessionId]!.blocks[0] as any;
+      expect(block.kind).toBe('question_request');
+      expect(block.resolved).toBe(true);
+    });
+
     it('should recursively handle subagent_events', () => {
       // 1. Create a parent tool call that spawns subagent
       useChatStore.getState().applyEvent(sessionId, 'tool_call', {
