@@ -8,9 +8,29 @@ import { showToast } from '@/components/toast-provider';
 import { useChatStore } from './chat-store';
 import { useCloneProgressStore } from './clone-progress-store';
 import { useCommandStore } from './command-store';
+import { useGitPanelStore } from './git-panel-store';
 import { cloneErrorMessage, useProjectsStore } from './projects-store';
+import { useRightSidebarStore } from './right-sidebar-store';
 import { router } from './router';
+import { useSessionsStore } from './sessions-store';
 import { wsClient } from './ws-client';
+
+// A `turn_end` means the agent likely touched the working tree. Refresh the git
+// panel's status, but only when it's the active project AND the panel is open,
+// and debounced so a burst of turns coalesces into one refresh.
+let gitRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+function scheduleGitRefresh(sessionId: string): void {
+  const session = useSessionsStore.getState().sessions.find((s) => s.id === sessionId);
+  if (!session) return;
+  if (session.projectName !== useGitPanelStore.getState().projectName) return;
+  if (!useRightSidebarStore.getState().open) return;
+
+  if (gitRefreshTimer) clearTimeout(gitRefreshTimer);
+  gitRefreshTimer = setTimeout(() => {
+    gitRefreshTimer = null;
+    void useGitPanelStore.getState().refreshStatus();
+  }, 500);
+}
 
 // Singleton module side-effect. Subscribes to the global WebSocket client
 // and routes incoming frames to the Zustand chat store.
@@ -56,6 +76,10 @@ const unsubscribeMessage = wsClient.on('message', (ev: MessageEvent) => {
     }
 
     if (!msg.sessionId) return;
+
+    // A completed turn may have changed files; nudge the git panel (no-op unless
+    // it's the active, open project). Does not consume the event.
+    if (msg.type === 'turn_end') scheduleGitRefresh(msg.sessionId);
 
     if (msg.type === 'snapshot') {
       const payload = msg.payload as SnapshotPayload;

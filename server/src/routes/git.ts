@@ -6,6 +6,7 @@ import type {
   GitBranchResponse,
   GitCommandRequest,
   GitCommandResponse,
+  GitCommitRequest,
   GitLogResponse,
   GitStatusResponse,
 } from 'shared/types/git-credentials';
@@ -16,12 +17,14 @@ import { type DB, db as defaultDb, schema } from '../db';
 import { env as defaultEnv, type Env } from '../env';
 import { resolveUserPath } from '../lib/path-guard';
 import {
+  commitFiles,
   executeGitCommand,
   getDetailedLog,
   getRemoteUrl,
   isRemoteCommand,
   parseBranches,
   parseStatus,
+  UnknownFilesError,
 } from '../services/git/commands';
 import { inferProvider } from '../services/git/url';
 import * as credentialRepo from '../services/git-credentials/repo';
@@ -226,6 +229,67 @@ export function createGitRouter(deps: GitRouterDeps = {}): Hono<{ Variables: Aut
     );
 
     return c.json(result satisfies GitCommandResponse);
+  });
+
+  // ─────────────────────────── POST /commit ───────────────────────────
+
+  router.post('/commit', async (c) => {
+    const user = c.var.user;
+    if (user == null) return c.json({ error: 'unauthorized' }, 401);
+
+    let body: GitCommitRequest;
+    try {
+      body = (await c.req.json()) as GitCommitRequest;
+    } catch {
+      return c.json({ error: 'invalid_body' }, 400);
+    }
+
+    if (!body.projectName || typeof body.projectName !== 'string') {
+      return c.json({ error: 'projectName required' }, 400);
+    }
+    if (typeof body.message !== 'string' || body.message.trim() === '') {
+      return c.json({ error: 'message required' }, 400);
+    }
+    if (!Array.isArray(body.files) || body.files.length === 0) {
+      return c.json({ error: 'files required' }, 400);
+    }
+    if (!body.files.every((f) => typeof f === 'string' && f.length > 0)) {
+      return c.json({ error: 'files required' }, 400);
+    }
+
+    let workDir: string;
+    try {
+      workDir = await resolveWorkDir(user.email, body.projectName);
+    } catch {
+      return c.json({ error: 'forbidden' }, 403);
+    }
+
+    // Validate every file stays inside the workspace (blocks `../`, absolute,
+    // NUL). resolveUserPath is used purely as a guard — the pathspec handed to
+    // git remains the original relative path.
+    for (const file of body.files) {
+      try {
+        await resolveUserPath(workDir, file);
+      } catch {
+        return c.json({ error: 'forbidden' }, 403);
+      }
+    }
+
+    try {
+      const result = await commitFiles({
+        cwd: workDir,
+        files: body.files,
+        message: body.message,
+        userName: user.name,
+        userEmail: user.email,
+      });
+      return c.json(result satisfies GitCommandResponse);
+    } catch (err) {
+      if (err instanceof UnknownFilesError) {
+        return c.json({ error: 'unknown_files', files: err.files }, 400);
+      }
+      throw err;
+    }
   });
 
   // ─────────────────────────── PUT /link-credential ───────────────────────────

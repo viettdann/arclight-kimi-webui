@@ -84,12 +84,27 @@ export interface GitCommandResponse {
   timedOut: boolean;
   /** True when the failure was an auth failure — client should prompt for PAT. */
   requiresAuth?: boolean;
+  /**
+   * True when a credential WAS applied but the remote rejected with a
+   * permission error (e.g. PAT lacks write scope for push). Re-picking the
+   * same credential won't help; one with more scope might.
+   */
+  permissionDenied?: boolean;
+}
+
+export interface GitCommitRequest {
+  projectName: string;
+  /** Paths relative to the project root, as reported by GitStatusEntry.path. */
+  files: string[];
+  message: string;
 }
 
 export interface GitStatusEntry {
   /** porcelain v2 XY codes, e.g. '1 .M', '1 M.', '? '. */
   statusCode: string;
   path: string;
+  /** Original path for rename/copy entries (porcelain v2 `2` lines). */
+  origPath?: string;
 }
 
 export interface GitStatusResponse {
