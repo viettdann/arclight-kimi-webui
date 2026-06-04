@@ -124,7 +124,12 @@ export function NewProjectModal({ isOpen, onClose }: NewProjectModalProps) {
     try {
       const res = await create({
         name: name.trim() || undefined,
-        source: { type: 'clone', url: trimmedUrl, credentialId, branch: branch.trim() || undefined },
+        source: {
+          type: 'clone',
+          url: trimmedUrl,
+          credentialId,
+          branch: branch.trim() || undefined,
+        },
       });
       if (res.status === 'cloning' && res.cloneId) {
         // Hand off to the progress view. Seed the store so the project name shows

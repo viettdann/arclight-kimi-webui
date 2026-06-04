@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { useSessionDefaultsStore } from '@/lib/session-defaults-store';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as configApi from '@/api/config';
+import { useSessionDefaultsStore } from '@/lib/session-defaults-store';
 
 vi.mock('@/api/config', () => ({
   getResolvedDefaults: vi.fn(),

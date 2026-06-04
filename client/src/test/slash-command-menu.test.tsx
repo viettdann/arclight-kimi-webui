@@ -1,12 +1,16 @@
-import { describe, it, expect, afterEach, vi } from 'vitest';
-import { render, screen, cleanup, within } from '@testing-library/react';
+import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { CommandInfo } from 'shared/commands';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SlashCommandMenu } from '@/components/slash-command-menu';
 
 afterEach(cleanup);
 
-const cmd = (name: string, kind: CommandInfo['kind'], extra: Partial<CommandInfo> = {}): CommandInfo => ({
+const cmd = (
+  name: string,
+  kind: CommandInfo['kind'],
+  extra: Partial<CommandInfo> = {},
+): CommandInfo => ({
   name,
   description: '',
   argumentHint: '',
@@ -36,7 +40,9 @@ describe('SlashCommandMenu', () => {
   });
 
   it('renders argumentHint, description, and a kind badge', () => {
-    const items = [cmd('adopt', 'project', { argumentHint: '[path]', description: 'Adopt a repo' })];
+    const items = [
+      cmd('adopt', 'project', { argumentHint: '[path]', description: 'Adopt a repo' }),
+    ];
     render(<SlashCommandMenu items={items} activeIndex={0} filter="" onSelect={noop} />);
 
     expect(screen.getByText('[path]')).toBeInTheDocument();
@@ -76,7 +82,13 @@ describe('SlashCommandMenu', () => {
     const onHover = vi.fn();
     const items = [cmd('one', 'builtin'), cmd('two', 'builtin')];
     render(
-      <SlashCommandMenu items={items} activeIndex={0} filter="" onSelect={noop} onHover={onHover} />,
+      <SlashCommandMenu
+        items={items}
+        activeIndex={0}
+        filter=""
+        onSelect={noop}
+        onHover={onHover}
+      />,
     );
 
     const secondRow = screen.getByText('/two');

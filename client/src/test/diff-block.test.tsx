@@ -1,5 +1,5 @@
-import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
-import { render, screen, cleanup, fireEvent } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DiffBlock } from '@/components/display-blocks/diff-block';
 
 const writeText = vi.fn();
@@ -31,7 +31,9 @@ describe('DiffBlock — modes', () => {
   });
 
   it('labels a changed file as modified and shows both sides of a changed line', () => {
-    render(<DiffBlock path="a/b/file.ts" oldText={'keep\nold\ntail'} newText={'keep\nnew\ntail'} />);
+    render(
+      <DiffBlock path="a/b/file.ts" oldText={'keep\nold\ntail'} newText={'keep\nnew\ntail'} />,
+    );
     expect(screen.getByText('Modified')).toBeInTheDocument();
     expect(screen.getByText('file.ts')).toBeInTheDocument();
     // Unchanged line appears once; both the removed and added variants render.

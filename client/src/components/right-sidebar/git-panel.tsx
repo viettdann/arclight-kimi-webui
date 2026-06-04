@@ -596,8 +596,8 @@ function CredentialDialog({
         <DialogHeader>
           <DialogTitle>Link git credential</DialogTitle>
           <DialogDescription>
-            Select a PAT for pull/push/fetch on this project. Saved to the DB so you won't have to choose
-            again next time.
+            Select a PAT for pull/push/fetch on this project. Saved to the DB so you won't have to
+            choose again next time.
           </DialogDescription>
         </DialogHeader>
 

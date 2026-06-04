@@ -1,11 +1,7 @@
 import { createBrowserRouter, Navigate } from 'react-router';
 import { ErrorView } from '../components/error-view';
-import { ProjectDiscoverySection } from '../components/settings/project-discovery-section';
 import { RequireAuth } from '../components/require-auth';
-import { AccessControlPanel } from '../components/settings/access-control-panel';
 import { GeneralSection } from '../components/settings/general-section';
-import { OverviewPanel } from '../components/settings/overview-panel';
-import { ProviderPanel } from '../components/settings/provider-panel';
 import { ProvidersSection } from '../components/settings/providers-section';
 import { SystemSection } from '../components/settings/system-section';
 import { WorkspacePanel } from '../components/settings/workspace-panel';

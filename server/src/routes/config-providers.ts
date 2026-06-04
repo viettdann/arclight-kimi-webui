@@ -2,8 +2,14 @@ import { Hono } from 'hono';
 import type { ProvidersListResponse } from 'shared/types/providers';
 import { type AuthVariables, requireAdmin, requireAuth } from '../auth/middleware';
 import { type DB, db as defaultDb } from '../db';
-import { getBuiltin, getOwned, listBuiltinRows, listOwnerRows, toDTO } from '../services/providers/store';
 import { listAvailableForUser } from '../services/providers/resolve';
+import {
+  getBuiltin,
+  getOwned,
+  listBuiltinRows,
+  listOwnerRows,
+  toDTO,
+} from '../services/providers/store';
 import {
   handleCreate,
   handleDelete,

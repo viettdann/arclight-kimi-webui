@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach } from 'vitest';
 import type { CommandInfo } from 'shared/commands';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { useCommandStore } from '@/lib/command-store';
 
 const cmd = (name: string): CommandInfo => ({ name }) as CommandInfo;

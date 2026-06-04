@@ -1,15 +1,8 @@
 import { useEffect, useMemo } from 'react';
-import {
-  APPROVAL_MODES,
-  type ApprovalMode,
-  EFFORT_OPTIONS,
-  type EffortLevel,
-  effortLabel,
-} from 'shared/types';
-import { SecHead } from '@/components/ui/sec-head';
+import { APPROVAL_MODES, type ApprovalMode, EFFORT_OPTIONS, type EffortLevel } from 'shared/types';
 import { Select } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { isResolvable, labelFor, useProvidersStore } from '../../lib/providers-store';
+import { labelFor, useProvidersStore } from '../../lib/providers-store';
 import { useSessionDefaultsStore } from '../../lib/session-defaults-store';
 import { cn } from '../../lib/utils';
 import { useRegisterDirty } from './use-settings-dirty';
@@ -70,7 +63,6 @@ export function DefaultsPanel() {
     setEffort,
     resetApprovalMode,
     resetThinking,
-    resetProviderId,
     resetModel,
     resetEffort,
   } = store;
@@ -86,17 +78,20 @@ export function DefaultsPanel() {
     : approvalMode !== 'ask'
       ? 'site'
       : 'code';
-  const providerSource: Source = isUserOverride.providerId ? 'user' : 'code';
+  const _providerSource: Source = isUserOverride.providerId ? 'user' : 'code';
   const modelSource: Source = isUserOverride.model ? 'user' : 'code';
   const effortSource: Source = isUserOverride.effort ? 'user' : 'code';
 
-  const allProviders = [...(available?.builtin ?? []), ...(available?.personal ?? [])];
+  const allProviders = useMemo(
+    () => [...(available?.builtin ?? []), ...(available?.personal ?? [])],
+    [available],
+  );
 
   const selectedProvider = useMemo(
     () => allProviders.find((p) => p.id === providerId),
     [allProviders, providerId],
   );
-  const selectedModel = useMemo(
+  const _selectedModel = useMemo(
     () => selectedProvider?.models.find((m) => m.modelId === model) ?? null,
     [selectedProvider, model],
   );

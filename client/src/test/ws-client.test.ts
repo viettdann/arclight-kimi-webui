@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { wsClient } from '@/lib/ws-client';
 
 // 4401 (auth gone) routes through the auth store; stub it to assert.
@@ -29,7 +29,9 @@ class MockWebSocket {
   }
 
   addEventListener(type: string, cb: Cb) {
-    (this.listeners[type] ??= []).push(cb);
+    const list = this.listeners[type] ?? [];
+    this.listeners[type] = list;
+    list.push(cb);
   }
 
   close(code = 1000) {

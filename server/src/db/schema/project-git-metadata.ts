@@ -16,9 +16,7 @@ export const projectGitMetadata = pgTable(
       onDelete: 'set null',
     }),
   },
-  (t) => [
-    index('project_git_metadata_user_idx').on(t.userId),
-  ],
+  (t) => [index('project_git_metadata_user_idx').on(t.userId)],
 );
 
 export type ProjectGitMetadataRow = typeof projectGitMetadata.$inferSelect;

@@ -295,7 +295,8 @@ export function renderEntries(
     const transcript: TranscriptEntry[] = [];
     let meta: TranscriptEntry | null = null;
     for (const e of entries) {
-      if (e.type === AGENT_METADATA_TYPE) meta = e; // last-wins
+      if (e.type === AGENT_METADATA_TYPE)
+        meta = e; // last-wins
       else transcript.push(e);
     }
     subagentFiles[`${stem}${JSONL_EXT}`] = transcript.map((e) => JSON.stringify(e)).join('\n');
@@ -384,7 +385,9 @@ function attachSubagents(
 
     // `agent-<agentId>` → agentId; resolve parent: explicit meta field first,
     // else the agentId↔tool_result linkage recovered while walking.
-    const agentId = stem.startsWith(AGENT_STEM_PREFIX) ? stem.slice(AGENT_STEM_PREFIX.length) : stem;
+    const agentId = stem.startsWith(AGENT_STEM_PREFIX)
+      ? stem.slice(AGENT_STEM_PREFIX.length)
+      : stem;
     const toolUseId = asString(meta.toolUseId) || agentIdToParent.get(agentId) || '';
     const nestedBlocks = renderTranscript(agentJsonl, null, opts);
 

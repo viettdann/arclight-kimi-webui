@@ -56,7 +56,7 @@ export function CommitDialog({
       setAmend(false);
       void refreshStatus();
     }
-  }, [open, refreshStatus]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open, refreshStatus, entries]);
 
   // Reconcile selection against the latest status: a path that vanished (e.g.
   // the file was committed elsewhere or the status refreshed) drops out so we
@@ -111,7 +111,8 @@ export function CommitDialog({
         <DialogHeader>
           <DialogTitle>{amend ? 'Amend commit' : 'Commit changes'}</DialogTitle>
           <DialogDescription>
-            Select files to commit and enter a message. Untracked and rename are handled automatically by the server.
+            Select files to commit and enter a message. Untracked and rename are handled
+            automatically by the server.
           </DialogDescription>
         </DialogHeader>
 
@@ -146,9 +147,7 @@ export function CommitDialog({
         </div>
 
         {entries.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            Working tree clean — nothing to commit.
-          </p>
+          <p className="text-sm text-muted-foreground">Working tree clean — nothing to commit.</p>
         ) : (
           <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between">

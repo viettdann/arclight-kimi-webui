@@ -1,7 +1,7 @@
-import { describe, it, expect, afterEach, beforeEach, vi, type Mock } from 'vitest';
-import { render, screen, cleanup } from '@testing-library/react';
+import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { GitCredentialDTO, ProjectCreateRequest, ProjectCreateResponse } from 'shared/types';
+import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 
 // The embedded "add credential" dialog pulls in its own network layer; stub it.
 vi.mock('@/components/preferences/git-credential-dialog', () => ({
@@ -9,9 +9,9 @@ vi.mock('@/components/preferences/git-credential-dialog', () => ({
 }));
 
 import { NewProjectModal } from '@/components/new-project-modal';
-import { useProjectsStore } from '@/lib/projects-store';
-import { useGitCredentialsStore } from '@/lib/git-credentials-store';
 import { useCloneProgressStore } from '@/lib/clone-progress-store';
+import { useGitCredentialsStore } from '@/lib/git-credentials-store';
+import { useProjectsStore } from '@/lib/projects-store';
 
 const credential: GitCredentialDTO = {
   id: 'cred-1',
@@ -22,7 +22,10 @@ const credential: GitCredentialDTO = {
   updatedAt: '2026-01-01T00:00:00Z',
 };
 
-type CreateFn = (opts: { name?: string; source?: ProjectCreateRequest['source'] }) => Promise<ProjectCreateResponse>;
+type CreateFn = (opts: {
+  name?: string;
+  source?: ProjectCreateRequest['source'];
+}) => Promise<ProjectCreateResponse>;
 let create: Mock<CreateFn>;
 let cancelClone: Mock<(name: string) => Promise<void>>;
 

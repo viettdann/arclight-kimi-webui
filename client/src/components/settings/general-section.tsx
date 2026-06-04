@@ -1,5 +1,5 @@
-import { InstructionsPanel } from '../preferences/instructions-panel';
 import { GitCredentialsPanel } from '../preferences/git-credentials-panel';
+import { InstructionsPanel } from '../preferences/instructions-panel';
 
 /**
  * General section: instructions + git credentials.

@@ -2,9 +2,9 @@ import {
   Brain,
   Check,
   ChevronDown,
+  CornerDownLeft,
   FolderGit2,
   Gauge,
-  CornerDownLeft,
   ShieldCheck,
   Square,
   Zap,
@@ -579,270 +579,272 @@ export function ChatInput() {
             Send/Stop on the right. */}
         <div className="flex items-center justify-between gap-2 px-3 pb-2.5">
           <div className="flex min-w-0 items-center gap-2">
-          <span className="inline-flex min-w-0 items-center rounded-xl border border-border bg-card-2 px-1 transition-colors hover:bg-muted">
-            <DropdownMenu
-              align="start"
-              trigger={
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="xs"
-                  className={`cursor-pointer ${approvalMode === 'bypass' ? 'text-warning' : 'text-muted-foreground'}`}
-                  disabled={!canCompose}
-                  aria-label="Approval mode"
-                  title="Approval mode — applies from the next message"
-                >
-                  {approvalMode === 'bypass' ? (
-                    <Zap className="h-3.5 w-3.5" />
-                  ) : (
-                    <ShieldCheck
-                      className={`h-3.5 w-3.5 ${approvalMode === 'safe' ? 'text-primary' : ''}`}
-                    />
-                  )}
-                  <span className="hidden sm:inline">
-                    {approvalMode === 'bypass'
-                      ? 'Bypass'
-                      : approvalMode === 'safe'
-                        ? 'Safe'
-                        : 'Ask first'}
-                  </span>
-                  <ChevronDown className="h-3.5 w-3.5" />
-                </Button>
-              }
-            >
-              <div className="px-2 pt-1 pb-1.5 text-[11px] text-muted-foreground select-none">
-                Applies from the next message
-              </div>
-              <DropdownItem
-                onClick={() => setApprovalMode('ask')}
-                icon={<Check className={approvalMode === 'ask' ? '' : 'opacity-0'} />}
-              >
-                <span className="flex flex-col">
-                  <span>Ask first</span>
-                  <span className="text-xs text-muted-foreground">
-                    Approve each tool before it runs
-                  </span>
-                </span>
-              </DropdownItem>
-              <DropdownItem
-                onClick={() => setApprovalMode('safe')}
-                icon={<Check className={approvalMode === 'safe' ? '' : 'opacity-0'} />}
-              >
-                <span className="flex flex-col">
-                  <span className="flex items-center gap-1.5">
-                    Safe · pre-approved tools
-                    <ShieldCheck className="h-3 w-3 text-primary" />
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    Auto-approve read-only tools, ask for the rest
-                  </span>
-                </span>
-              </DropdownItem>
-              <DropdownItem
-                onClick={() => setApprovalMode('bypass')}
-                icon={<Check className={approvalMode === 'bypass' ? '' : 'opacity-0'} />}
-              >
-                <span className="flex flex-col">
-                  <span className="flex items-center gap-1.5">
-                    Bypass · YOLO
-                    <Zap className="h-3 w-3 text-warning" />
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    Run every tool without asking
-                  </span>
-                </span>
-              </DropdownItem>
-            </DropdownMenu>
-          </span>
-
-          <span className="inline-flex min-w-0 items-center rounded-xl border border-border bg-card-2 px-1 transition-colors hover:bg-muted">
-            <DropdownMenu
-              align="end"
-              trigger={
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="xs"
-                  className={`cursor-pointer ${needsSelection ? 'text-warning' : 'text-muted-foreground'}`}
-                  disabled={!canCompose}
-                  aria-label="Model"
-                  title={
-                    isUnresolvable
-                      ? MSG_MODEL_UNRESOLVABLE
-                      : needsSelection
-                        ? MSG_SELECT_MODEL
-                        : 'Model — applies from the next message'
-                  }
-                >
-                  {/* Mobile drops the provider namespace (compact); desktop
-                        keeps the full `namespace/model` form. */}
-                  <span className="max-w-[16ch] truncate sm:hidden">{modelLabelCompact}</span>
-                  <span className="hidden max-w-[16ch] truncate sm:inline">{modelLabel}</span>
-                  {/* Reasoning rolled into the model pill (ref composer style):
-                        show the effort initial only when a level is chosen and
-                        thinking is on; Default/off stays clean. */}
-                  {thinking && effort ? (
-                    <span className="font-semibold uppercase text-primary">
-                      {' · '}
-                      {effort.charAt(0)}
-                    </span>
-                  ) : null}
-                  <ChevronDown className="h-3.5 w-3.5" />
-                </Button>
-              }
-            >
-              <div className="px-2 pt-1 pb-1.5 text-[11px] text-muted-foreground select-none truncate max-w-[20ch]">
-                {modelLabel}
-              </div>
-
-              {builtinProviders.length > 0 && (
-                <>
-                  <div className="px-2 pt-1.5 pb-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground select-none">
-                    Built-in
-                  </div>
-                  {builtinProviders.flatMap((provider) =>
-                    provider.models.map((m) => {
-                      const isActive =
-                        effectiveProviderId === provider.id && effectiveModel === m.modelId;
-                      return (
-                        <DropdownItem
-                          key={`${provider.id}/${m.modelId}`}
-                          onClick={() => {
-                            setSelectedProviderId(provider.id);
-                            setSelectedModel(m.modelId);
-                            withSilentSave(() => {
-                              useSessionDefaultsStore.getState().setProviderId(provider.id);
-                              useSessionDefaultsStore.getState().setModel(m.modelId);
-                            });
-                          }}
-                          icon={<Check className={isActive ? '' : 'opacity-0'} />}
-                        >
-                          <span>{`${provider.namespace}/${m.displayName ?? m.modelId}`}</span>
-                        </DropdownItem>
-                      );
-                    }),
-                  )}
-                </>
-              )}
-
-              {personalProviders.length > 0 && (
-                <>
-                  <div className="px-2 pt-1.5 pb-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground select-none">
-                    Personal
-                  </div>
-                  {personalProviders.flatMap((provider) =>
-                    provider.models.map((m) => {
-                      const isActive =
-                        effectiveProviderId === provider.id && effectiveModel === m.modelId;
-                      return (
-                        <DropdownItem
-                          key={`${provider.id}/${m.modelId}`}
-                          onClick={() => {
-                            setSelectedProviderId(provider.id);
-                            setSelectedModel(m.modelId);
-                            withSilentSave(() => {
-                              useSessionDefaultsStore.getState().setProviderId(provider.id);
-                              useSessionDefaultsStore.getState().setModel(m.modelId);
-                            });
-                          }}
-                          icon={<Check className={isActive ? '' : 'opacity-0'} />}
-                        >
-                          <span>{`${provider.namespace}/${m.displayName ?? m.modelId}`}</span>
-                        </DropdownItem>
-                      );
-                    }),
-                  )}
-                </>
-              )}
-
-              {status === 'loading' && (
-                <div className="px-2 py-2 text-xs text-muted-foreground select-none">
-                  Loading providers…
-                </div>
-              )}
-
-              {status === 'error' && (
-                <DropdownItem onClick={() => void load()}>
-                  <span className="flex flex-col">
-                    <span className="text-warning">Failed to load — retry</span>
-                    {error && (
-                      <span className="text-xs text-muted-foreground truncate">{error}</span>
+            <span className="inline-flex min-w-0 items-center rounded-xl border border-border bg-card-2 px-1 transition-colors hover:bg-muted">
+              <DropdownMenu
+                align="start"
+                trigger={
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="xs"
+                    className={`cursor-pointer ${approvalMode === 'bypass' ? 'text-warning' : 'text-muted-foreground'}`}
+                    disabled={!canCompose}
+                    aria-label="Approval mode"
+                    title="Approval mode — applies from the next message"
+                  >
+                    {approvalMode === 'bypass' ? (
+                      <Zap className="h-3.5 w-3.5" />
+                    ) : (
+                      <ShieldCheck
+                        className={`h-3.5 w-3.5 ${approvalMode === 'safe' ? 'text-primary' : ''}`}
+                      />
                     )}
+                    <span className="hidden sm:inline">
+                      {approvalMode === 'bypass'
+                        ? 'Bypass'
+                        : approvalMode === 'safe'
+                          ? 'Safe'
+                          : 'Ask first'}
+                    </span>
+                    <ChevronDown className="h-3.5 w-3.5" />
+                  </Button>
+                }
+              >
+                <div className="px-2 pt-1 pb-1.5 text-[11px] text-muted-foreground select-none">
+                  Applies from the next message
+                </div>
+                <DropdownItem
+                  onClick={() => setApprovalMode('ask')}
+                  icon={<Check className={approvalMode === 'ask' ? '' : 'opacity-0'} />}
+                >
+                  <span className="flex flex-col">
+                    <span>Ask first</span>
+                    <span className="text-xs text-muted-foreground">
+                      Approve each tool before it runs
+                    </span>
                   </span>
                 </DropdownItem>
-              )}
+                <DropdownItem
+                  onClick={() => setApprovalMode('safe')}
+                  icon={<Check className={approvalMode === 'safe' ? '' : 'opacity-0'} />}
+                >
+                  <span className="flex flex-col">
+                    <span className="flex items-center gap-1.5">
+                      Safe · pre-approved tools
+                      <ShieldCheck className="h-3 w-3 text-primary" />
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      Auto-approve read-only tools, ask for the rest
+                    </span>
+                  </span>
+                </DropdownItem>
+                <DropdownItem
+                  onClick={() => setApprovalMode('bypass')}
+                  icon={<Check className={approvalMode === 'bypass' ? '' : 'opacity-0'} />}
+                >
+                  <span className="flex flex-col">
+                    <span className="flex items-center gap-1.5">
+                      Bypass · YOLO
+                      <Zap className="h-3 w-3 text-warning" />
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      Run every tool without asking
+                    </span>
+                  </span>
+                </DropdownItem>
+              </DropdownMenu>
+            </span>
 
-              {status === 'ready' &&
-                builtinProviders.length === 0 &&
-                personalProviders.length === 0 && (
+            <span className="inline-flex min-w-0 items-center rounded-xl border border-border bg-card-2 px-1 transition-colors hover:bg-muted">
+              <DropdownMenu
+                align="end"
+                trigger={
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="xs"
+                    className={`cursor-pointer ${needsSelection ? 'text-warning' : 'text-muted-foreground'}`}
+                    disabled={!canCompose}
+                    aria-label="Model"
+                    title={
+                      isUnresolvable
+                        ? MSG_MODEL_UNRESOLVABLE
+                        : needsSelection
+                          ? MSG_SELECT_MODEL
+                          : 'Model — applies from the next message'
+                    }
+                  >
+                    {/* Mobile drops the provider namespace (compact); desktop
+                        keeps the full `namespace/model` form. */}
+                    <span className="max-w-[16ch] truncate sm:hidden">{modelLabelCompact}</span>
+                    <span className="hidden max-w-[16ch] truncate sm:inline">{modelLabel}</span>
+                    {/* Reasoning rolled into the model pill (ref composer style):
+                        show the effort initial only when a level is chosen and
+                        thinking is on; Default/off stays clean. */}
+                    {thinking && effort ? (
+                      <span className="font-semibold uppercase text-primary">
+                        {' · '}
+                        {effort.charAt(0)}
+                      </span>
+                    ) : null}
+                    <ChevronDown className="h-3.5 w-3.5" />
+                  </Button>
+                }
+              >
+                <div className="px-2 pt-1 pb-1.5 text-[11px] text-muted-foreground select-none truncate max-w-[20ch]">
+                  {modelLabel}
+                </div>
+
+                {builtinProviders.length > 0 && (
+                  <>
+                    <div className="px-2 pt-1.5 pb-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground select-none">
+                      Built-in
+                    </div>
+                    {builtinProviders.flatMap((provider) =>
+                      provider.models.map((m) => {
+                        const isActive =
+                          effectiveProviderId === provider.id && effectiveModel === m.modelId;
+                        return (
+                          <DropdownItem
+                            key={`${provider.id}/${m.modelId}`}
+                            onClick={() => {
+                              setSelectedProviderId(provider.id);
+                              setSelectedModel(m.modelId);
+                              withSilentSave(() => {
+                                useSessionDefaultsStore.getState().setProviderId(provider.id);
+                                useSessionDefaultsStore.getState().setModel(m.modelId);
+                              });
+                            }}
+                            icon={<Check className={isActive ? '' : 'opacity-0'} />}
+                          >
+                            <span>{`${provider.namespace}/${m.displayName ?? m.modelId}`}</span>
+                          </DropdownItem>
+                        );
+                      }),
+                    )}
+                  </>
+                )}
+
+                {personalProviders.length > 0 && (
+                  <>
+                    <div className="px-2 pt-1.5 pb-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground select-none">
+                      Personal
+                    </div>
+                    {personalProviders.flatMap((provider) =>
+                      provider.models.map((m) => {
+                        const isActive =
+                          effectiveProviderId === provider.id && effectiveModel === m.modelId;
+                        return (
+                          <DropdownItem
+                            key={`${provider.id}/${m.modelId}`}
+                            onClick={() => {
+                              setSelectedProviderId(provider.id);
+                              setSelectedModel(m.modelId);
+                              withSilentSave(() => {
+                                useSessionDefaultsStore.getState().setProviderId(provider.id);
+                                useSessionDefaultsStore.getState().setModel(m.modelId);
+                              });
+                            }}
+                            icon={<Check className={isActive ? '' : 'opacity-0'} />}
+                          >
+                            <span>{`${provider.namespace}/${m.displayName ?? m.modelId}`}</span>
+                          </DropdownItem>
+                        );
+                      }),
+                    )}
+                  </>
+                )}
+
+                {status === 'loading' && (
                   <div className="px-2 py-2 text-xs text-muted-foreground select-none">
-                    No providers configured
+                    Loading providers…
                   </div>
                 )}
 
-              <DropdownSeparator />
+                {status === 'error' && (
+                  <DropdownItem onClick={() => void load()}>
+                    <span className="flex flex-col">
+                      <span className="text-warning">Failed to load — retry</span>
+                      {error && (
+                        <span className="text-xs text-muted-foreground truncate">{error}</span>
+                      )}
+                    </span>
+                  </DropdownItem>
+                )}
 
-              {/* Reasoning lives under the model pill (ref composer): a nested
+                {status === 'ready' &&
+                  builtinProviders.length === 0 &&
+                  personalProviders.length === 0 && (
+                    <div className="px-2 py-2 text-xs text-muted-foreground select-none">
+                      No providers configured
+                    </div>
+                  )}
+
+                <DropdownSeparator />
+
+                {/* Reasoning lives under the model pill (ref composer): a nested
                     Effort submenu whose own footer toggles Thinking. Effort only
                     bites under extended thinking, so it's disabled when off. */}
-              <DropdownSubmenu
-                icon={<Gauge className="h-3.5 w-3.5" />}
-                label="Effort"
-                value={thinking ? effortLabel(effort) : 'Off'}
-              >
-                {EFFORT_OPTIONS.map((opt) => (
-                  <DropdownItem
-                    key={opt.label}
-                    disabled={!thinking}
-                    onClick={() => setEffort(opt.value)}
-                    icon={<Check className={thinking && effort === opt.value ? '' : 'opacity-0'} />}
-                  >
-                    <span>{opt.label}</span>
-                  </DropdownItem>
-                ))}
-                <DropdownSeparator />
-                <DropdownItem
-                  onClick={toggleThinking}
-                  closeOnClick={false}
-                  trailing={<Switch on={thinking} />}
+                <DropdownSubmenu
+                  icon={<Gauge className="h-3.5 w-3.5" />}
+                  label="Effort"
+                  value={thinking ? effortLabel(effort) : 'Off'}
                 >
-                  <span className="flex items-center gap-2">
-                    <Brain className="h-3.5 w-3.5" />
-                    Thinking
-                  </span>
-                </DropdownItem>
-              </DropdownSubmenu>
-            </DropdownMenu>
-          </span>
-        </div>
+                  {EFFORT_OPTIONS.map((opt) => (
+                    <DropdownItem
+                      key={opt.label}
+                      disabled={!thinking}
+                      onClick={() => setEffort(opt.value)}
+                      icon={
+                        <Check className={thinking && effort === opt.value ? '' : 'opacity-0'} />
+                      }
+                    >
+                      <span>{opt.label}</span>
+                    </DropdownItem>
+                  ))}
+                  <DropdownSeparator />
+                  <DropdownItem
+                    onClick={toggleThinking}
+                    closeOnClick={false}
+                    trailing={<Switch on={thinking} />}
+                  >
+                    <span className="flex items-center gap-2">
+                      <Brain className="h-3.5 w-3.5" />
+                      Thinking
+                    </span>
+                  </DropdownItem>
+                </DropdownSubmenu>
+              </DropdownMenu>
+            </span>
+          </div>
 
-        {isTurnInProgress ? (
-          <button
-            type="button"
-            onClick={handlePrimaryAction}
-            disabled={!canCompose}
-            aria-label="Stop turn"
-            title="Stop the running agent"
-            className="cursor-pointer rounded-lg p-1.5 text-destructive hover:bg-destructive/10 transition-colors"
-          >
-            <Square className="h-4 w-4" />
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={handlePrimaryAction}
-            disabled={!text.trim() || !canCompose || noModelsAvailable || needsSelection}
-            aria-label="Send message"
-            className={`p-1.5 transition-colors ${
-              text.trim() && canCompose && !noModelsAvailable && !needsSelection
-                ? 'cursor-pointer text-primary'
-                : 'text-muted-foreground/40'
-            }`}
-          >
-            <CornerDownLeft className="h-4 w-4" />
-          </button>
-        )}
-      </div>
+          {isTurnInProgress ? (
+            <button
+              type="button"
+              onClick={handlePrimaryAction}
+              disabled={!canCompose}
+              aria-label="Stop turn"
+              title="Stop the running agent"
+              className="cursor-pointer rounded-lg p-1.5 text-destructive hover:bg-destructive/10 transition-colors"
+            >
+              <Square className="h-4 w-4" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={handlePrimaryAction}
+              disabled={!text.trim() || !canCompose || noModelsAvailable || needsSelection}
+              aria-label="Send message"
+              className={`p-1.5 transition-colors ${
+                text.trim() && canCompose && !noModelsAvailable && !needsSelection
+                  ? 'cursor-pointer text-primary'
+                  : 'text-muted-foreground/40'
+              }`}
+            >
+              <CornerDownLeft className="h-4 w-4" />
+            </button>
+          )}
+        </div>
       </div>
 
       <ConfirmBypassDialog

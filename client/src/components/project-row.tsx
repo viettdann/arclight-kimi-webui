@@ -51,7 +51,8 @@ export function ProjectRow({ project, sessions, isActive }: ProjectRowProps) {
   const isForeign = project.origin === 'foreign';
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
-  const [metadata, setMetadata] = useState<Awaited<ReturnType<typeof fetchProjectGitMetadata>>>(null);
+  const [metadata, setMetadata] =
+    useState<Awaited<ReturnType<typeof fetchProjectGitMetadata>>>(null);
   const [checking, setChecking] = useState(false);
   const requestNewSession = useNewSessionStore((s) => s.request);
 
@@ -216,8 +217,9 @@ export function ProjectRow({ project, sessions, isActive }: ProjectRowProps) {
             <DialogDescription>
               {metadata?.remoteUrl ? (
                 <>
-                  This project has a remote <code className="rounded bg-muted px-1 text-xs">{metadata.remoteUrl}</code>.
-                  Do you want to clone it or just create an empty folder?
+                  This project has a remote{' '}
+                  <code className="rounded bg-muted px-1 text-xs">{metadata.remoteUrl}</code>. Do
+                  you want to clone it or just create an empty folder?
                 </>
               ) : (
                 <>
@@ -228,7 +230,14 @@ export function ProjectRow({ project, sessions, isActive }: ProjectRowProps) {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => { setConfirmOpen(false); setMetadata(null); }}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setConfirmOpen(false);
+                setMetadata(null);
+              }}
+            >
               Cancel
             </Button>
             {metadata?.remoteUrl ? (

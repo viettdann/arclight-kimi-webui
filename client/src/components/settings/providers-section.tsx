@@ -1,6 +1,6 @@
 import { useAuthStore } from '@/lib/auth-store';
-import { ProviderPanel } from './provider-panel';
 import { PersonalProvidersPanel } from '../preferences/personal-providers-panel';
+import { ProviderPanel } from './provider-panel';
 
 /**
  * Unified providers section. Admin sees built-in + personal;

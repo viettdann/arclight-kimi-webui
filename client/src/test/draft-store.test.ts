@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { useDraftStore } from '@/lib/draft-store';
 
 const DRAFTS_KEY = 'composerDrafts';

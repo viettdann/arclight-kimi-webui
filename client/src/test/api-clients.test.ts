@@ -1,11 +1,11 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { setAccessControl } from '@/api/access';
 import {
-  listGitCredentials,
   createGitCredential,
   deleteGitCredential,
+  listGitCredentials,
 } from '@/api/git-credentials';
 import { fetchAvailableProviders } from '@/api/providers';
-import { setAccessControl } from '@/api/access';
 
 // The api/* layer is thin wrappers over authFetch + parseError; exercise the
 // real wrappers against a mocked fetch so URL/method/body construction and the

@@ -133,7 +133,7 @@ describe('GET /api/files/download', () => {
   });
 
   it('emits both ASCII fallback + filename* for Unicode filenames', async () => {
-    const name = 'document.txt';
+    const name = 'tài liệu.txt';
     await writeFile(path.join(userRoot, name), 'content');
     const res = await app.request(`/api/files/download?path=${encodeURIComponent(name)}`);
     expect(res.status).toBe(200);

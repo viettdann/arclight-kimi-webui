@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Capture the handlers ws-subscriber registers, without a real socket.
 const { on } = vi.hoisted(() => ({
@@ -8,12 +8,12 @@ vi.mock('@/lib/ws-client', () => ({ wsClient: { on } }));
 vi.mock('@/lib/router', () => ({ router: { navigate: vi.fn() } }));
 vi.mock('@/components/toast-provider', () => ({ showToast: vi.fn() }));
 
-import { router } from '@/lib/router';
 import { showToast } from '@/components/toast-provider';
 import { useChatStore } from '@/lib/chat-store';
+import { useCloneProgressStore } from '@/lib/clone-progress-store';
 import { useCommandStore } from '@/lib/command-store';
 import { useProjectsStore } from '@/lib/projects-store';
-import { useCloneProgressStore } from '@/lib/clone-progress-store';
+import { router } from '@/lib/router';
 import '@/lib/ws-subscriber'; // registers wsClient.on('message' | 'open', ...)
 
 // Pull the message handler that ws-subscriber registered on import.

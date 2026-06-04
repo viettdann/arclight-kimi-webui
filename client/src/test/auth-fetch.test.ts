@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { authFetch, parseError } from '@/lib/auth-fetch';
 
 // authFetch surfaces 401s through the auth store; stub it so we can assert the

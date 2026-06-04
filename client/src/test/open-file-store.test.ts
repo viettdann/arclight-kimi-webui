@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { useOpenFileStore, persistWidth } from '@/lib/open-file-store';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { persistWidth, useOpenFileStore } from '@/lib/open-file-store';
 
 describe('useOpenFileStore', () => {
   beforeEach(() => {

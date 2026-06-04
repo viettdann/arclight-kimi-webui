@@ -52,14 +52,12 @@ export async function batchUpsert(
 
   await Promise.all([
     toDelete.length > 0
-      ? db
-          .delete(schema.siteSettings)
-          .where(
-            inArray(
-              schema.siteSettings.key,
-              toDelete.map((e) => e.key),
-            ),
-          )
+      ? db.delete(schema.siteSettings).where(
+          inArray(
+            schema.siteSettings.key,
+            toDelete.map((e) => e.key),
+          ),
+        )
       : Promise.resolve(),
     toUpsert.length > 0
       ? db

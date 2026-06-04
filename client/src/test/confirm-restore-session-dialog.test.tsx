@@ -1,6 +1,6 @@
-import { describe, it, expect, afterEach, vi } from 'vitest';
-import { render, screen, cleanup } from '@testing-library/react';
+import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ConfirmRestoreSessionDialog } from '@/components/confirm-restore-session-dialog';
 
 afterEach(cleanup);
@@ -31,7 +31,9 @@ describe('ConfirmRestoreSessionDialog', () => {
     const user = userEvent.setup();
     const onConfirm = vi.fn();
     const onClose = vi.fn();
-    render(<ConfirmRestoreSessionDialog {...base} isOpen onConfirm={onConfirm} onClose={onClose} />);
+    render(
+      <ConfirmRestoreSessionDialog {...base} isOpen onConfirm={onConfirm} onClose={onClose} />,
+    );
 
     await user.click(screen.getByRole('button', { name: 'Restore' }));
     expect(onConfirm).toHaveBeenCalledTimes(1);
