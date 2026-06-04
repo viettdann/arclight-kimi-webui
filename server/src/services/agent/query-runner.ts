@@ -101,6 +101,12 @@ export async function startQuery(
       canUseTool: buildCanUseTool(active),
       includePartialMessages: true,
       toolConfig: { askUserQuestion: { previewFormat: 'markdown' } },
+      // Native Opus 4.6+ encrypts raw thinking server-side; request API-side
+      // summaries so thinking blocks stream readable text. Hidden CLI flag
+      // (`--thinking-display`, choices summarized|omitted) — the SDK-mode
+      // binary never sets `display` on its own (interactive-only path). No-op
+      // when thinking is disabled (binary guards on thinking type).
+      extraArgs: { 'thinking-display': 'summarized' },
       env,
       // Dual-write transcript mirror: the subprocess writes local JSONL, the SDK
       // mirrors each frame to the DB store. `eager` flushes per frame (~100ms) so
