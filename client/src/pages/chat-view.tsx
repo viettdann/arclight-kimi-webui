@@ -1,6 +1,7 @@
 import { Loader2 } from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useRef } from 'react';
 import { useLocation, useParams } from 'react-router';
+import { ApiStatusNotices } from '../components/api-status-notices';
 import { ChatInput } from '../components/chat-input';
 import { PendingApprovalDock } from '../components/pending-approval-dock';
 import { RightSidebar } from '../components/right-sidebar/right-sidebar';
@@ -122,6 +123,7 @@ export function ChatView() {
                 chat column is just the transcript + input here. */}
             <Transcript />
             <div className="relative shrink-0">
+              <ApiStatusNotices sessionId={sessionId} />
               <PendingApprovalDock />
               <ChatInput />
             </div>

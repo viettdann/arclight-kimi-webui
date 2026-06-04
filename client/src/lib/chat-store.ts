@@ -1,11 +1,13 @@
 // biome-ignore-all lint/suspicious/noExplicitAny: WS event payloads are dynamically shaped per WSMessageType; consumed by the applyEvent switch
 import type {
+  ApiRetryPayload,
   ApprovalMode,
   Block,
   ContextUsagePayload,
   DisplayBlock,
   EffortLevel,
   QuestionItemDTO,
+  RateLimitPayload,
   SnapshotPayload,
   StatusUpdatePayload,
   WSMessageType,
@@ -34,6 +36,10 @@ export interface ChatSessionState {
   approvalMode: ApprovalMode;
   /** Reasoning effort, applied from the prompt it rides with onward; `null` is the provider default. */
   effort: EffortLevel | null;
+  /** Latest provider quota status from `rate_limit`; null when the provider never reports it. */
+  rateLimit: RateLimitPayload | null;
+  /** In-flight API retry notice from `api_retry`; cleared on the next stream activity. */
+  apiRetry: ApiRetryPayload | null;
 }
 
 interface ChatStore {
@@ -63,6 +69,8 @@ const createDefaultSessionState = (): ChatSessionState => ({
   thinking: true,
   approvalMode: 'ask',
   effort: null,
+  rateLimit: null,
+  apiRetry: null,
 });
 
 const now = (): string => new Date().toISOString();
@@ -407,6 +415,10 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           thinking: payload.thinking ?? true,
           approvalMode: payload.approvalMode ?? 'ask',
           effort: payload.effort ?? null,
+          // Provider quota status survives a re-snapshot (it is provider-level,
+          // not transcript state); the transient retry notice does not.
+          rateLimit: state.sessions[sessionId]?.rateLimit ?? null,
+          apiRetry: null,
         },
       },
     }));
@@ -451,11 +463,23 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         case 'context_usage':
           session.contextUsage = payload as ContextUsagePayload;
           break;
+        case 'rate_limit':
+          session.rateLimit = payload as RateLimitPayload;
+          break;
+        case 'api_retry':
+          session.apiRetry = payload as ApiRetryPayload;
+          break;
         case 'title_update':
           if (payload?.title) session.title = payload.title;
           break;
         default:
           break;
+      }
+
+      // The retry notice is transient: any other session event means the stream
+      // moved on (retry succeeded, errored out, or the turn ended) — clear it.
+      if (session.apiRetry && type !== 'api_retry' && type !== 'rate_limit') {
+        session.apiRetry = null;
       }
 
       return { sessions: { ...state.sessions, [sessionId]: session } };

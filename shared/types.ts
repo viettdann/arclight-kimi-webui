@@ -41,6 +41,8 @@ export type WSMessageType =
   | 'clone_progress'
   | 'commands_available'
   | 'context_usage'
+  | 'rate_limit'
+  | 'api_retry'
   | 'error'
   // client → server
   | 'subscribe'
@@ -418,13 +420,46 @@ export type CompactionEndPayload = Record<string, never>;
 
 /**
  * The turn's terminal status. Pump errors (thrown during iteration) surface
- * via the `error` event, not `turn_end`.
+ * via the `error` event, not `turn_end`. `error` is an in-band failure result
+ * (API rejection, budget exceeded, …) — details ride in `errors`.
  */
-export type TurnEndStatus = 'finished' | 'cancelled' | 'max_steps_reached';
+export type TurnEndStatus = 'finished' | 'cancelled' | 'max_steps_reached' | 'error';
 
 export interface TurnEndPayload {
   status: TurnEndStatus;
   steps: number;
+  /** Failure detail strings from an error result (e.g. the API rejection text). */
+  errors?: string[];
+}
+
+/**
+ * Quota status mirrored from the SDK `rate_limit_event`. Best-effort: only
+ * providers that send unified rate-limit headers emit it — when absent the
+ * client simply never shows a quota indicator.
+ */
+export interface RateLimitPayload {
+  status: 'allowed' | 'allowed_warning' | 'rejected';
+  /** Unix epoch seconds when the active limit resets. */
+  resetsAt?: number;
+  /** SDK limit window label, e.g. 'five_hour' | 'seven_day'. */
+  rateLimitType?: string;
+  /** Percent (0–100) of the quota consumed. */
+  utilization?: number;
+}
+
+/**
+ * A retryable API failure the SDK subprocess is about to retry on its own.
+ * Transient: the client shows a notice and clears it on the next stream
+ * activity (retry succeeded, errored out, or the turn ended).
+ */
+export interface ApiRetryPayload {
+  attempt: number;
+  maxRetries: number;
+  retryDelayMs: number;
+  /** HTTP status of the failed request; null for connection errors. */
+  errorStatus: number | null;
+  /** SDK error class, e.g. 'rate_limit' | 'server_error'. */
+  errorCode: string;
 }
 
 /**
