@@ -502,6 +502,98 @@ describe('useChatStore', () => {
       const { result } = renderHook(() => useLatestTodos(sessionId));
       expect(result.current).toEqual(mockTodoItems);
     });
+
+    // Build a minimal tool_result block carrying the given display blocks.
+    function toolResultBlock(id: string, displayBlocks: DisplayBlock[]): Block {
+      return {
+        kind: 'tool_result',
+        id,
+        toolCallId: id,
+        toolName: 'TaskCreate',
+        output: '',
+        message: '',
+        isError: false,
+        displayBlocks,
+        createdAt: '2026-06-01T00:00:00Z',
+      };
+    }
+
+    function loadBlocks(blocks: Block[]) {
+      useChatStore.getState().loadSnapshot(sessionId, {
+        blocks,
+        totalTokens: 0,
+        contextUsage: null,
+        totalCostUsd: 0,
+        title: null,
+        pendingPrompt: null,
+        live: { turnInProgress: false },
+        thinking: false,
+        approvalMode: 'ask',
+        effort: null,
+        commands: [],
+      });
+    }
+
+    it('should fold incremental task create/update events into a checklist', () => {
+      loadBlocks([
+        toolResultBlock('c1', [{ type: 'task', op: 'create', id: '1', title: 'First' }]),
+        toolResultBlock('c2', [{ type: 'task', op: 'create', id: '2', title: 'Second' }]),
+        toolResultBlock('u1', [{ type: 'task', op: 'update', id: '1', status: 'in_progress' }]),
+        toolResultBlock('u2', [{ type: 'task', op: 'update', id: '1', status: 'done' }]),
+        toolResultBlock('u3', [{ type: 'task', op: 'update', id: '2', title: 'Renamed' }]),
+      ]);
+
+      const { result } = renderHook(() => useLatestTodos(sessionId));
+      expect(result.current).toEqual([
+        { title: 'First', status: 'done' },
+        { title: 'Renamed', status: 'pending' },
+      ]);
+    });
+
+    it('should drop deleted tasks and skip updates for unknown ids', () => {
+      loadBlocks([
+        toolResultBlock('c1', [{ type: 'task', op: 'create', id: '1', title: 'Keep' }]),
+        toolResultBlock('c2', [{ type: 'task', op: 'create', id: '2', title: 'Drop' }]),
+        toolResultBlock('u1', [{ type: 'task', op: 'update', id: '2', status: 'deleted' }]),
+        // Task '99' was never created in this timeline (e.g. subagent-owned).
+        toolResultBlock('u2', [{ type: 'task', op: 'update', id: '99', status: 'done' }]),
+      ]);
+
+      const { result } = renderHook(() => useLatestTodos(sessionId));
+      expect(result.current).toEqual([{ title: 'Keep', status: 'pending' }]);
+    });
+
+    it('should reset the checklist when switching from TodoWrite to task events', () => {
+      loadBlocks([
+        toolResultBlock('t1', [{ type: 'todo', items: [{ title: 'Old todo', status: 'done' }] }]),
+        toolResultBlock('c1', [{ type: 'task', op: 'create', id: '1', title: 'New task' }]),
+      ]);
+
+      const { result } = renderHook(() => useLatestTodos(sessionId));
+      expect(result.current).toEqual([{ title: 'New task', status: 'pending' }]);
+    });
+
+    it('should replace the checklist from a task list snapshot', () => {
+      loadBlocks([
+        toolResultBlock('c1', [{ type: 'task', op: 'create', id: '1', title: 'Stale' }]),
+        toolResultBlock('l1', [
+          {
+            type: 'task',
+            op: 'list',
+            items: [
+              { id: '1', title: 'Fresh', status: 'done' },
+              { id: '2', title: 'New', status: 'pending' },
+            ],
+          },
+        ]),
+      ]);
+
+      const { result } = renderHook(() => useLatestTodos(sessionId));
+      expect(result.current).toEqual([
+        { title: 'Fresh', status: 'done' },
+        { title: 'New', status: 'pending' },
+      ]);
+    });
   });
 
   it('should update session flags and remove session', () => {

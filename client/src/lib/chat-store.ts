@@ -501,6 +501,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   },
 
   removeSession: (sessionId: string) => {
+    todoFoldCache.delete(sessionId);
     set((state) => {
       if (!(sessionId in state.sessions)) return state;
       const { [sessionId]: _removed, ...rest } = state.sessions;
@@ -517,25 +518,89 @@ export function useSessionChat(sessionId: string | undefined): ChatSessionState 
 }
 
 type TodoItems = Extract<DisplayBlock, { type: 'todo' }>['items'];
+type TodoTaskBlock = Extract<DisplayBlock, { type: 'todo' | 'task' }>;
+
+/** Collect the todo/task display blocks from the timeline, in order. */
+function collectTodoBlocks(blocks: Block[]): TodoTaskBlock[] {
+  const out: TodoTaskBlock[] = [];
+  for (const b of blocks) {
+    if (b.kind !== 'tool_result') continue;
+    for (const d of b.displayBlocks ?? []) {
+      if (d.type === 'todo' || d.type === 'task') out.push(d);
+    }
+  }
+  return out;
+}
 
 /**
- * Hook: scan the session's blocks from the end for the most recent `tool_result`
- * whose `displayBlocks` carries a `{ type: 'todo' }` entry, and return its
- * items. Returns `null` when no todo display block exists yet.
+ * Fold todo/task display blocks, in timeline order, into the current
+ * checklist. `todo` blocks (TodoWrite) and `task` list snapshots (TaskList)
+ * replace the whole list; `task` create/update blocks (TaskCreate/TaskUpdate)
+ * mutate one entry by id, `status: 'deleted'` removes it. TodoWrite keys by
+ * position, task ops by task id — switching source families resets the map so
+ * the two key vocabularies never coexist. Returns `null` when no todo/task
+ * display block exists yet.
+ */
+function foldTodos(folded: TodoTaskBlock[]): TodoItems | null {
+  if (folded.length === 0) return null;
+  let items = new Map<string, TodoItems[number]>();
+  let family: 'todo' | 'task' | null = null;
+  for (const d of folded) {
+    if (d.type === 'todo') {
+      family = 'todo';
+      items = new Map(d.items.map((it, i) => [String(i), it]));
+    } else {
+      if (family !== 'task') items = new Map();
+      family = 'task';
+      if (d.op === 'create') {
+        items.set(d.id, { title: d.title, status: 'pending' });
+      } else if (d.op === 'update') {
+        const prev = items.get(d.id);
+        if (d.status === 'deleted') {
+          items.delete(d.id);
+        } else if (prev || d.title) {
+          // Updates for tasks created outside this timeline (e.g. by a
+          // subagent) carry no title — nothing meaningful to show; skip.
+          items.set(d.id, {
+            title: d.title ?? prev?.title ?? '',
+            status: d.status ?? prev?.status ?? 'pending',
+          });
+        }
+      } else {
+        items = new Map(d.items.map((it) => [it.id, { title: it.title, status: it.status }]));
+      }
+    }
+  }
+  return [...items.values()];
+}
+
+// Per-session fold cache. Streaming deltas replace `session.blocks` identity
+// many times per second while the todo/task display blocks (created once per
+// tool_result) keep theirs — comparing those identities lets the selector
+// return a stable array (no TodoPanel re-render, no re-fold) until a todo/task
+// block is actually appended.
+const todoFoldCache = new Map<string, { key: TodoTaskBlock[]; value: TodoItems | null }>();
+
+/**
+ * Hook: the session's current todo checklist, folded from TodoWrite snapshots
+ * and incremental TaskCreate/TaskUpdate/TaskList events (see `foldTodos`).
  */
 export function useLatestTodos(sessionId: string | undefined): TodoItems | null {
   return useChatStore((state) => {
     if (!sessionId) return null;
     const session = state.sessions[sessionId];
     if (!session) return null;
-    for (let i = session.blocks.length - 1; i >= 0; i--) {
-      const b = session.blocks[i];
-      if (b?.kind !== 'tool_result') continue;
-      const todo = b.displayBlocks?.find(
-        (d): d is Extract<DisplayBlock, { type: 'todo' }> => d.type === 'todo',
-      );
-      if (todo) return todo.items;
+    const relevant = collectTodoBlocks(session.blocks);
+    const cached = todoFoldCache.get(sessionId);
+    if (
+      cached &&
+      cached.key.length === relevant.length &&
+      cached.key.every((d, i) => d === relevant[i])
+    ) {
+      return cached.value;
     }
-    return null;
+    const value = foldTodos(relevant);
+    todoFoldCache.set(sessionId, { key: relevant, value });
+    return value;
   });
 }

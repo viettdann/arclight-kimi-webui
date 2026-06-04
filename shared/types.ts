@@ -74,10 +74,20 @@ export const EFFORT_OPTIONS: { value: EffortLevel | null; label: string }[] = [
   ...EFFORT_LEVELS.map((value) => ({ value, label: effortLabel(value) })),
 ];
 
+/** Checklist vocabulary shared by the `todo` and `task` display blocks. */
+export type TodoStatus = 'pending' | 'in_progress' | 'done';
+
 export type DisplayBlock =
   | { type: 'shell'; command: string; language: string }
   | { type: 'diff'; path: string; oldText: string; newText: string }
-  | { type: 'todo'; items: { title: string; status: 'pending' | 'in_progress' | 'done' }[] }
+  | { type: 'todo'; items: { title: string; status: TodoStatus }[] }
+  // Incremental task-store events (TaskCreate/TaskUpdate/TaskList). The client
+  // folds these, in timeline order, into the same checklist a `todo` block
+  // replaces wholesale. `op: 'list'` is a full snapshot (replace), the others
+  // mutate one task by id; `status: 'deleted'` removes it.
+  | { type: 'task'; op: 'create'; id: string; title: string }
+  | { type: 'task'; op: 'update'; id: string; title?: string; status?: TodoStatus | 'deleted' }
+  | { type: 'task'; op: 'list'; items: { id: string; title: string; status: TodoStatus }[] }
   | { type: 'brief'; text: string }
   | { type: 'unknown'; rawType: string; raw: Record<string, unknown> };
 
