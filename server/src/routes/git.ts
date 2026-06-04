@@ -256,6 +256,9 @@ export function createGitRouter(deps: GitRouterDeps = {}): Hono<{ Variables: Aut
     if (!body.files.every((f) => typeof f === 'string' && f.length > 0)) {
       return c.json({ error: 'files required' }, 400);
     }
+    if (body.amend !== undefined && typeof body.amend !== 'boolean') {
+      return c.json({ error: 'amend must be a boolean' }, 400);
+    }
 
     let workDir: string;
     try {
@@ -282,6 +285,7 @@ export function createGitRouter(deps: GitRouterDeps = {}): Hono<{ Variables: Aut
         message: body.message,
         userName: user.name,
         userEmail: user.email,
+        amend: body.amend ?? false,
       });
       return c.json(result satisfies GitCommandResponse);
     } catch (err) {

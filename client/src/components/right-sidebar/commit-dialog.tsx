@@ -14,11 +14,11 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { useAuthStore } from '../../lib/auth-store';
 import { useGitPanelStore } from '../../lib/git-panel-store';
-import { classifyStatus, TONE_BADGE } from './git-panel';
+import { classifyStatus, isStaged, TONE_BADGE } from './git-panel';
 
 // Modal staging + commit. The full file list lives here rather than the sidebar
 // so a long working tree never crowds the 320px column. Selection is explicit:
-// nothing is preselected, so a commit is always a deliberate choice of files.
+// staged files are pre-selected, but the user can toggle any file.
 export function CommitDialog({
   open,
   onOpenChange,
@@ -27,6 +27,7 @@ export function CommitDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const entries = useGitPanelStore((s) => s.statusData?.entries ?? []);
+  const logData = useGitPanelStore((s) => s.logData);
   const isBusy = useGitPanelStore((s) => s.isBusy);
   const refreshStatus = useGitPanelStore((s) => s.refreshStatus);
   const commitFiles = useGitPanelStore((s) => s.commitFiles);
@@ -35,17 +36,27 @@ export function CommitDialog({
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [message, setMessage] = useState('');
+  const [amend, setAmend] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
+  // Pre-fill message from last commit when amend is toggled on.
+  useEffect(() => {
+    if (amend && logData?.entries[0]?.message) {
+      setMessage(logData.entries[0].message);
+    }
+  }, [amend, logData]);
+
   // Fetch a fresh status each time the modal opens, and reset the form so a
-  // previous (committed) selection/message never lingers.
+  // previous (committed) selection/message never lingers. Pre-select staged files.
   useEffect(() => {
     if (open) {
-      setSelected(new Set());
+      const stagedPaths = entries.filter(isStaged).map((e) => e.path);
+      setSelected(new Set(stagedPaths));
       setMessage('');
+      setAmend(false);
       void refreshStatus();
     }
-  }, [open, refreshStatus]);
+  }, [open, refreshStatus]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Reconcile selection against the latest status: a path that vanished (e.g.
   // the file was committed elsewhere or the status refreshed) drops out so we
@@ -83,12 +94,13 @@ export function CommitDialog({
     return `${user.name} <${user.email}>`;
   }, [user]);
 
+  const hasHeadCommit = (logData?.entries.length ?? 0) > 0;
   const canCommit = selected.size > 0 && message.trim().length > 0 && !submitting && !isBusy;
 
   const handleCommit = async () => {
     if (!canCommit) return;
     setSubmitting(true);
-    const ok = await commitFiles([...selected], message.trim());
+    const ok = await commitFiles([...selected], message.trim(), amend);
     setSubmitting(false);
     if (ok) onOpenChange(false);
   };
@@ -97,11 +109,41 @@ export function CommitDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Commit changes</DialogTitle>
+          <DialogTitle>{amend ? 'Amend commit' : 'Commit changes'}</DialogTitle>
           <DialogDescription>
             Chọn file để commit và nhập message. Untracked và rename được server xử lý tự động.
           </DialogDescription>
         </DialogHeader>
+
+        {/* Commit mode toggle */}
+        <div className="flex items-center gap-4">
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input
+              type="radio"
+              name="commit-mode"
+              checked={!amend}
+              onChange={() => setAmend(false)}
+              className="accent-primary"
+            />
+            New commit
+          </label>
+          <label
+            className={`flex items-center gap-2 text-sm cursor-pointer ${
+              !hasHeadCommit ? 'opacity-50 pointer-events-none' : ''
+            }`}
+            title={!hasHeadCommit ? 'No commit to amend' : ''}
+          >
+            <input
+              type="radio"
+              name="commit-mode"
+              checked={amend}
+              onChange={() => setAmend(true)}
+              disabled={!hasHeadCommit}
+              className="accent-primary"
+            />
+            Amend last commit
+          </label>
+        </div>
 
         {entries.length === 0 ? (
           <p className="text-sm text-muted-foreground">
@@ -143,6 +185,12 @@ export function CommitDialog({
           disabled={entries.length === 0}
         />
 
+        {amend && (
+          <p className="text-xs text-muted-foreground">
+            Message pre-filled from last commit. Edit as needed.
+          </p>
+        )}
+
         <DialogFooter className="sm:items-center sm:justify-between">
           {identity ? (
             <span className="min-w-0 truncate text-xs text-muted-foreground">
@@ -157,7 +205,7 @@ export function CommitDialog({
             </Button>
             <Button type="button" onClick={() => void handleCommit()} disabled={!canCommit}>
               <GitCommitHorizontal className="h-4 w-4" />
-              Commit
+              {amend ? 'Amend commit' : 'Commit'}
             </Button>
           </div>
         </DialogFooter>

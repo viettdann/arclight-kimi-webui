@@ -129,6 +129,9 @@ export function buildArgs(cmd: GitSubcommand, userArgs: string[]): string[] {
       if (userArgs[0] === 'pop') return ['stash', 'pop'];
       return ['stash'];
     }
+    case 'reset':
+      // userArgs = ['HEAD', '--', ...paths]
+      return ['reset', ...userArgs];
     default:
       throw new Error(`unsupported git command: ${cmd}`);
   }
@@ -262,6 +265,8 @@ export interface CommitFilesArgs {
   /** Author/committer identity for this commit (from the authed user). */
   userName: string;
   userEmail: string;
+  /** Amend the last commit instead of creating a new one. */
+  amend?: boolean;
 }
 
 /** Thrown when a requested file matches no entry in the working-tree status. */
@@ -273,20 +278,17 @@ export class UnknownFilesError extends Error {
 }
 
 /**
- * Commit exactly the selected files without staging anything else.
+ * Commit exactly the selected files without including anything else.
  *
- * Strategy (verified empirically): porcelain status classifies the selection,
- * then `git commit -- <pathspec>` commits only those paths. Files not in the
- * pathspec stay uncommitted even if already staged. Two wrinkles handled here:
- *   - Untracked files (`?`) aren't known to the index, so a pathspec commit
- *     can't see them; `git add -N` intent-adds them first.
- *   - A rename (`2`) record's delete half lives under the ORIGINAL path; the
- *     pathspec must include origPath too or the delete is left behind.
+ * Strategy: real `git add` for all selected files (tracked + untracked), then
+ * `git commit` (or `git commit --amend`) without pathspec. To prevent
+ * pre-existing staged changes (e.g. from AI running `git add` via bash) from
+ * leaking into the commit, any staged file NOT in the selected set is
+ * temporarily unstaged with `git reset HEAD -- <path>` and re-staged on
+ * failure.
  *
  * Identity is injected via `-c user.name`/`-c user.email` BEFORE `commit` in
- * argv (matching executeGitCommand's `[...extraArgs, ...gitArgs]` ordering).
- * Everything is an argv array — never a shell string — and `--` always
- * precedes the pathspec so a leading-dash filename can't be read as a flag.
+ * argv. Everything is an argv array — never a shell string.
  */
 export async function commitFiles(args: CommitFilesArgs): Promise<GitCommandResponse> {
   const statusRaw = await executeGitCommand({ command: 'status', cwd: args.cwd });
@@ -297,53 +299,99 @@ export async function commitFiles(args: CommitFilesArgs): Promise<GitCommandResp
   const unknown = args.files.filter((f) => !byPath.has(f));
   if (unknown.length > 0) throw new UnknownFilesError(unknown);
 
-  // Build pathspec: each selected path, plus the original path for renames.
-  // A Set dedupes in case both the new and old paths were selected.
-  const pathspec = new Set<string>();
-  const untracked: string[] = [];
-  for (const file of args.files) {
-    const entry = byPath.get(file);
-    if (!entry) continue; // unreachable after the check above; keeps TS happy
-    pathspec.add(entry.path);
-    if (entry.origPath) pathspec.add(entry.origPath);
-    if (entry.statusCode.startsWith('?')) untracked.push(entry.path);
-  }
-
-  // Intent-add untracked files so the pathspec commit can see them.
-  if (untracked.length > 0) {
-    const addR = await runGit(['add', '-N', '--', ...untracked], {
+  // Amend requires a HEAD commit to exist.
+  if (args.amend) {
+    const headCheck = await runGit(['rev-parse', '--verify', 'HEAD'], {
       cwd: args.cwd,
-      timeoutMs: WRITE_TIMEOUT_MS,
+      timeoutMs: READ_TIMEOUT_MS,
       captureStdout: true,
     });
-    if (addR.exitCode !== 0) {
+    if (headCheck.exitCode !== 0) {
       return {
-        exitCode: addR.exitCode,
-        stdout: truncateOutput(addR.stdout),
-        stderr: truncateOutput(addR.stderr),
-        timedOut: addR.timedOut,
+        exitCode: 1,
+        stdout: '',
+        stderr: 'No commit to amend — the repository has no commits yet.',
+        timedOut: false,
       };
     }
   }
 
-  const r = await runGit(
-    [
-      '-c',
-      `user.name=${args.userName}`,
-      '-c',
-      `user.email=${args.userEmail}`,
-      'commit',
-      '-m',
-      args.message,
-      '--',
-      ...pathspec,
-    ],
-    {
+  // Identify staged files NOT in the selected set — these must be temporarily
+  // unstaged so the commit only includes what the user chose.
+  const selectedSet = new Set(args.files);
+  const protectedPaths: string[] = [];
+  for (const entry of status.entries) {
+    const x = entry.statusCode[0];
+    const isStaged = x !== '.' && x !== '?' && x !== '!' && x !== ' ';
+    if (isStaged && !selectedSet.has(entry.path)) {
+      protectedPaths.push(entry.path);
+    }
+  }
+
+  // Unstage protected files so they don't leak into the commit.
+  if (protectedPaths.length > 0) {
+    const resetR = await runGit(['reset', 'HEAD', '--', ...protectedPaths], {
       cwd: args.cwd,
       timeoutMs: WRITE_TIMEOUT_MS,
       captureStdout: true,
-    },
-  );
+    });
+    if (resetR.exitCode !== 0) {
+      return {
+        exitCode: resetR.exitCode,
+        stdout: truncateOutput(resetR.stdout),
+        stderr: truncateOutput(resetR.stderr),
+        timedOut: resetR.timedOut,
+      };
+    }
+  }
+
+  // Stage selected files (real git add — handles tracked, untracked, renames).
+  const addR = await runGit(['add', '--', ...args.files], {
+    cwd: args.cwd,
+    timeoutMs: WRITE_TIMEOUT_MS,
+    captureStdout: true,
+  });
+  if (addR.exitCode !== 0) {
+    // Restore protected files before returning.
+    if (protectedPaths.length > 0) {
+      await runGit(['add', '--', ...protectedPaths], {
+        cwd: args.cwd,
+        timeoutMs: WRITE_TIMEOUT_MS,
+        captureStdout: true,
+      }).catch(() => {});
+    }
+    return {
+      exitCode: addR.exitCode,
+      stdout: truncateOutput(addR.stdout),
+      stderr: truncateOutput(addR.stderr),
+      timedOut: addR.timedOut,
+    };
+  }
+
+  const commitArgs = [
+    '-c',
+    `user.name=${args.userName}`,
+    '-c',
+    `user.email=${args.userEmail}`,
+    'commit',
+  ];
+  if (args.amend) commitArgs.push('--amend');
+  commitArgs.push('-m', args.message);
+
+  const r = await runGit(commitArgs, {
+    cwd: args.cwd,
+    timeoutMs: WRITE_TIMEOUT_MS,
+    captureStdout: true,
+  });
+
+  // If commit failed, restore the protected files we unstaged earlier.
+  if (r.exitCode !== 0 && protectedPaths.length > 0) {
+    await runGit(['add', '--', ...protectedPaths], {
+      cwd: args.cwd,
+      timeoutMs: WRITE_TIMEOUT_MS,
+      captureStdout: true,
+    }).catch(() => {});
+  }
 
   return {
     exitCode: r.exitCode,
