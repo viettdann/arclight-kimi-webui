@@ -97,7 +97,9 @@ export function SubagentBundle({ toolCall, subagent, toolResult }: SubagentBundl
             )}
           </div>
         </div>
-        {promptPreview && (
+        {/* One-line hint while collapsed; the full prompt renders as a user-style
+            bubble inside the expanded section instead. */}
+        {!isOpen && promptPreview && (
           <div className="flex items-start gap-1.5 pl-6 text-[11px] text-muted-foreground font-sans leading-snug">
             <span className="font-mono text-muted-foreground/60 shrink-0">→</span>
             <span className="truncate">{promptPreview}</span>
@@ -112,6 +114,21 @@ export function SubagentBundle({ toolCall, subagent, toolResult }: SubagentBundl
         <div className="border-t border-primary/15 bg-card">
           {/* Nested events */}
           <div className="pl-4 pr-3 py-3 max-h-[36rem] overflow-y-auto scrollbar-thin">
+            {/* The Task prompt is the "user input" of this nested session —
+                right-aligned bubble like a user message, but dashed + muted so
+                it reads as a machine-issued instruction, not the human user. */}
+            {promptRaw && (
+              <div className="flex justify-end mb-4">
+                <div className="max-w-[85%] flex flex-col items-end gap-1">
+                  <span className="px-1 text-[10px] uppercase font-bold tracking-wider text-muted-foreground/70 select-none">
+                    Task Prompt
+                  </span>
+                  <div className="rounded-xl rounded-br-sm border border-dashed border-primary/30 bg-primary/5 px-4 py-2.5 text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap select-text break-words">
+                    {promptRaw}
+                  </div>
+                </div>
+              </div>
+            )}
             {nestedBlocks.length === 0 ? (
               <div className="text-[11px] font-medium text-muted-foreground/60 italic py-2 pl-2">
                 Waiting for subagent actions...
