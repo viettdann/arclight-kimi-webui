@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { classifyCommand, parseSlashCommand, BLACKLIST, UNSUPPORTED_HINT } from 'shared/commands';
+import { BLACKLIST, classifyCommand, parseSlashCommand, UNSUPPORTED_HINT } from 'shared/commands';
+import { describe, expect, it } from 'vitest';
 
 describe('parseSlashCommand', () => {
   it('should return null for non-command strings', () => {

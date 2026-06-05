@@ -172,7 +172,8 @@ export type Block =
       answers?: Record<string, string>;
       createdAt: string;
     }
-  | { kind: 'error'; id: string; code: string; message: string; createdAt: string };
+  | { kind: 'error'; id: string; code: string; message: string; createdAt: string }
+  | { kind: 'cancelled'; id: string; createdAt: string };
 
 export interface SessionListItem {
   id: string;

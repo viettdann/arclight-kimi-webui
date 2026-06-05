@@ -21,7 +21,8 @@
       "!server/src/db/migrations",
       "!client/components.json",
       "!client/src/components/ui",
-      "!**/*.css"
+      "!**/*.css",
+      "!playwright.config.ts"
     ]
   },
   "formatter": {

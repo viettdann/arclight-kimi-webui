@@ -1,8 +1,8 @@
-import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
-import { render, screen, cleanup } from '@testing-library/react';
+import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { AvailableProvidersResponse, ProviderDTO } from 'shared/types/providers';
 import type { SessionListItem } from 'shared/types';
+import type { AvailableProvidersResponse, ProviderDTO } from 'shared/types/providers';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // react-router params/search are driven through a mutable holder per test.
 const holder = vi.hoisted(() => ({ id: undefined as string | undefined, search: '' }));
@@ -17,11 +17,11 @@ vi.mock('@/lib/ws-send', () => ({ sendWS }));
 vi.mock('@/components/toast-provider', () => ({ showToast }));
 
 import { ChatInput } from '@/components/chat-input';
-import { useProvidersStore } from '@/lib/providers-store';
-import { useSessionsStore } from '@/lib/sessions-store';
 import { useChatStore } from '@/lib/chat-store';
 import { useCommandStore } from '@/lib/command-store';
 import { useDraftStore } from '@/lib/draft-store';
+import { useProvidersStore } from '@/lib/providers-store';
+import { useSessionsStore } from '@/lib/sessions-store';
 
 const provider: ProviderDTO = {
   id: 'prov-1',

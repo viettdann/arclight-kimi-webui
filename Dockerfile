@@ -37,26 +37,31 @@ CMD ["bunx", "drizzle-kit", "migrate", "--config=drizzle.config.ts"]
 FROM base AS runtime
 
 ARG DEBIAN_FRONTEND=noninteractive
+ENV NODE_ENV=production \
+    PORT=3000 \
+    DATA_DIR=/data \
+    PATH="/usr/local/go/bin:${PATH}"
+
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     rm -f /etc/apt/apt.conf.d/docker-clean && \
     echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache && \
     apt-get update && \
     apt-get install -y --no-install-recommends \
-    curl ca-certificates git ripgrep bubblewrap socat dumb-init wget zip jq less openssh-client procps findutils openssl sed gawk tzdata
+    curl ca-certificates git ripgrep bubblewrap socat make dumb-init \
+    wget zip jq less openssh-client procps findutils openssl sed gawk tzdata \
+    gcc pkg-config libssl-dev
 
-RUN mkdir -p /data/workspace /data/agent-state && chown -R bun:bun /data
+RUN mkdir -p /data/workspace /data/agent-state && chown -R bun:bun /data /app
 
-COPY --from=prod-deps --chown=bun:bun /app/node_modules ./node_modules
-COPY --from=prod-deps --chown=bun:bun /app/server/node_modules ./server/node_modules
 COPY --from=builder --chown=bun:bun /app/server/dist ./server/dist
 COPY --from=builder --chown=bun:bun /app/client/dist ./client/dist
 COPY --chown=bun:bun package.json ./package.json
 COPY --chown=bun:bun server/package.json ./server/package.json
 
-ENV NODE_ENV=production \
-    PORT=3000 \
-    DATA_DIR=/data
+ARG GO_VERSION=1.26.4
+RUN curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-$(dpkg --print-architecture).tar.gz" \
+    | tar -xz -C /usr/local
 
 USER bun
 VOLUME ["/data"]

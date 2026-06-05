@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
 import type { QuestionItemDTO } from 'shared/types';
+import { describe, expect, it } from 'vitest';
 import { buildWireAnswers } from '@/components/blocks/question-card';
 
 // The SDK's AskUserQuestion tool resolves answers by QUESTION TEXT

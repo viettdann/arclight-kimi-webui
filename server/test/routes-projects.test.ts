@@ -123,7 +123,7 @@ describe('POST /api/projects', () => {
     const res = await app.request('/api/projects', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ name: 'Dự án A' }),
+      body: JSON.stringify({ name: 'Dự Án A' }),
     });
     expect(res.status).toBe(201);
     const body = (await res.json()) as ProjectSummary;

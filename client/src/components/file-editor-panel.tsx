@@ -269,7 +269,7 @@ function EditorBody({ path, name }: PanelInner) {
         ) : fetchState.status === 'binary' ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
             <FileWarning className="h-8 w-8 text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">Không xem được tệp này</p>
+            <p className="text-sm text-muted-foreground">Cannot preview this file</p>
             <a
               href={`/api/files/download?path=${encodeURIComponent(path)}`}
               download={name}

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { useRightSidebarStore } from '@/lib/right-sidebar-store';
 import { useSidebarViewStore } from '@/lib/sidebar-view-store';
 

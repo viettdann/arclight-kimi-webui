@@ -7,7 +7,20 @@ export const USER_SETTING_KEYS = {
   sessionThinking: 'session_defaults.thinking',
   sessionApprovalMode: 'session_defaults.approval_mode',
   sessionEffort: 'session_defaults.effort',
+  /** When true, keep Claude's `Co-Authored-By` git attribution. Default off. */
+  gitIncludeCoAuthoredBy: 'git.include_co_authored_by',
 } as const;
+
+/**
+ * Read whether to include Claude's `Co-Authored-By` attribution in agent-driven
+ * commits/PRs. Defaults to FALSE (attribution removed) when the user hasn't set
+ * a value — opt in to keep it.
+ */
+export async function getGitIncludeCoAuthoredBy(db: DB, userId: string): Promise<boolean> {
+  const values = await readAll(db, userId);
+  const raw = values.get(USER_SETTING_KEYS.gitIncludeCoAuthoredBy);
+  return raw === true;
+}
 
 /** Read ALL user settings rows for a given user. */
 export async function readAll(db: DB, userId: string): Promise<Map<string, unknown>> {

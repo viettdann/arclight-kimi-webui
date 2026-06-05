@@ -65,7 +65,6 @@ function SiteDefaultsPanel() {
   useRegisterDirty('site-defaults', saveFailed);
 
   // Load site defaults once on mount
-  // biome-ignore lint/correctness/useExhaustiveDependencies: one-shot on mount
   useEffect(() => {
     let cancelled = false;
     setStatus('loading');

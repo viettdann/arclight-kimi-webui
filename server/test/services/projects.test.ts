@@ -314,7 +314,13 @@ describe('listProjectsForUser', () => {
       env: { WORKSPACE_ROOT: tmpRoot },
     });
     expect(result).toEqual([
-      { name: 'alpha', workDir: path.join(userRoot, 'alpha'), origin: 'local', status: 'ready', hasGit: true },
+      {
+        name: 'alpha',
+        workDir: path.join(userRoot, 'alpha'),
+        origin: 'local',
+        status: 'ready',
+        hasGit: true,
+      },
     ]);
   });
 });

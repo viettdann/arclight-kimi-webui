@@ -1,7 +1,7 @@
-import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
-import { render, screen, cleanup } from '@testing-library/react';
+import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { SessionListItem } from 'shared/types';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { navigate, sendWS, showToast } = vi.hoisted(() => ({
   navigate: vi.fn(),
@@ -16,8 +16,8 @@ vi.mock('@/lib/ws-send', () => ({ sendWS }));
 vi.mock('@/components/toast-provider', () => ({ showToast }));
 
 import { SessionRow } from '@/components/session-row';
-import { useSessionsStore } from '@/lib/sessions-store';
 import { useDraftStore } from '@/lib/draft-store';
+import { useSessionsStore } from '@/lib/sessions-store';
 
 const local = (over: Partial<SessionListItem> = {}): SessionListItem => ({
   id: 'sess-1',

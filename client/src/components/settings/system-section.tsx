@@ -1,8 +1,8 @@
-import { useAuthStore } from '@/lib/auth-store';
 import { Navigate } from 'react-router';
+import { useAuthStore } from '@/lib/auth-store';
 import { AccessControlPanel } from './access-control-panel';
-import { ProjectDiscoverySection } from './project-discovery-section';
 import { OverviewPanel } from './overview-panel';
+import { ProjectDiscoverySection } from './project-discovery-section';
 
 /**
  * System section: access control + project discovery + overview (admin-only).

@@ -1,5 +1,5 @@
-import type { SessionStore, SessionStoreEntry } from '@anthropic-ai/claude-agent-sdk';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
+import type { SessionStore, SessionStoreEntry } from '@anthropic-ai/claude-agent-sdk';
 import { sql } from 'drizzle-orm';
 import {
   createSessionStore,
@@ -43,18 +43,29 @@ const SID = 'sdk-inv-main';
 const SUBPATH = 'subagents/agent-aXYZ';
 
 const main: SessionStoreEntry[] = [
-  { type: 'user', uuid: 'u-1', message: { role: 'user', content: 'tìm chỗ định nghĩa logger' } },
+  { type: 'user', uuid: 'u-1', message: { role: 'user', content: 'find where logger is defined' } },
   {
     type: 'assistant',
-    message: { id: 'msg_R', content: [{ type: 'thinking', thinking: 'lên kế hoạch', signature: 'sig' }] },
+    message: {
+      id: 'msg_R',
+      content: [{ type: 'thinking', thinking: 'planning', signature: 'sig' }],
+    },
   },
-  { type: 'assistant', message: { id: 'msg_R', content: [{ type: 'text', text: 'Spawning a search' }] } },
+  {
+    type: 'assistant',
+    message: { id: 'msg_R', content: [{ type: 'text', text: 'Spawning a search' }] },
+  },
   {
     type: 'assistant',
     message: {
       id: 'msg_R',
       content: [
-        { type: 'tool_use', id: 'toolu_task', name: 'Task', input: { description: 'find logger', subagent_type: 'Explore' } },
+        {
+          type: 'tool_use',
+          id: 'toolu_task',
+          name: 'Task',
+          input: { description: 'find logger', subagent_type: 'Explore' },
+        },
       ],
     },
   },
@@ -63,19 +74,29 @@ const main: SessionStoreEntry[] = [
     uuid: 'u-2',
     message: {
       role: 'user',
-      content: [{ type: 'tool_result', tool_use_id: 'toolu_task', content: 'done', is_error: false }],
+      content: [
+        { type: 'tool_result', tool_use_id: 'toolu_task', content: 'done', is_error: false },
+      ],
     },
     toolUseResult: { agentId: 'aXYZ', status: 'completed' },
   },
   {
     type: 'assistant',
-    message: { id: 'msg_S', content: [{ type: 'text', text: 'Logger ở server/src/lib/logger.ts' }] },
+    message: {
+      id: 'msg_S',
+      content: [{ type: 'text', text: 'Logger is at server/src/lib/logger.ts' }],
+    },
   },
 ];
 
 const subMeta = { toolUseId: 'toolu_task', agentType: 'Explore', description: 'find logger' };
 const subTranscript: SessionStoreEntry[] = [
-  { type: 'user', uuid: 'sa-1', isSidechain: true, message: { role: 'user', content: 'find the logger' } },
+  {
+    type: 'user',
+    uuid: 'sa-1',
+    isSidechain: true,
+    message: { role: 'user', content: 'find the logger' },
+  },
   {
     type: 'assistant',
     isSidechain: true,
@@ -139,12 +160,21 @@ describe('session-store invariant — AI view == user view', () => {
         message: {
           id: 'msg_M',
           content: [
-            { type: 'tool_use', id: 'toolu_task', name: 'Task', input: { description: 'explore', subagent_type: 'Explore' } },
+            {
+              type: 'tool_use',
+              id: 'toolu_task',
+              name: 'Task',
+              input: { description: 'explore', subagent_type: 'Explore' },
+            },
           ],
         },
       },
     ];
-    const interruptedSubMeta = { toolUseId: 'toolu_task', agentType: 'Explore', description: 'explore' };
+    const interruptedSubMeta = {
+      toolUseId: 'toolu_task',
+      agentType: 'Explore',
+      description: 'explore',
+    };
     const interruptedSubTranscript: SessionStoreEntry[] = [
       {
         type: 'assistant',
@@ -156,7 +186,9 @@ describe('session-store invariant — AI view == user view', () => {
         isSidechain: true,
         message: {
           id: 'msg_SA',
-          content: [{ type: 'tool_use', id: 'toolu_grep', name: 'Grep', input: { pattern: 'foo' } }],
+          content: [
+            { type: 'tool_use', id: 'toolu_grep', name: 'Grep', input: { pattern: 'foo' } },
+          ],
         },
       },
     ];
@@ -183,7 +215,9 @@ describe('session-store invariant — AI view == user view', () => {
     expect(fromStore).toEqual(fromJsonl);
 
     // The Task and the dangling inner Grep both got synthetic interrupted results.
-    const taskResult = fromStore.find((b) => b.kind === 'tool_result' && b.toolCallId === 'toolu_task');
+    const taskResult = fromStore.find(
+      (b) => b.kind === 'tool_result' && b.toolCallId === 'toolu_task',
+    );
     expect(taskResult && 'synthetic' in taskResult ? taskResult.synthetic : undefined).toBe(
       'interrupted',
     );
@@ -225,7 +259,11 @@ describe('session-store invariant — DB is the resume source of truth', () => {
   it('re-append of a uuid-bearing batch does not duplicate (mirror retry is safe)', async () => {
     const entries: SessionStoreEntry[] = [
       { type: 'user', uuid: 'dup-1', message: { role: 'user', content: 'hi' } },
-      { type: 'assistant', uuid: 'dup-2', message: { id: 'm', content: [{ type: 'text', text: 'yo' }] } },
+      {
+        type: 'assistant',
+        uuid: 'dup-2',
+        message: { id: 'm', content: [{ type: 'text', text: 'yo' }] },
+      },
     ];
     await store.append({ projectKey: PK, sessionId: SID }, entries);
     await store.append({ projectKey: PK, sessionId: SID }, entries); // the SDK retried the batch

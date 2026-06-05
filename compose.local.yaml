@@ -1,0 +1,65 @@
+name: mtc-webui
+
+include:
+  - path: compose.infra.yaml
+
+x-db-env: &db-env
+  DATABASE_URL: postgres://${POSTGRES_USER:-mtc}:${POSTGRES_PASSWORD:-mtc}@database:5432/${POSTGRES_DB:-mtc}
+  PGSSLROOTCERT: ""
+
+services:
+  migrator:
+    container_name: mtc-webui-migrator
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: migrator
+    environment:
+      <<: *db-env
+    depends_on:
+      database:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - mtc-webui
+  app:
+    image: mtc-webui:latest
+    container_name: mtc-webui-app
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - path: .env.local
+        required: true
+    ports: [3000:3000]
+    environment:
+      NODE_ENV: production
+      TZ: ${TZ:-Asia/Ho_Chi_Minh}
+      <<: *db-env
+    volumes:
+      - mtc-webui-data:/data
+    tmpfs:
+      - ${CLAUDE_CONFIG_DIR:-/data/agent-state}:uid=1000,gid=1000,mode=0711,size=256m
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${PORT:-3000}/api/health"]
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+    depends_on:
+      database:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    networks:
+      - mtc-webui
+
+volumes:
+  mtc-webui-data:
+    name: mtc-webui-data
+
+networks:
+  mtc-webui:
+    name: mtc-webui
+    driver: bridge

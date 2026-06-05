@@ -28,7 +28,7 @@ export function ApprovalCard({ requestId, action, description, resolution }: App
 
   const isApproved = effective === 'approve' || effective === 'approve_for_session';
 
-  // Khi đã xử lý duyệt hoặc từ chối, hiển thị dạng inline xám tối giản có thể thu gọn/mở rộng
+  // When already approved or rejected, show a minimal inline gray collapsible/expandable form
   if (effective) {
     const summaryText = description.split('\n')[0]?.substring(0, 45) ?? '';
     const displayDescription = summaryText.length >= 45 ? `${summaryText}...` : summaryText;
@@ -73,7 +73,7 @@ export function ApprovalCard({ requestId, action, description, resolution }: App
     );
   }
 
-  // Khi chưa xử lý: hiển thị Card màu hổ phách cảnh báo nổi bật
+  // When pending: show an amber warning Card that stands out
   return (
     <div className="rounded-xl border border-warning/30 bg-warning-wash shadow-sm overflow-hidden backdrop-blur-sm animate-in fade-in duration-200 w-full">
       {/* Header */}

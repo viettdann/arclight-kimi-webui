@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
 import { LanguageSupport } from '@codemirror/language';
-import { languageForToken, languageForFilename, parserFor } from '@/lib/code-language';
+import { describe, expect, it } from 'vitest';
+import { languageForFilename, languageForToken, parserFor } from '@/lib/code-language';
 
 describe('languageForToken', () => {
   it('resolves a known lang-* token to a CodeMirror language', async () => {

@@ -56,8 +56,7 @@ export function PendingApprovalDock() {
     const list: PendingItem[] = [];
     collectPending(blocks, list);
     const first = list[0] ?? null;
-    const call =
-      first?.kind === 'approval' ? findToolCall(blocks, first.block.toolCallId) : null;
+    const call = first?.kind === 'approval' ? findToolCall(blocks, first.block.toolCallId) : null;
     return { pending: list, current: first, toolCall: call };
   }, [blocks]);
 

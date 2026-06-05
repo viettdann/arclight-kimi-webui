@@ -22,12 +22,16 @@
     "format:fix": "biome format --write .",
     "typecheck": "turbo run check",
     "test": "turbo run test",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "test:all": "turbo run test && bun run test:e2e",
     "db:generate": "bun --filter server db:generate",
     "db:migrate": "bun --filter server db:migrate",
     "db:studio": "bun --filter server db:studio"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.15",
+    "@playwright/test": "^1.53",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",

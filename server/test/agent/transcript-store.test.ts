@@ -177,8 +177,8 @@ describe('firstUserTextFromJsonl', () => {
     });
 
   it('returns the first user message (string content)', () => {
-    const jsonl = [userLine('Xin chào'), asstLine('hi back')].join('\n');
-    expect(firstUserTextFromJsonl(jsonl)).toBe('Xin chào');
+    const jsonl = [userLine('Hello'), asstLine('hi back')].join('\n');
+    expect(firstUserTextFromJsonl(jsonl)).toBe('Hello');
   });
 
   it('joins text blocks of an array-content user message', () => {
@@ -268,14 +268,14 @@ describe('readTranscriptTitleInputs', () => {
     const jsonl = transcriptPath(cwd, id);
     await mkdir(dirname(jsonl), { recursive: true });
     const lines = [
-      JSON.stringify({ type: 'user', message: { role: 'user', content: 'Sửa lỗi đăng nhập' } }),
+      JSON.stringify({ type: 'user', message: { role: 'user', content: 'Fix login bug' } }),
       JSON.stringify({ type: 'ai-title', aiTitle: 'Fix login bug', sessionId: id }),
     ];
     await writeFile(jsonl, lines.join('\n'));
 
     const { aiTitle, firstUserText } = await readTranscriptTitleInputs(cwd, id);
     expect(aiTitle).toBe('Fix login bug');
-    expect(firstUserText).toBe('Sửa lỗi đăng nhập');
+    expect(firstUserText).toBe('Fix login bug');
   });
 
   it('returns nulls when the local file is absent', async () => {

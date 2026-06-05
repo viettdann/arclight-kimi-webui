@@ -356,6 +356,8 @@ async function beginFirstTurn(ws: WS, active: ActiveSession, content: string): P
   }
 
   active.turnInProgress = true;
+  // A fresh turn clears any stale interrupt flag from a prior cancelled turn.
+  active.interruptRequested = false;
   broadcastEvent<TurnBeginPayload>(
     active,
     'turn_begin',
@@ -754,6 +756,11 @@ async function handleInterruptTurn(ws: WS, sessionId: string): Promise<void> {
     sendError(ws, 'not_found', sessionId);
     return;
   }
+  // Mark the interrupt BEFORE calling interrupt() so the result message the SDK
+  // emits (subtype `error_during_execution`) is recognized as a user cancel,
+  // not a SYSTEM_ERROR. The flag is reset when that result is consumed or the
+  // next turn begins.
+  active.interruptRequested = true;
   // Best-effort: a race where the query already finalized is fine. The output
   // consumer emits turn_end on the resulting result message — we don't force
   // a broadcast here.

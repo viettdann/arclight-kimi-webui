@@ -11,7 +11,7 @@ import { isGitProvider } from 'shared/types';
 import { slug } from '../auth';
 import { type AuthVariables, requireAuth } from '../auth/middleware';
 import type { DB } from '../db';
-import { type Env, env as defaultEnv } from '../env';
+import { env as defaultEnv, type Env } from '../env';
 import { testRemote } from '../services/git/clone';
 import { toDTO as toGitCredDTO } from '../services/git-credentials/mask';
 import * as gitCredRepo from '../services/git-credentials/repo';

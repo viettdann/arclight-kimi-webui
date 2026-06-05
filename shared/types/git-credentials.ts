@@ -63,7 +63,8 @@ export type GitSubcommand =
   | 'fetch'
   | 'branch'
   | 'checkout'
-  | 'stash';
+  | 'stash'
+  | 'reset';
 
 export interface GitCommandRequest {
   projectName: string;
@@ -97,6 +98,8 @@ export interface GitCommitRequest {
   /** Paths relative to the project root, as reported by GitStatusEntry.path. */
   files: string[];
   message: string;
+  /** Amend the last commit instead of creating a new one. */
+  amend?: boolean;
 }
 
 export interface GitStatusEntry {

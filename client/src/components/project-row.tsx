@@ -51,7 +51,8 @@ export function ProjectRow({ project, sessions, isActive }: ProjectRowProps) {
   const isForeign = project.origin === 'foreign';
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
-  const [metadata, setMetadata] = useState<Awaited<ReturnType<typeof fetchProjectGitMetadata>>>(null);
+  const [metadata, setMetadata] =
+    useState<Awaited<ReturnType<typeof fetchProjectGitMetadata>>>(null);
   const [checking, setChecking] = useState(false);
   const requestNewSession = useNewSessionStore((s) => s.request);
 
@@ -137,9 +138,10 @@ export function ProjectRow({ project, sessions, isActive }: ProjectRowProps) {
           <span className="truncate font-medium">{project.name}</span>
         </Button>
 
-        {/* Mọi hành động gom vào một menu overflow duy nhất. Trước đây ba nút
-            (file management + new task + more) xếp cạnh nhau và đè lên tên
-            project dài; một nút cố định giữ row gọn trên cả desktop lẫn touch. */}
+        {/* All actions collapsed into a single overflow menu. Previously three
+            buttons (file management + new task + more) sat side-by-side and
+            overlapped long project names; one fixed button keeps the row tidy
+            on both desktop and touch. */}
         <div className="absolute right-1.5 flex items-center">
           <DropdownMenu
             trigger={
@@ -215,8 +217,9 @@ export function ProjectRow({ project, sessions, isActive }: ProjectRowProps) {
             <DialogDescription>
               {metadata?.remoteUrl ? (
                 <>
-                  Project này có remote <code className="rounded bg-muted px-1 text-xs">{metadata.remoteUrl}</code>.
-                  Bạn muốn clone về hay chỉ tạo thư mục rỗng?
+                  This project has a remote{' '}
+                  <code className="rounded bg-muted px-1 text-xs">{metadata.remoteUrl}</code>. Do
+                  you want to clone it or just create an empty folder?
                 </>
               ) : (
                 <>
@@ -227,16 +230,23 @@ export function ProjectRow({ project, sessions, isActive }: ProjectRowProps) {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => { setConfirmOpen(false); setMetadata(null); }}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setConfirmOpen(false);
+                setMetadata(null);
+              }}
+            >
               Cancel
             </Button>
             {metadata?.remoteUrl ? (
               <>
                 <Button type="button" variant="outline" onClick={confirmRestore}>
-                  Chỉ tạo thư mục
+                  Create empty folder
                 </Button>
                 <Button type="button" onClick={confirmReclone} disabled={checking}>
-                  Clone về
+                  Clone
                 </Button>
               </>
             ) : (

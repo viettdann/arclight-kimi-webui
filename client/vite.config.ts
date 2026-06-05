@@ -30,6 +30,7 @@ export default defineConfig(({ mode, command }) => {
       globals: true,
       environment: 'happy-dom',
       setupFiles: './src/test/setup.ts',
+      exclude: ['e2e/**', 'node_modules/**', 'dist/**'],
     },
     server: {
       port: 5173,

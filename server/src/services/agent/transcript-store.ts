@@ -68,10 +68,7 @@ export async function clearLocalSession(cwd: string, sdkSessionId: string): Prom
   const jsonl = transcriptPath(cwd, sdkSessionId);
   const subtree = join(projectTranscriptDir(cwd), sdkSessionId);
   try {
-    await Promise.all([
-      rm(jsonl, { force: true }),
-      rm(subtree, { recursive: true, force: true }),
-    ]);
+    await Promise.all([rm(jsonl, { force: true }), rm(subtree, { recursive: true, force: true })]);
   } catch (err) {
     log.warn({ err, sdkSessionId, jsonl }, 'failed to clear local session scratch');
   }

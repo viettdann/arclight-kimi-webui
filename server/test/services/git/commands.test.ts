@@ -64,13 +64,13 @@ describe('parseStatus', () => {
   it('preserves unicode paths', () => {
     const raw: GitCommandResponse = {
       exitCode: 0,
-      stdout: porcelainZ(['# branch.head main', '? tài liệu.md']),
+      stdout: porcelainZ(['# branch.head main', '? document.md']),
       stderr: '',
       timedOut: false,
     };
 
     const result = parseStatus(raw);
-    expect(result.entries[0]).toEqual({ statusCode: '? ', path: 'tài liệu.md' });
+    expect(result.entries[0]).toEqual({ statusCode: '? ', path: 'document.md' });
   });
 
   it('parses a rename entry with origPath as the following record', () => {

@@ -1,5 +1,6 @@
 import type { Block } from 'shared/types';
 import { ApprovalCard } from './approval-card';
+import { CancelledBlock } from './cancelled-block';
 import { ErrorBlock } from './error-block';
 import { QuestionCard } from './question-card';
 import { SubagentAccordion } from './subagent-accordion';
@@ -71,6 +72,8 @@ export function BlockRegistry({ block }: BlockRegistryProps) {
       );
     case 'error':
       return <ErrorBlock code={block.code} message={block.message} createdAt={block.createdAt} />;
+    case 'cancelled':
+      return <CancelledBlock createdAt={block.createdAt} />;
     case 'subagent':
       return (
         <SubagentAccordion

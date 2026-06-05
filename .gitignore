@@ -3,10 +3,16 @@ dist/
 .turbo/
 .vite/
 .cache/
+*.tsbuildinfo
+coverage/
 
 # Env
 .env
 .env.*.local
+# `.env.*.local` only matches a middle segment (e.g. .env.foo.local); these two
+# need explicit entries or they get committed. `.env.example` stays tracked.
+.env.local
+.env.development
 
 # OS
 .DS_Store
@@ -15,10 +21,12 @@ dist/
 *.log
 logs/
 
-# Editor
+# Editor / tooling
 .vscode/
 .idea/
 .antigravitycli
+.claude/*.lock
+.code-review-graph/
 
 # Bun — commit `bun.lock` (text) for reproducible installs; ignore legacy binary lockfile.
 bun.lockb
@@ -26,13 +34,22 @@ bun.lockb
 # Certs — whitelist only the CA bundle, ignore everything else (private keys, etc.)
 certs/*
 !certs/ca.crt
-workspace/*
-!workspace/.gitkeep
 
-# Kimi share dir (config.toml, oauth, sessions, logs) — see KIMI_SHARE_DIR
+# Runtime state & agent share dirs — see KIMI_SHARE_DIR (.kimi: config.toml, oauth, sessions, logs)
 .kimi/
 .runtime/
 claude-config/
 agent-state/
+workspace/*
+!workspace/.gitkeep
+data/
+data/agent-state/
+data/workspace/*
 
+# Build / test artifacts
 reference/
+playwright-report/
+test-results/
+
+# Local overrides
+compose.local.yaml

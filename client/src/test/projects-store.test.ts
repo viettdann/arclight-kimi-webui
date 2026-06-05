@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach } from 'vitest';
 import type { ProjectSummary } from 'shared/types';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { cloneErrorMessage, useProjectsStore } from '@/lib/projects-store';
 
 const project = (name: string, status?: ProjectSummary['status']): ProjectSummary => ({

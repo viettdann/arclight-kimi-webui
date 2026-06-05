@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { type AuthVariables, requireAuth } from '../auth/middleware';
 import type { DB } from '../db';
-import { USER_SETTING_KEYS, batchUpsert, readAll } from '../services/user-settings';
+import { batchUpsert, readAll, USER_SETTING_KEYS } from '../services/user-settings';
 
 const ALL_USER_KEYS: Set<string> = new Set(Object.values(USER_SETTING_KEYS));
 

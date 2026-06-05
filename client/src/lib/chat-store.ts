@@ -303,7 +303,7 @@ function applyEventToBlocks(
     }
 
     case 'turn_end': {
-      return blocks.map((b) =>
+      const stopped = blocks.map((b) =>
         (b.kind === 'text' ||
           b.kind === 'thinking' ||
           b.kind === 'tool_call' ||
@@ -312,6 +312,12 @@ function applyEventToBlocks(
           ? { ...b, isStreaming: false }
           : b,
       );
+      // A user-cancelled turn ends with a quiet marker, not an error block.
+      if (payload?.status === 'cancelled') {
+        const marker: Block = { kind: 'cancelled', id: `cancelled:${seq}`, createdAt: now() };
+        return [...stopped, marker];
+      }
+      return stopped;
     }
 
     case 'error': {

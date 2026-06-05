@@ -1,7 +1,7 @@
-import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
-import { render, screen, cleanup } from '@testing-library/react';
+import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ProjectStatResponse, ProjectSummary, SessionListItem } from 'shared/types';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConfirmDeleteProjectDialog } from '@/components/confirm-delete-project-dialog';
 
 // The dialog lazily fetches a folder/git snapshot on open via authFetch.
@@ -62,7 +62,12 @@ describe('ConfirmDeleteProjectDialog — no sessions', () => {
     const onConfirm = vi.fn().mockResolvedValue(undefined);
     const onClose = vi.fn();
     render(
-      <ConfirmDeleteProjectDialog {...base} sessions={[]} onConfirm={onConfirm} onClose={onClose} />,
+      <ConfirmDeleteProjectDialog
+        {...base}
+        sessions={[]}
+        onConfirm={onConfirm}
+        onClose={onClose}
+      />,
     );
     await screen.findByText('No sessions in this project.');
 
@@ -117,7 +122,12 @@ describe('ConfirmDeleteProjectDialog — failure', () => {
     const onConfirm = vi.fn().mockRejectedValue(new Error('delete exploded'));
     const onClose = vi.fn();
     render(
-      <ConfirmDeleteProjectDialog {...base} sessions={[]} onConfirm={onConfirm} onClose={onClose} />,
+      <ConfirmDeleteProjectDialog
+        {...base}
+        sessions={[]}
+        onConfirm={onConfirm}
+        onClose={onClose}
+      />,
     );
     await screen.findByText('No sessions in this project.');
 

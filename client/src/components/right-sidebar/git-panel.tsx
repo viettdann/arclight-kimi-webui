@@ -6,6 +6,8 @@ import {
   GitBranch,
   GitCommitHorizontal,
   KeyRound,
+  Minus,
+  Plus,
   RefreshCw,
   TriangleAlert,
 } from 'lucide-react';
@@ -73,6 +75,36 @@ export function classifyStatus(code: string): { letter: string; tone: StatusTone
   if (c.includes('D')) return { letter: 'D', tone: 'deleted' };
   if (c.includes('R')) return { letter: 'R', tone: 'renamed' };
   if (c.includes('A')) return { letter: 'A', tone: 'added' };
+  return { letter: 'M', tone: 'modified' };
+}
+
+/** Whether the entry has staged (index) changes. X column not '.'/'?'/'!'/' '. */
+export function isStaged(entry: GitStatusEntry): boolean {
+  const x = entry.statusCode[0];
+  return x !== '.' && x !== '?' && x !== '!' && x !== ' ';
+}
+
+/** Whether the entry has working-tree changes or is untracked. */
+export function hasWorkingTreeChanges(entry: GitStatusEntry): boolean {
+  if (entry.statusCode.startsWith('?') || entry.statusCode.startsWith('!')) return true;
+  const y = entry.statusCode[1];
+  return y !== '.' && y !== ' ';
+}
+
+/** Classify the staged portion of an entry (based on X column). */
+export function classifyStagedStatus(code: string): { letter: string; tone: StatusTone } {
+  const x = code[0];
+  if (x === 'R') return { letter: 'R', tone: 'renamed' };
+  if (x === 'A') return { letter: 'A', tone: 'added' };
+  if (x === 'D') return { letter: 'D', tone: 'deleted' };
+  return { letter: 'M', tone: 'modified' };
+}
+
+/** Classify the working-tree portion of an entry (based on Y column, or untracked). */
+export function classifyUnstagedStatus(code: string): { letter: string; tone: StatusTone } {
+  if (code.startsWith('?')) return { letter: 'U', tone: 'untracked' };
+  const y = code[1];
+  if (y === 'D') return { letter: 'D', tone: 'deleted' };
   return { letter: 'M', tone: 'modified' };
 }
 
@@ -241,8 +273,19 @@ function RemoteActions({
 
 // ─────────────────────────── Changes ───────────────────────────
 
-function ChangeRow({ entry }: { entry: GitStatusEntry }) {
-  const { letter, tone } = classifyStatus(entry.statusCode);
+function EntryRow({
+  entry,
+  letter,
+  tone,
+  actionIcon,
+  onAction,
+}: {
+  entry: GitStatusEntry;
+  letter: string;
+  tone: StatusTone;
+  actionIcon?: ReactNode;
+  onAction?: () => void;
+}) {
   const slash = entry.path.lastIndexOf('/');
   const dir = slash >= 0 ? entry.path.slice(0, slash + 1) : '';
   const file = slash >= 0 ? entry.path.slice(slash + 1) : entry.path;
@@ -253,11 +296,80 @@ function ChangeRow({ entry }: { entry: GitStatusEntry }) {
       >
         {letter}
       </span>
-      <span className="min-w-0 truncate">
+      <span className="min-w-0 flex-1 truncate">
         {dir && <span className="text-muted-foreground">{dir}</span>}
         <span className="text-foreground">{file}</span>
       </span>
+      {actionIcon && onAction && (
+        <button
+          type="button"
+          onClick={onAction}
+          className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          {actionIcon}
+        </button>
+      )}
     </li>
+  );
+}
+
+function StagedList({
+  entries,
+  isBusy,
+  onUnstage,
+  onUnstageAll,
+  onCommit,
+}: {
+  entries: GitStatusEntry[];
+  isBusy: boolean;
+  onUnstage: (path: string) => void;
+  onUnstageAll: () => void;
+  onCommit: () => void;
+}) {
+  if (entries.length === 0) return null;
+  return (
+    <section className="space-y-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <SectionLabel>Staged · {entries.length}</SectionLabel>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={onUnstageAll}
+            disabled={isBusy}
+            className="rounded text-xs font-medium text-primary transition-colors hover:underline disabled:opacity-50"
+          >
+            Unstage all
+          </button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={isBusy}
+            onClick={onCommit}
+            className="h-6 px-2 text-xs"
+          >
+            <GitCommitHorizontal className="h-3.5 w-3.5" />
+            Commit
+          </Button>
+        </div>
+      </div>
+      <ul className="max-h-44 space-y-1 overflow-y-auto">
+        {entries.map((entry, i) => {
+          const { letter, tone } = classifyStagedStatus(entry.statusCode);
+          return (
+            <EntryRow
+              // biome-ignore lint/suspicious/noArrayIndexKey: entries are positional
+              key={`staged-${entry.path}-${i}`}
+              entry={entry}
+              letter={letter}
+              tone={tone}
+              actionIcon={<Minus className="h-3.5 w-3.5" />}
+              onAction={() => onUnstage(entry.path)}
+            />
+          );
+        })}
+      </ul>
+    </section>
   );
 }
 
@@ -266,13 +378,15 @@ function ChangesList({
   isBusy,
   isRefreshing,
   onRefresh,
-  onCommit,
+  onStage,
+  onStageAll,
 }: {
   entries: GitStatusEntry[];
   isBusy: boolean;
   isRefreshing: boolean;
   onRefresh: () => void;
-  onCommit: () => void;
+  onStage: (path: string) => void;
+  onStageAll: () => void;
 }) {
   return (
     <section className="space-y-1.5">
@@ -290,30 +404,39 @@ function ChangesList({
           >
             <RefreshCw className={`h-3.5 w-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
           </button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={entries.length === 0 || isBusy}
-            onClick={onCommit}
-            className="h-6 px-2 text-xs"
-          >
-            <GitCommitHorizontal className="h-3.5 w-3.5" />
-            Commit
-          </Button>
+          {entries.length > 0 && (
+            <button
+              type="button"
+              onClick={onStageAll}
+              disabled={isBusy}
+              className="rounded text-xs font-medium text-primary transition-colors hover:underline disabled:opacity-50"
+            >
+              Stage all
+            </button>
+          )}
         </div>
       </div>
       {entries.length === 0 ? (
         <p className="flex items-center gap-1.5 text-sm text-success">
           <Check className="h-4 w-4 shrink-0" />
-          Working tree clean
+          No unstaged changes
         </p>
       ) : (
         <ul className="max-h-44 space-y-1 overflow-y-auto">
-          {entries.map((entry, i) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: entries are positional
-            <ChangeRow key={`${entry.path}-${i}`} entry={entry} />
-          ))}
+          {entries.map((entry, i) => {
+            const { letter, tone } = classifyUnstagedStatus(entry.statusCode);
+            return (
+              <EntryRow
+                // biome-ignore lint/suspicious/noArrayIndexKey: entries are positional
+                key={`changes-${entry.path}-${i}`}
+                entry={entry}
+                letter={letter}
+                tone={tone}
+                actionIcon={<Plus className="h-3.5 w-3.5" />}
+                onAction={() => onStage(entry.path)}
+              />
+            );
+          })}
         </ul>
       )}
     </section>
@@ -473,14 +596,14 @@ function CredentialDialog({
         <DialogHeader>
           <DialogTitle>Link git credential</DialogTitle>
           <DialogDescription>
-            Chọn PAT dùng cho pull/push/fetch của project này. Lưu vào DB để lần sau không phải chọn
-            lại.
+            Select a PAT for pull/push/fetch on this project. Saved to the DB so you won't have to
+            choose again next time.
           </DialogDescription>
         </DialogHeader>
 
         {credentials.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            Chưa có credential. Thêm trong Settings → Git Credentials.
+            No credential yet. Add one in Settings → Git Credentials.
           </p>
         ) : (
           <ul className="flex max-h-72 flex-col gap-1.5 overflow-y-auto">
@@ -538,6 +661,9 @@ export function GitPanel({ sessionId }: GitPanelProps) {
 
   const ensureCredentialsLoaded = useGitCredentialsStore((s) => s.ensureLoaded);
 
+  const stageFiles = useGitPanelStore((s) => s.stageFiles);
+  const unstageFiles = useGitPanelStore((s) => s.unstageFiles);
+
   const [dialogOpen, setDialogOpen] = useState(false);
   const [commitOpen, setCommitOpen] = useState(false);
 
@@ -565,6 +691,11 @@ export function GitPanel({ sessionId }: GitPanelProps) {
     }
   }, [authCommand, authArgs, linkedCredentialId, executeCommand]);
 
+  // Split entries into staged and changes — hooks must run before early returns.
+  const entries = statusData?.entries ?? [];
+  const stagedEntries = useMemo(() => entries.filter(isStaged), [entries]);
+  const changesEntries = useMemo(() => entries.filter(hasWorkingTreeChanges), [entries]);
+
   // Hide entirely for projects that aren't git repos (or before one is picked):
   // the sidebar stacks panels open, so an empty git block would be pure noise.
   if (!projectName || status === 'not_git_repo') return null;
@@ -581,7 +712,6 @@ export function GitPanel({ sessionId }: GitPanelProps) {
     );
   }
 
-  const entries = statusData?.entries ?? [];
   const ahead = statusData?.ahead ?? 0;
   const behind = statusData?.behind ?? 0;
 
@@ -590,12 +720,20 @@ export function GitPanel({ sessionId }: GitPanelProps) {
       <GitHeader onSwitch={handleBranchSwitch} isBusy={isBusy} />
       {authRequired && <AuthBanner isBusy={isBusy} onRetry={handleRetry} onDismiss={dismissAuth} />}
       <RemoteActions onAction={handleAction} isBusy={isBusy} ahead={ahead} behind={behind} />
+      <StagedList
+        entries={stagedEntries}
+        isBusy={isBusy}
+        onUnstage={(path) => void unstageFiles([path])}
+        onUnstageAll={() => void unstageFiles(stagedEntries.map((e) => e.path))}
+        onCommit={() => setCommitOpen(true)}
+      />
       <ChangesList
-        entries={entries}
+        entries={changesEntries}
         isBusy={isBusy}
         isRefreshing={status === 'loading'}
         onRefresh={() => void refreshStatus()}
-        onCommit={() => setCommitOpen(true)}
+        onStage={(path) => void stageFiles([path])}
+        onStageAll={() => void stageFiles(changesEntries.map((e) => e.path))}
       />
       <HistoryList />
       <CredentialFooter onEdit={() => setDialogOpen(true)} />

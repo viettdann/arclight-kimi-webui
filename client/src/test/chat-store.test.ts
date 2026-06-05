@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { renderHook } from '@testing-library/react';
-import { useChatStore, useLatestTodos } from '@/lib/chat-store';
 import type { Block, DisplayBlock } from 'shared/types';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { useChatStore, useLatestTodos } from '@/lib/chat-store';
 
 describe('useChatStore', () => {
   const sessionId = 'session-123';
@@ -42,7 +42,13 @@ describe('useChatStore', () => {
 
   it('should load session snapshot from server', () => {
     const mockBlocks: Block[] = [
-      { kind: 'user', id: 'u-1', content: 'hello', createdAt: '2026-06-01T00:00:00Z', status: 'sent' },
+      {
+        kind: 'user',
+        id: 'u-1',
+        content: 'hello',
+        createdAt: '2026-06-01T00:00:00Z',
+        status: 'sent',
+      },
     ];
     const snapshotPayload = {
       blocks: mockBlocks,
@@ -267,7 +273,9 @@ describe('useChatStore', () => {
     });
 
     it('should handle question_request', () => {
-      const mockQuestions = [{ question: 'Are you sure?', options: ['Yes', 'No'], isMultiSelect: false }];
+      const mockQuestions = [
+        { question: 'Are you sure?', options: ['Yes', 'No'], isMultiSelect: false },
+      ];
       useChatStore.getState().applyEvent(sessionId, 'question_request', {
         requestId: 'q-1',
         id: 'call-1',
@@ -403,6 +411,24 @@ describe('useChatStore', () => {
       expect(session!.contextEpoch).toBe(1);
     });
 
+    it('should append a cancelled marker on a user-interrupted turn_end', () => {
+      useChatStore.getState().applyEvent(sessionId, 'text_delta', {
+        id: 'text-1',
+        text: 'partial',
+        final: false,
+      });
+
+      useChatStore.getState().applyEvent(sessionId, 'turn_end', { status: 'cancelled' });
+
+      const session = useChatStore.getState().sessions[sessionId];
+      // Streaming stopped, no error block, a single cancelled marker appended.
+      expect((session!.blocks[0] as any).isStreaming).toBe(false);
+      const cancelled = session!.blocks.filter((b) => b.kind === 'cancelled');
+      expect(cancelled).toHaveLength(1);
+      expect(session!.blocks.some((b) => b.kind === 'error')).toBe(false);
+      expect(session!.isTurnInProgress).toBe(false);
+    });
+
     it('should handle error block insertion', () => {
       useChatStore.getState().applyEvent(sessionId, 'error', {
         code: 'rate_limit',
@@ -459,9 +485,7 @@ describe('useChatStore', () => {
 
     it('should extract todo items from the latest tool_result carrying a todo block', () => {
       const mockTodoItems = [{ title: 'Task 1', status: 'pending' as const }];
-      const displayBlocks: DisplayBlock[] = [
-        { type: 'todo', items: mockTodoItems },
-      ];
+      const displayBlocks: DisplayBlock[] = [{ type: 'todo', items: mockTodoItems }];
 
       // 1. Load snapshot with one tool result
       useChatStore.getState().loadSnapshot(sessionId, {

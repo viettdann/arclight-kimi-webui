@@ -239,6 +239,40 @@ describe('consumeQueryOutput — API limit / failure surfacing', () => {
     expect(errs[0]?.payload.code).toBe('error_during_execution');
   });
 
+  it('surfaces a user interrupt as a cancelled turn_end with no error block', async () => {
+    // A user interrupt lands as `error_during_execution`. With interruptRequested
+    // set, the result is a clean `cancelled` turn — not a SYSTEM_ERROR.
+    broadcasts.length = 0;
+    const sm = new SessionManager();
+    const active = sm.register({
+      sessionId: 's-cancel',
+      userId: 'u1',
+      workDir: '/tmp/w',
+      approvalMode: 'ask',
+    });
+    active.interruptRequested = true;
+    active.query = makeQuery([
+      {
+        type: 'result',
+        subtype: 'error_during_execution',
+        num_turns: 2,
+        total_cost_usd: 0,
+        usage: {},
+        errors: ['aborted mid-turn'],
+      },
+    ]);
+
+    await consumeQueryOutput(active);
+
+    const turnEnd = broadcasts.find((b) => b.type === 'turn_end');
+    expect(turnEnd?.payload.status).toBe('cancelled');
+    expect(turnEnd?.payload.errors).toBeUndefined();
+    const errs = broadcasts.filter((b) => b.type === 'error');
+    expect(errs).toHaveLength(0);
+    // Flag is reset once the result is consumed.
+    expect(active.interruptRequested).toBe(false);
+  });
+
   it('does NOT duplicate the error block when the assistant already surfaced it', async () => {
     broadcasts.length = 0;
     const sm = new SessionManager();

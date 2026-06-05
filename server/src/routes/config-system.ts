@@ -11,12 +11,13 @@ import { type AuthVariables, requireAdmin } from '../auth/middleware';
 import type { DB } from '../db';
 import { allowedEmail } from '../db/schema';
 import { env } from '../env';
-import { SITE_SETTING_KEYS, batchUpsert } from '../services/site-settings';
+import type { SessionManager } from '../services/session-manager';
 import {
+  batchUpsert,
   getProjectDiscoveryConfig,
+  SITE_SETTING_KEYS,
   setProjectDiscoveryConfig,
 } from '../services/site-settings';
-import type { SessionManager } from '../services/session-manager';
 
 // Pragmatic single-address check; SSO already vouches for the address, this
 // only guards against obvious typos in the admin input.

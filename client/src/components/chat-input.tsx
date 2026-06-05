@@ -2,9 +2,9 @@ import {
   Brain,
   Check,
   ChevronDown,
+  CornerDownLeft,
   FolderGit2,
   Gauge,
-  CornerDownLeft,
   ShieldCheck,
   Square,
   Zap,
@@ -18,6 +18,7 @@ import {
   parseSlashCommand,
 } from 'shared/commands';
 import { type ApprovalMode, EFFORT_OPTIONS, type EffortLevel, effortLabel } from 'shared/types';
+import type { ProviderDTO } from 'shared/types/providers';
 import { Button } from '@/components/ui/button';
 import {
   DropdownItem,
@@ -39,36 +40,30 @@ import { ConfirmBypassDialog } from './confirm-bypass-dialog';
 import { SlashCommandMenu } from './slash-command-menu';
 import { showToast } from './toast-provider';
 
-// Composers where the user has acknowledged the bypass-permissions warning,
-// keyed by session id or (for a draft) workDir. Switching to bypass confirms
-// once per composer (per app load); switching away never prompts.
+// Bypass-warning acknowledgements, keyed by session id or draft workDir.
+// Confirm fires once per composer per app load; switching away never prompts.
 const bypassAcknowledged = new Set<string>();
 
-// On coarse-pointer devices (phones/tablets) the soft keyboard's Enter is the
-// only newline key, so plain Enter must insert a newline — sending is done via
-// the Send button or Ctrl/Cmd+Enter. On fine-pointer devices (desktop) plain
-// Enter sends. Evaluated once: pointer type doesn't change within a session.
+// Coarse pointers (touch) have no dedicated newline key, so plain Enter inserts
+// a newline and sending falls to the Send button or Ctrl/Cmd+Enter. Evaluated
+// once: pointer type is stable within a session.
 const ENTER_INSERTS_NEWLINE =
   typeof window !== 'undefined' &&
   typeof window.matchMedia === 'function' &&
   window.matchMedia('(pointer: coarse)').matches;
 
-// Picker opens only on a bare leading-slash token (no whitespace, no args). The
-// capture group is the filter. Any space/newline closes it — the user is typing
-// arguments.
+// Picker opens only on a bare leading-slash token; the capture group is the
+// filter. Any space/newline closes it (the user is typing arguments).
 const SLASH_PICKER_RE = /^\/([\w-]*)$/;
 
-// Single source for the two "can't send yet" prompts — shown both as the
-// send-blocked toast and the Model trigger's tooltip so the wording can't drift.
+// Shared by the send-blocked toast and the Model tooltip so the wording can't drift.
 const MSG_MODEL_UNRESOLVABLE = 'The selected model is no longer available — pick another';
 const MSG_SELECT_MODEL = 'Select a model before sending';
 
-// Group order for the picker: Commands (builtin, then project) before Skills.
 const KIND_ORDER: Record<CommandInfo['kind'], number> = { builtin: 0, project: 1, skill: 2 };
 
-// Stable empty-array reference for the command selector. Returning a fresh `[]`
-// literal from a zustand selector makes every snapshot compare unequal, which
-// drives an infinite render loop ("getSnapshot should be cached").
+// Stable ref: a fresh `[]` from a zustand selector compares unequal every
+// snapshot, triggering an infinite render loop ("getSnapshot should be cached").
 const NO_COMMANDS: CommandInfo[] = [];
 
 function Switch({ on }: { on: boolean }) {
@@ -87,19 +82,56 @@ function Switch({ on }: { on: boolean }) {
   );
 }
 
+// One labeled group (Built-in or Personal) in the model dropdown: a header plus
+// every provider's models, with a check on the active pick. Both scopes render
+// identically, so the markup lives here once.
+function ModelProviderSection({
+  label,
+  providers,
+  effectiveProviderId,
+  effectiveModel,
+  onSelect,
+}: {
+  label: string;
+  providers: ProviderDTO[];
+  effectiveProviderId: string | null;
+  effectiveModel: string | null;
+  onSelect: (providerId: string, modelId: string) => void;
+}) {
+  if (providers.length === 0) return null;
+  return (
+    <>
+      <div className="px-2 pt-1.5 pb-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground select-none">
+        {label}
+      </div>
+      {providers.flatMap((provider) =>
+        provider.models.map((m) => {
+          const isActive = effectiveProviderId === provider.id && effectiveModel === m.modelId;
+          return (
+            <DropdownItem
+              key={`${provider.id}/${m.modelId}`}
+              onClick={() => onSelect(provider.id, m.modelId)}
+              icon={<Check className={isActive ? '' : 'opacity-0'} />}
+            >
+              <span>{`${provider.namespace}/${m.displayName ?? m.modelId}`}</span>
+            </DropdownItem>
+          );
+        }),
+      )}
+    </>
+  );
+}
+
 export function ChatInput() {
   const { id: sessionId } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
-  // Draft route: `/session/new?workDir=…` has no id but a workDir. Its composer
+  // Draft route `/session/new?workDir=…`: no id but a workDir. Its composer
   // sends `start_session` (create + first turn) rather than `send_message`.
   const draftWorkDir = sessionId ? null : searchParams.get(DRAFT_WORKDIR_PARAM);
   const isDraft = !sessionId && draftWorkDir != null;
-  // Composer is interactive when bound to a real session OR a draft.
   const canCompose = Boolean(sessionId) || isDraft;
-  // Welcome/landing: no session and no draft yet. The composer can't send until
-  // a project is chosen, so it shows a "Select Project" control that opens the
-  // picker so the user can choose, then navigates to the draft route and
-  // unlocks composing.
+  // Welcome/landing: no session and no draft yet. Shows a "Select Project"
+  // control that routes to the draft route and unlocks composing.
   const isWelcome = !sessionId && !isDraft;
   const authStatus = useAuthStore((s) => s.status);
   const launchNewTask = useProjectLaunchStore((s) => s.launch);
@@ -107,14 +139,13 @@ export function ChatInput() {
     if (authStatus !== 'authenticated') return;
     launchNewTask();
   }, [authStatus, launchNewTask]);
-  // Storage key for the persisted draft text: the session id once one exists,
-  // else a workDir-scoped key so a reload of the draft route restores the text.
+  // Persisted-draft key: session id once one exists, else a workDir-scoped key
+  // so a reload of the draft route restores the text.
   const draftKey = sessionId ?? (draftWorkDir ? `new:${draftWorkDir}` : null);
 
-  // Draft text lives in a per-key store (persisted to localStorage), not in
-  // local component state: switching sessions must show the target session's
-  // draft (or empty), and a reload must not lose what was typed. `text`/`setText`
-  // are thin adapters over the store so the rest of the component is unchanged.
+  // Draft text lives in a per-key localStorage store, not component state, so
+  // switching sessions shows the target's draft and a reload doesn't lose it.
+  // `text`/`setText` are thin adapters over the store.
   const text = useDraftStore((s) => (draftKey ? (s.drafts[draftKey] ?? '') : ''));
   const setText = useCallback(
     (value: string | ((prev: string) => string)) => {
@@ -128,8 +159,8 @@ export function ChatInput() {
   const [bypassConfirmOpen, setBypassConfirmOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Load available providers catalog + session defaults on mount.
   const { available, status, error, ensureLoaded, load } = useProvidersStore();
+  // Load the providers catalog + session defaults on mount.
   // biome-ignore lint/correctness/useExhaustiveDependencies: one-shot on mount
   useEffect(() => {
     ensureLoaded();
@@ -137,39 +168,28 @@ export function ChatInput() {
     if (defaults.status === 'idle') void defaults.load();
   }, []);
 
-  // Read the session's providerId + model from sessions store.
   const sessionEntry = useSessionsStore((s) => s.sessions.find((x) => x.id === sessionId) ?? null);
   const sessionProviderId = sessionEntry?.providerId ?? null;
   const sessionModel = sessionEntry?.model ?? null;
 
-  // Model picks are local UI state until the user sends (mirrors thinking/approval):
-  // the chosen (providerId, modelId) pair rides along with the next `send_message`.
-  // null → fall back to session values.
+  // Local override until the user sends; the (providerId, modelId) pair rides
+  // along with the next send. null → fall back to session values.
   const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
 
-  // Catalog loaded but both scopes are empty: nothing to send with, so block the
-  // composer until a provider exists.
+  // Catalog ready but both scopes empty: block the composer until a provider exists.
   const noModelsAvailable =
     status === 'ready' &&
     (available?.builtin.length ?? 0) === 0 &&
     (available?.personal.length ?? 0) === 0;
 
-  // Catalog has providers but this session has no usable (providerId, model) —
-  // neither pinned on the session nor picked locally, or the pick is orphaned.
-  // The server can't resolve a provider for the send and would reply
-  // `provider_unset`; block the send here and steer the user to the model picker
-  // instead. Distinct from `noModelsAvailable` (catalog empty) so the prompt can
-  // say "pick a model" rather than "configure a provider".
   const session = useChatStore((s) => (sessionId ? s.sessions[sessionId] : null));
   const isTurnInProgress = session?.isTurnInProgress ?? false;
 
-  // Draft-mode composer flags. A draft has no chat-store session to mirror, so
-  // the toggles seed from the user's Session Defaults (approval/thinking) and
-  // the provider default for effort (null), held locally until `start_session`
-  // carries them along. Reset when leaving the draft for a real session. Seeds
-  // are read once via lazy initializers — a reactive subscription here would
-  // re-render the composer on any global defaults change for no benefit.
+  // Draft-mode composer flags: a draft has no session to mirror, so the toggles
+  // seed once (lazy init) from Session Defaults and ride along with
+  // `start_session`. Lazy, not reactive — a subscription would re-render on any
+  // global-defaults change for no benefit.
   const [draftApprovalMode, setDraftApprovalMode] = useState<ApprovalMode>(
     () => useSessionDefaultsStore.getState().approvalMode,
   );
@@ -190,17 +210,14 @@ export function ChatInput() {
   const effectiveProviderId = selectedProviderId ?? draftProviderId ?? sessionProviderId;
   const effectiveModel = selectedModel ?? draftModel ?? sessionModel;
 
-  // A selection is "orphaned" when it points at a provider/model that no longer
-  // exists in the catalog (provider deleted or hidden). Only meaningful once the
-  // catalog is ready; while loading we don't yet know whether it resolves.
+  // "Orphaned": the selection points at a provider/model no longer in the
+  // catalog (deleted or hidden). Only knowable once the catalog is ready.
   const hasSelection = Boolean(effectiveProviderId && effectiveModel);
   const isUnresolvable =
     status === 'ready' &&
     hasSelection &&
     !isResolvable(available, effectiveProviderId, effectiveModel);
 
-  // Human-readable label for the current selection. An orphaned selection shows
-  // a reselect prompt; otherwise the resolved label or the empty-state prompt.
   // `modelLabel` keeps the `namespace/model` form (desktop); `modelLabelCompact`
   // drops the namespace so the pill stays short on narrow viewports.
   const modelLabel = isUnresolvable
@@ -210,20 +227,21 @@ export function ChatInput() {
     ? 'Unavailable'
     : (labelFor(available, effectiveProviderId, effectiveModel, true) ?? 'Select a model');
 
+  // No usable (providerId, model): block the send and steer to the model picker.
+  // Distinct from `noModelsAvailable` so the prompt says "pick a model", not
+  // "configure a provider".
   const needsSelection =
     status === 'ready' && !noModelsAvailable && (!hasSelection || isUnresolvable);
 
-  // Approval mode + thinking mirror the true state from the snapshot (survive
-  // reload). Changing them → optimistic store update + WS send; applied from the
-  // next message onward (server respawns the CLI). In a draft they come from the
-  // local draft state instead.
+  // Approval/thinking/effort mirror the session snapshot (survive reload) and
+  // apply from the next message on; in a draft they come from local draft state.
   const sessionApprovalMode = useChatStore((s) =>
     sessionId ? (s.sessions[sessionId]?.approvalMode ?? 'ask') : 'ask',
   );
   const sessionThinking = useChatStore((s) =>
     sessionId ? (s.sessions[sessionId]?.thinking ?? false) : false,
   );
-  // Reasoning effort mirrors the snapshot; `null` is the provider default.
+  // `null` effort is the provider default.
   const sessionEffort = useChatStore((s) =>
     sessionId ? (s.sessions[sessionId]?.effort ?? null) : null,
   );
@@ -231,29 +249,25 @@ export function ChatInput() {
   const thinking = isDraft ? draftThinking : sessionThinking;
   const effort = isDraft ? draftEffort : sessionEffort;
 
-  // Slash-command picker state. `activeIndex` is the keyboard cursor into the
-  // filtered `items`; `pickerDismissed` is set by Esc and reset when the text
-  // stops matching the slash pattern (see the effect below).
+  // Picker state: `activeIndex` is the keyboard cursor; `pickerDismissed` is set
+  // by Esc and reset when the text stops matching the slash pattern.
   const [activeIndex, setActiveIndex] = useState(0);
   const [pickerDismissed, setPickerDismissed] = useState(false);
 
-  // Dynamic catalog the live session reported (commands + skills).
+  // Commands + skills the live session reported.
   const dynamicCommands = useCommandStore((s) =>
     sessionId ? (s.commandsBySession[sessionId] ?? NO_COMMANDS) : NO_COMMANDS,
   );
 
-  // Merge built-ins with the dynamic catalog, deduped by name (builtin wins),
-  // then order by group (commands before skills). This is the full catalog used
-  // for classify-on-send; the picker filters it further.
+  // Full catalog for classify-on-send (the picker filters it further): dynamic
+  // commands + built-ins, deduped by name (builtin wins), ordered by group.
   const mergedCatalog = useMemo(() => {
     const byName = new Map<string, CommandInfo>();
     for (const cmd of dynamicCommands) byName.set(cmd.name, cmd);
-    // Built-ins win on name collision.
     for (const cmd of BUILTIN_COMMANDS) byName.set(cmd.name, cmd);
     return [...byName.values()].sort((a, b) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind]);
   }, [dynamicCommands]);
 
-  // Derive the picker open state + filter from the current text.
   const slashMatch = SLASH_PICKER_RE.exec(text);
   const pickerFilter = slashMatch?.[1] ?? '';
 
@@ -276,18 +290,16 @@ export function ChatInput() {
 
   const pickerOpen = slashOpen && !pickerDismissed && pickerItems.length > 0;
 
-  // Reset the keyboard cursor + dismissed flag whenever the text no longer
-  // matches the slash pattern (or a fresh slash is typed). `pickerFilter` is a
-  // trigger only — a new filter restarts the cursor at the top of the new list.
+  // Reset the cursor + dismissed flag when the slash match changes (closed, or a
+  // fresh filter). `pickerFilter` is a trigger only, restarting the cursor at top.
   // biome-ignore lint/correctness/useExhaustiveDependencies: pickerFilter is an intentional trigger, not read in the body.
   useEffect(() => {
     if (!slashOpen) setPickerDismissed(false);
     setActiveIndex(0);
   }, [slashOpen, pickerFilter]);
 
-  // Switching composer (session ↔ session, or draft ↔ session) drops the pending
-  // model override so each shows its own model (or the default) rather than a
-  // leftover pick. Draft flags reset to the user's Session Defaults too.
+  // Switching composer drops the pending model override (so each shows its own
+  // model) and re-seeds draft flags from Session Defaults.
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset is keyed on the composer (draftKey) only; default seeds are read once per reset.
   useEffect(() => {
     setSelectedProviderId(null);
@@ -335,9 +347,8 @@ export function ChatInput() {
     }
     const content = text.trim();
 
-    // Classify slash-commands before sending. An unsupported command never
-    // reaches the CLI — surface the replacement hint and leave the draft intact
-    // so the user can edit it.
+    // An unsupported slash-command never reaches the CLI: show the hint and
+    // leave the draft intact to edit.
     if (content.startsWith('/')) {
       const parsed = parseSlashCommand(content);
       if (parsed) {
@@ -355,13 +366,10 @@ export function ChatInput() {
     const el = textareaRef.current;
     if (el) el.style.height = 'auto';
 
-    // Composer flags ride along with the send — no separate message. The server
-    // applies them just before spawning the turn and persists only real flips.
-    // model and providerId are included when the user made an override pick;
-    // omitting them leaves the selection unchanged (session) or lets the server
-    // pick the user's default (draft). An orphaned selection omits both so the
-    // server falls back rather than respawning against a vanished provider. Built
-    // once and shared by both sends so a new flag is added in exactly one place.
+    // Composer flags ride along with the send; the server applies them before
+    // spawning the turn. An orphaned selection omits model/providerId so the
+    // server falls back rather than respawning against a vanished provider.
+    // Shared by both sends so a new flag is added in one place.
     const flags = {
       content,
       thinking,
@@ -372,8 +380,8 @@ export function ChatInput() {
     };
 
     if (isDraft && draftWorkDir) {
-      // No row exists yet — create it and run this first turn atomically. The
-      // server's snapshot drives the redirect to `/session/:id`.
+      // Create the session + run its first turn atomically; the server snapshot
+      // drives the redirect to `/session/:id`.
       sendWS('start_session', { workDir: draftWorkDir, ...flags });
       return;
     }
@@ -383,10 +391,7 @@ export function ChatInput() {
     sendWS('send_message', flags, sessionId);
   };
 
-  // Toggles only mutate local state (draft) or the chat store (session); the
-  // value is committed when the user sends (it can't take effect before the
-  // next prompt anyway). The bypass-ack key is the session id or the draft's
-  // workDir so the confirm fires once per composer.
+  // Session id or draft workDir, so the bypass confirm fires once per composer.
   const bypassAckKey = sessionId ?? draftWorkDir ?? '';
 
   const applyApprovalMode = (mode: ApprovalMode) => {
@@ -442,9 +447,19 @@ export function ChatInput() {
     withSilentSave(() => useSessionDefaultsStore.getState().setEffort(next));
   };
 
-  // Pick a command from the picker: rewrite the composer to `/name ` and place
-  // the caret at the end. The trailing space closes the picker (no longer
-  // matches the regex) and positions the user to type arguments.
+  // Set the local override and silently persist it to Session Defaults, in one
+  // synchronous handler so the silent-save context stays intact.
+  const selectModel = (providerId: string, modelId: string) => {
+    setSelectedProviderId(providerId);
+    setSelectedModel(modelId);
+    withSilentSave(() => {
+      useSessionDefaultsStore.getState().setProviderId(providerId);
+      useSessionDefaultsStore.getState().setModel(modelId);
+    });
+  };
+
+  // Rewrite the composer to `/name ` (the trailing space closes the picker and
+  // positions for arguments) and move the caret to the end.
   const selectCommand = (cmd: CommandInfo) => {
     setText(`/${cmd.name} `);
     setPickerDismissed(false);
@@ -487,9 +502,8 @@ export function ChatInput() {
     }
 
     if (e.key === 'Enter') {
-      // Ctrl/Cmd+Enter always sends. Plain Enter sends only on fine-pointer
-      // devices; on touch it falls through to insert a newline. Shift+Enter and
-      // any other modifier combo always insert a newline.
+      // Ctrl/Cmd+Enter always sends. Plain Enter sends only on fine pointers
+      // (see ENTER_INSERTS_NEWLINE); any other modifier inserts a newline.
       const modifierSend = e.ctrlKey || e.metaKey;
       const plainSend =
         !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey && !ENTER_INSERTS_NEWLINE;
@@ -520,7 +534,6 @@ export function ChatInput() {
           ? 'Agent is running — press Stop to halt'
           : 'Ask anything...';
 
-  // Build flat model lists for dropdown.
   const builtinProviders = available?.builtin ?? [];
   const personalProviders = available?.personal ?? [];
 
@@ -540,8 +553,7 @@ export function ChatInput() {
             onHover={setActiveIndex}
           />
         )}
-        {/* Welcome only: pick/clone a project to start in. Choosing one routes to
-            the draft composer, which unlocks the textarea below. */}
+        {/* Welcome only: pick/clone a project, which routes to the draft composer. */}
         {isWelcome && (
           <div className="px-3 pt-3">
             <Button
@@ -575,274 +587,227 @@ export function ChatInput() {
           className="w-full resize-none bg-transparent px-4 pt-3.5 pb-1 text-sm outline-none placeholder:text-muted-foreground/60 disabled:cursor-not-allowed"
           style={{ minHeight: '44px', maxHeight: '144px' }}
         />
-        {/* Controls bar inside the input box: Approval + Model on the left,
-            Send/Stop on the right. */}
+        {/* Controls bar: Approval + Model on the left, Send/Stop on the right. */}
         <div className="flex items-center justify-between gap-2 px-3 pb-2.5">
           <div className="flex min-w-0 items-center gap-2">
-          <span className="inline-flex min-w-0 items-center rounded-xl border border-border bg-card-2 px-1 transition-colors hover:bg-muted">
-            <DropdownMenu
-              align="start"
-              trigger={
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="xs"
-                  className={`cursor-pointer ${approvalMode === 'bypass' ? 'text-warning' : 'text-muted-foreground'}`}
-                  disabled={!canCompose}
-                  aria-label="Approval mode"
-                  title="Approval mode — applies from the next message"
-                >
-                  {approvalMode === 'bypass' ? (
-                    <Zap className="h-3.5 w-3.5" />
-                  ) : (
-                    <ShieldCheck
-                      className={`h-3.5 w-3.5 ${approvalMode === 'safe' ? 'text-primary' : ''}`}
-                    />
-                  )}
-                  <span className="hidden sm:inline">
-                    {approvalMode === 'bypass'
-                      ? 'Bypass'
-                      : approvalMode === 'safe'
-                        ? 'Safe'
-                        : 'Ask first'}
-                  </span>
-                  <ChevronDown className="h-3.5 w-3.5" />
-                </Button>
-              }
-            >
-              <div className="px-2 pt-1 pb-1.5 text-[11px] text-muted-foreground select-none">
-                Applies from the next message
-              </div>
-              <DropdownItem
-                onClick={() => setApprovalMode('ask')}
-                icon={<Check className={approvalMode === 'ask' ? '' : 'opacity-0'} />}
-              >
-                <span className="flex flex-col">
-                  <span>Ask first</span>
-                  <span className="text-xs text-muted-foreground">
-                    Approve each tool before it runs
-                  </span>
-                </span>
-              </DropdownItem>
-              <DropdownItem
-                onClick={() => setApprovalMode('safe')}
-                icon={<Check className={approvalMode === 'safe' ? '' : 'opacity-0'} />}
-              >
-                <span className="flex flex-col">
-                  <span className="flex items-center gap-1.5">
-                    Safe · pre-approved tools
-                    <ShieldCheck className="h-3 w-3 text-primary" />
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    Auto-approve read-only tools, ask for the rest
-                  </span>
-                </span>
-              </DropdownItem>
-              <DropdownItem
-                onClick={() => setApprovalMode('bypass')}
-                icon={<Check className={approvalMode === 'bypass' ? '' : 'opacity-0'} />}
-              >
-                <span className="flex flex-col">
-                  <span className="flex items-center gap-1.5">
-                    Bypass · YOLO
-                    <Zap className="h-3 w-3 text-warning" />
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    Run every tool without asking
-                  </span>
-                </span>
-              </DropdownItem>
-            </DropdownMenu>
-          </span>
-
-          <span className="inline-flex min-w-0 items-center rounded-xl border border-border bg-card-2 px-1 transition-colors hover:bg-muted">
-            <DropdownMenu
-              align="end"
-              trigger={
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="xs"
-                  className={`cursor-pointer ${needsSelection ? 'text-warning' : 'text-muted-foreground'}`}
-                  disabled={!canCompose}
-                  aria-label="Model"
-                  title={
-                    isUnresolvable
-                      ? MSG_MODEL_UNRESOLVABLE
-                      : needsSelection
-                        ? MSG_SELECT_MODEL
-                        : 'Model — applies from the next message'
-                  }
-                >
-                  {/* Mobile drops the provider namespace (compact); desktop
-                        keeps the full `namespace/model` form. */}
-                  <span className="max-w-[16ch] truncate sm:hidden">{modelLabelCompact}</span>
-                  <span className="hidden max-w-[16ch] truncate sm:inline">{modelLabel}</span>
-                  {/* Reasoning rolled into the model pill (ref composer style):
-                        show the effort initial only when a level is chosen and
-                        thinking is on; Default/off stays clean. */}
-                  {thinking && effort ? (
-                    <span className="font-semibold uppercase text-primary">
-                      {' · '}
-                      {effort.charAt(0)}
-                    </span>
-                  ) : null}
-                  <ChevronDown className="h-3.5 w-3.5" />
-                </Button>
-              }
-            >
-              <div className="px-2 pt-1 pb-1.5 text-[11px] text-muted-foreground select-none truncate max-w-[20ch]">
-                {modelLabel}
-              </div>
-
-              {builtinProviders.length > 0 && (
-                <>
-                  <div className="px-2 pt-1.5 pb-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground select-none">
-                    Built-in
-                  </div>
-                  {builtinProviders.flatMap((provider) =>
-                    provider.models.map((m) => {
-                      const isActive =
-                        effectiveProviderId === provider.id && effectiveModel === m.modelId;
-                      return (
-                        <DropdownItem
-                          key={`${provider.id}/${m.modelId}`}
-                          onClick={() => {
-                            setSelectedProviderId(provider.id);
-                            setSelectedModel(m.modelId);
-                            withSilentSave(() => {
-                              useSessionDefaultsStore.getState().setProviderId(provider.id);
-                              useSessionDefaultsStore.getState().setModel(m.modelId);
-                            });
-                          }}
-                          icon={<Check className={isActive ? '' : 'opacity-0'} />}
-                        >
-                          <span>{`${provider.namespace}/${m.displayName ?? m.modelId}`}</span>
-                        </DropdownItem>
-                      );
-                    }),
-                  )}
-                </>
-              )}
-
-              {personalProviders.length > 0 && (
-                <>
-                  <div className="px-2 pt-1.5 pb-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground select-none">
-                    Personal
-                  </div>
-                  {personalProviders.flatMap((provider) =>
-                    provider.models.map((m) => {
-                      const isActive =
-                        effectiveProviderId === provider.id && effectiveModel === m.modelId;
-                      return (
-                        <DropdownItem
-                          key={`${provider.id}/${m.modelId}`}
-                          onClick={() => {
-                            setSelectedProviderId(provider.id);
-                            setSelectedModel(m.modelId);
-                            withSilentSave(() => {
-                              useSessionDefaultsStore.getState().setProviderId(provider.id);
-                              useSessionDefaultsStore.getState().setModel(m.modelId);
-                            });
-                          }}
-                          icon={<Check className={isActive ? '' : 'opacity-0'} />}
-                        >
-                          <span>{`${provider.namespace}/${m.displayName ?? m.modelId}`}</span>
-                        </DropdownItem>
-                      );
-                    }),
-                  )}
-                </>
-              )}
-
-              {status === 'loading' && (
-                <div className="px-2 py-2 text-xs text-muted-foreground select-none">
-                  Loading providers…
-                </div>
-              )}
-
-              {status === 'error' && (
-                <DropdownItem onClick={() => void load()}>
-                  <span className="flex flex-col">
-                    <span className="text-warning">Failed to load — retry</span>
-                    {error && (
-                      <span className="text-xs text-muted-foreground truncate">{error}</span>
+            <span className="inline-flex min-w-0 items-center rounded-xl border border-border bg-card-2 px-1 transition-colors hover:bg-muted">
+              <DropdownMenu
+                align="start"
+                trigger={
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="xs"
+                    className={`cursor-pointer ${approvalMode === 'bypass' ? 'text-warning' : 'text-muted-foreground'}`}
+                    disabled={!canCompose}
+                    aria-label="Approval mode"
+                    title="Approval mode — applies from the next message"
+                  >
+                    {approvalMode === 'bypass' ? (
+                      <Zap className="h-3.5 w-3.5" />
+                    ) : (
+                      <ShieldCheck
+                        className={`h-3.5 w-3.5 ${approvalMode === 'safe' ? 'text-primary' : ''}`}
+                      />
                     )}
+                    <span className="hidden sm:inline">
+                      {approvalMode === 'bypass'
+                        ? 'Bypass'
+                        : approvalMode === 'safe'
+                          ? 'Safe'
+                          : 'Ask first'}
+                    </span>
+                    <ChevronDown className="h-3.5 w-3.5" />
+                  </Button>
+                }
+              >
+                <div className="px-2 pt-1 pb-1.5 text-[11px] text-muted-foreground select-none">
+                  Applies from the next message
+                </div>
+                <DropdownItem
+                  onClick={() => setApprovalMode('ask')}
+                  icon={<Check className={approvalMode === 'ask' ? '' : 'opacity-0'} />}
+                >
+                  <span className="flex flex-col">
+                    <span>Ask first</span>
+                    <span className="text-xs text-muted-foreground">
+                      Approve each tool before it runs
+                    </span>
                   </span>
                 </DropdownItem>
-              )}
+                <DropdownItem
+                  onClick={() => setApprovalMode('safe')}
+                  icon={<Check className={approvalMode === 'safe' ? '' : 'opacity-0'} />}
+                >
+                  <span className="flex flex-col">
+                    <span className="flex items-center gap-1.5">
+                      Safe · pre-approved tools
+                      <ShieldCheck className="h-3 w-3 text-primary" />
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      Auto-approve read-only tools, ask for the rest
+                    </span>
+                  </span>
+                </DropdownItem>
+                <DropdownItem
+                  onClick={() => setApprovalMode('bypass')}
+                  icon={<Check className={approvalMode === 'bypass' ? '' : 'opacity-0'} />}
+                >
+                  <span className="flex flex-col">
+                    <span className="flex items-center gap-1.5">
+                      Bypass · YOLO
+                      <Zap className="h-3 w-3 text-warning" />
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      Run every tool without asking
+                    </span>
+                  </span>
+                </DropdownItem>
+              </DropdownMenu>
+            </span>
 
-              {status === 'ready' &&
-                builtinProviders.length === 0 &&
-                personalProviders.length === 0 && (
+            <span className="inline-flex min-w-0 items-center rounded-xl border border-border bg-card-2 px-1 transition-colors hover:bg-muted">
+              <DropdownMenu
+                align="end"
+                trigger={
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="xs"
+                    className={`cursor-pointer ${needsSelection ? 'text-warning' : 'text-muted-foreground'}`}
+                    disabled={!canCompose}
+                    aria-label="Model"
+                    title={
+                      isUnresolvable
+                        ? MSG_MODEL_UNRESOLVABLE
+                        : needsSelection
+                          ? MSG_SELECT_MODEL
+                          : 'Model — applies from the next message'
+                    }
+                  >
+                    {/* Compact (no namespace) on mobile, full form on desktop. */}
+                    <span className="max-w-[16ch] truncate sm:hidden">{modelLabelCompact}</span>
+                    <span className="hidden max-w-[16ch] truncate sm:inline">{modelLabel}</span>
+                    {/* Effort initial in the pill, only under extended thinking. */}
+                    {thinking && effort ? (
+                      <span className="font-semibold uppercase text-primary">
+                        {' · '}
+                        {effort.charAt(0)}
+                      </span>
+                    ) : null}
+                    <ChevronDown className="h-3.5 w-3.5" />
+                  </Button>
+                }
+              >
+                <div className="px-2 pt-1 pb-1.5 text-[11px] text-muted-foreground select-none truncate max-w-[20ch]">
+                  {modelLabel}
+                </div>
+
+                <ModelProviderSection
+                  label="Built-in"
+                  providers={builtinProviders}
+                  effectiveProviderId={effectiveProviderId}
+                  effectiveModel={effectiveModel}
+                  onSelect={selectModel}
+                />
+
+                <ModelProviderSection
+                  label="Personal"
+                  providers={personalProviders}
+                  effectiveProviderId={effectiveProviderId}
+                  effectiveModel={effectiveModel}
+                  onSelect={selectModel}
+                />
+
+                {status === 'loading' && (
                   <div className="px-2 py-2 text-xs text-muted-foreground select-none">
-                    No providers configured
+                    Loading providers…
                   </div>
                 )}
 
-              <DropdownSeparator />
-
-              {/* Reasoning lives under the model pill (ref composer): a nested
-                    Effort submenu whose own footer toggles Thinking. Effort only
-                    bites under extended thinking, so it's disabled when off. */}
-              <DropdownSubmenu
-                icon={<Gauge className="h-3.5 w-3.5" />}
-                label="Effort"
-                value={thinking ? effortLabel(effort) : 'Off'}
-              >
-                {EFFORT_OPTIONS.map((opt) => (
-                  <DropdownItem
-                    key={opt.label}
-                    disabled={!thinking}
-                    onClick={() => setEffort(opt.value)}
-                    icon={<Check className={thinking && effort === opt.value ? '' : 'opacity-0'} />}
-                  >
-                    <span>{opt.label}</span>
+                {status === 'error' && (
+                  <DropdownItem onClick={() => void load()}>
+                    <span className="flex flex-col">
+                      <span className="text-warning">Failed to load — retry</span>
+                      {error && (
+                        <span className="text-xs text-muted-foreground truncate">{error}</span>
+                      )}
+                    </span>
                   </DropdownItem>
-                ))}
-                <DropdownSeparator />
-                <DropdownItem
-                  onClick={toggleThinking}
-                  closeOnClick={false}
-                  trailing={<Switch on={thinking} />}
-                >
-                  <span className="flex items-center gap-2">
-                    <Brain className="h-3.5 w-3.5" />
-                    Thinking
-                  </span>
-                </DropdownItem>
-              </DropdownSubmenu>
-            </DropdownMenu>
-          </span>
-        </div>
+                )}
 
-        {isTurnInProgress ? (
-          <button
-            type="button"
-            onClick={handlePrimaryAction}
-            disabled={!canCompose}
-            aria-label="Stop turn"
-            title="Stop the running agent"
-            className="cursor-pointer rounded-lg p-1.5 text-destructive hover:bg-destructive/10 transition-colors"
-          >
-            <Square className="h-4 w-4" />
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={handlePrimaryAction}
-            disabled={!text.trim() || !canCompose || noModelsAvailable || needsSelection}
-            aria-label="Send message"
-            className={`p-1.5 transition-colors ${
-              text.trim() && canCompose && !noModelsAvailable && !needsSelection
-                ? 'cursor-pointer text-primary'
-                : 'text-muted-foreground/40'
-            }`}
-          >
-            <CornerDownLeft className="h-4 w-4" />
-          </button>
-        )}
-      </div>
+                {status === 'ready' &&
+                  builtinProviders.length === 0 &&
+                  personalProviders.length === 0 && (
+                    <div className="px-2 py-2 text-xs text-muted-foreground select-none">
+                      No providers configured
+                    </div>
+                  )}
+
+                <DropdownSeparator />
+
+                {/* Effort submenu with a Thinking toggle in its footer. Effort
+                    only bites under extended thinking, so it's disabled when off. */}
+                <DropdownSubmenu
+                  icon={<Gauge className="h-3.5 w-3.5" />}
+                  label="Effort"
+                  value={thinking ? effortLabel(effort) : 'Off'}
+                >
+                  {EFFORT_OPTIONS.map((opt) => (
+                    <DropdownItem
+                      key={opt.label}
+                      disabled={!thinking}
+                      onClick={() => setEffort(opt.value)}
+                      icon={
+                        <Check className={thinking && effort === opt.value ? '' : 'opacity-0'} />
+                      }
+                    >
+                      <span>{opt.label}</span>
+                    </DropdownItem>
+                  ))}
+                  <DropdownSeparator />
+                  <DropdownItem
+                    onClick={toggleThinking}
+                    closeOnClick={false}
+                    trailing={<Switch on={thinking} />}
+                  >
+                    <span className="flex items-center gap-2">
+                      <Brain className="h-3.5 w-3.5" />
+                      Thinking
+                    </span>
+                  </DropdownItem>
+                </DropdownSubmenu>
+              </DropdownMenu>
+            </span>
+          </div>
+
+          {isTurnInProgress ? (
+            <button
+              type="button"
+              onClick={handlePrimaryAction}
+              disabled={!canCompose}
+              aria-label="Stop turn"
+              title="Stop the running agent"
+              className="cursor-pointer rounded-lg p-1.5 text-destructive hover:bg-destructive/10 transition-colors"
+            >
+              <Square className="h-4 w-4" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={handlePrimaryAction}
+              disabled={!text.trim() || !canCompose || noModelsAvailable || needsSelection}
+              aria-label="Send message"
+              className={`p-1.5 transition-colors ${
+                text.trim() && canCompose && !noModelsAvailable && !needsSelection
+                  ? 'cursor-pointer text-primary'
+                  : 'text-muted-foreground/40'
+              }`}
+            >
+              <CornerDownLeft className="h-4 w-4" />
+            </button>
+          )}
+        </div>
       </div>
 
       <ConfirmBypassDialog

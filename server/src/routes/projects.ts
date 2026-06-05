@@ -16,8 +16,7 @@ import type {
 import { type GitProvider, isGitProvider } from 'shared/types/git-credentials';
 import { slug } from '../auth';
 import { type AuthVariables, requireAuth } from '../auth/middleware';
-import { type DB, db as defaultDb } from '../db';
-import { schema } from '../db';
+import { type DB, db as defaultDb, schema } from '../db';
 import { env as defaultEnv, type Env } from '../env';
 import { auditLog as defaultAuditLog } from '../lib/logger';
 import { resolveUserPath } from '../lib/path-guard';
@@ -374,8 +373,8 @@ export function createProjectsRoutes(deps: ProjectsRoutesDeps): Hono<{ Variables
       .limit(1);
 
     if (metaRows.length === 0) return c.json({ error: 'not_found' }, 404);
-    const meta = metaRows[0]!;
-    if (!meta.remoteUrl || !meta.provider) {
+    const meta = metaRows[0];
+    if (!meta?.remoteUrl || !meta.provider) {
       return c.json({ error: 'invalid_metadata' }, 400);
     }
 
@@ -419,7 +418,7 @@ export function createProjectsRoutes(deps: ProjectsRoutesDeps): Hono<{ Variables
     void (async () => {
       try {
         const result = await cloneRepo({
-          url: meta.remoteUrl!,
+          url: meta.remoteUrl as string,
           targetDir: workDir,
           provider: meta.provider as GitProvider,
           token,
@@ -428,10 +427,7 @@ export function createProjectsRoutes(deps: ProjectsRoutesDeps): Hono<{ Variables
           onProgress: ({ phase, percent }) => notify({ phase, percent, status: 'cloning' }),
         });
         if (!result.ok) {
-          await failClone(
-            result.error,
-            controller.signal.aborted ? 'clone_canceled' : result.kind,
-          );
+          await failClone(result.error, controller.signal.aborted ? 'clone_canceled' : result.kind);
           return;
         }
         await db

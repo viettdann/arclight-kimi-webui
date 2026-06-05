@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
 import type { AvailableProvidersResponse, ProviderDTO } from 'shared/types/providers';
-import { labelFor, isResolvable } from '@/lib/providers-store';
+import { describe, expect, it } from 'vitest';
+import { isResolvable, labelFor } from '@/lib/providers-store';
 
 // labelFor reads only id / namespace / models[].{ modelId, displayName }.
 const provider = (

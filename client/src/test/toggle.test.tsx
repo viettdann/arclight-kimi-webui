@@ -1,13 +1,15 @@
-import { describe, it, expect, afterEach, vi } from 'vitest';
-import { render, screen, cleanup } from '@testing-library/react';
+import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Toggle } from '@/components/settings/toggle';
 
 afterEach(cleanup);
 
 describe('Toggle', () => {
   it('renders the label and optional description', () => {
-    render(<Toggle label="Thinking" description="Show reasoning" checked={false} onChange={() => {}} />);
+    render(
+      <Toggle label="Thinking" description="Show reasoning" checked={false} onChange={() => {}} />,
+    );
     expect(screen.getByText('Thinking')).toBeInTheDocument();
     expect(screen.getByText('Show reasoning')).toBeInTheDocument();
   });

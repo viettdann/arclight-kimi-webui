@@ -8,6 +8,12 @@ export function SettingsView() {
 
   const navItems: SettingsNavItem[] = [
     {
+      to: 'general',
+      label: 'General',
+      description: 'Instructions & git credentials',
+      icon: <FileText />,
+    },
+    {
       to: 'providers',
       label: 'Providers',
       description: 'Model providers',
@@ -18,12 +24,6 @@ export function SettingsView() {
       label: 'Workspace',
       description: 'Session defaults & preferences',
       icon: <SlidersHorizontal />,
-    },
-    {
-      to: 'general',
-      label: 'General',
-      description: 'Instructions & git credentials',
-      icon: <FileText />,
     },
     ...(isAdmin
       ? [

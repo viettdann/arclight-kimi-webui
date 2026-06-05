@@ -252,7 +252,7 @@ export function Sidebar({ isOpen, onClose, onLoginClick }: SidebarProps) {
   }, [status]);
 
   const triggerNewTask = useCallback(() => {
-    onClose?.(); // Đóng sidebar drawer
+    onClose?.(); // Close sidebar drawer
     // Creating a task creates/picks a project — both require an account.
     if (status !== 'authenticated') {
       onLoginClick();

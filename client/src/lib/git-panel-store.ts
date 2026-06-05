@@ -67,7 +67,11 @@ interface GitPanelState {
     credentialId?: string,
   ) => Promise<GitCommandResponse>;
   /** Commit the given paths (GitStatusEntry.path) with a message. Resolves true on success. */
-  commitFiles: (files: string[], message: string) => Promise<boolean>;
+  commitFiles: (files: string[], message: string, amend?: boolean) => Promise<boolean>;
+  /** Stage files (git add). Lightweight — no toast, no isBusy. */
+  stageFiles: (paths: string[]) => Promise<void>;
+  /** Unstage files (git reset HEAD). Lightweight — no toast, no isBusy. */
+  unstageFiles: (paths: string[]) => Promise<void>;
   dismissAuth: () => void;
   clear: () => void;
 }
@@ -89,7 +93,7 @@ const initialState = {
 };
 
 // Remote-touching commands trigger a status+branch refresh and may persist auth.
-const REFRESH_AFTER: GitSubcommand[] = ['push', 'pull', 'fetch', 'checkout'];
+const REFRESH_AFTER: GitSubcommand[] = ['push', 'pull', 'fetch', 'checkout', 'add', 'reset'];
 
 // Friendly one-line label per command when git has nothing terse to say.
 const SUCCESS_LABEL: Partial<Record<GitSubcommand, string>> = {
@@ -273,13 +277,13 @@ export const useGitPanelStore = create<GitPanelState>((set, get) => ({
     }
   },
 
-  commitFiles: async (files, message) => {
+  commitFiles: async (files, message, amend) => {
     const { projectName } = get();
     if (!projectName) throw new Error('no project');
 
     set({ isBusy: true, commandResult: null });
     try {
-      const result = await commitGit({ projectName, files, message });
+      const result = await commitGit({ projectName, files, message, amend: amend ?? false });
 
       const isSuccess = result.exitCode === 0;
       const resultMessage = isSuccess
@@ -305,6 +309,36 @@ export const useGitPanelStore = create<GitPanelState>((set, get) => ({
       set({ commandResult: { type: 'error', message: resultMessage }, isBusy: false });
       toast.error(resultMessage);
       return false;
+    }
+  },
+
+  stageFiles: async (paths) => {
+    const { projectName } = get();
+    if (!projectName || paths.length === 0) return;
+    try {
+      const result = await executeGitCommand({
+        projectName,
+        command: 'add',
+        args: ['--', ...paths],
+      });
+      if (result.exitCode === 0) void get().refreshStatus();
+    } catch {
+      // Silent — next refreshStatus() will reflect reality
+    }
+  },
+
+  unstageFiles: async (paths) => {
+    const { projectName } = get();
+    if (!projectName || paths.length === 0) return;
+    try {
+      const result = await executeGitCommand({
+        projectName,
+        command: 'reset',
+        args: ['HEAD', '--', ...paths],
+      });
+      if (result.exitCode === 0) void get().refreshStatus();
+    } catch {
+      // Silent — next refreshStatus() will reflect reality
     }
   },
 
