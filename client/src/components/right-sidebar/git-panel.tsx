@@ -17,6 +17,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import type { GitStatusEntry, GitSubcommand } from 'shared/types/git-credentials';
@@ -32,6 +33,7 @@ import {
 import { DropdownItem, DropdownMenu, DropdownSeparator } from '@/components/ui/dropdown-menu';
 import { useGitCredentialsStore } from '../../lib/git-credentials-store';
 import { useGitPanelStore } from '../../lib/git-panel-store';
+import { useRightSidebarStore } from '../../lib/right-sidebar-store';
 import { CommitDialog } from './commit-dialog';
 
 interface GitPanelProps {
@@ -317,40 +319,25 @@ function StagedList({
   isBusy,
   onUnstage,
   onUnstageAll,
-  onCommit,
 }: {
   entries: GitStatusEntry[];
   isBusy: boolean;
   onUnstage: (path: string) => void;
   onUnstageAll: () => void;
-  onCommit: () => void;
 }) {
   if (entries.length === 0) return null;
   return (
     <section className="space-y-1.5">
       <div className="flex items-center justify-between gap-2">
         <SectionLabel>Staged · {entries.length}</SectionLabel>
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={onUnstageAll}
-            disabled={isBusy}
-            className="rounded text-xs font-medium text-primary transition-colors hover:underline disabled:opacity-50"
-          >
-            Unstage all
-          </button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={isBusy}
-            onClick={onCommit}
-            className="h-6 px-2 text-xs"
-          >
-            <GitCommitHorizontal className="h-3.5 w-3.5" />
-            Commit
-          </Button>
-        </div>
+        <button
+          type="button"
+          onClick={onUnstageAll}
+          disabled={isBusy}
+          className="rounded text-xs font-medium text-primary transition-colors hover:underline disabled:opacity-50"
+        >
+          Unstage all
+        </button>
       </div>
       <ul className="max-h-44 space-y-1 overflow-y-auto">
         {entries.map((entry, i) => {
@@ -659,12 +646,24 @@ export function GitPanel({ projectName }: GitPanelProps) {
   const stageFiles = useGitPanelStore((s) => s.stageFiles);
   const unstageFiles = useGitPanelStore((s) => s.unstageFiles);
 
+  const sidebarOpen = useRightSidebarStore((s) => s.open);
+
   const [dialogOpen, setDialogOpen] = useState(false);
   const [commitOpen, setCommitOpen] = useState(false);
 
   useEffect(() => {
     setProject(projectName);
   }, [projectName, setProject]);
+
+  // Turns that landed while the panel was closed skip the live refresh
+  // (ws-subscriber gates on the panel being open), so the tree can be stale by
+  // the time it's reopened. Re-fetch on the closed→open transition. The ref
+  // keeps it from firing on unrelated re-renders while already open.
+  const wasOpenRef = useRef(false);
+  useEffect(() => {
+    if (sidebarOpen && !wasOpenRef.current && projectName) void refreshStatus();
+    wasOpenRef.current = sidebarOpen;
+  }, [sidebarOpen, projectName, refreshStatus]);
 
   useEffect(() => {
     ensureCredentialsLoaded();
@@ -715,12 +714,29 @@ export function GitPanel({ projectName }: GitPanelProps) {
       <GitHeader onSwitch={handleBranchSwitch} isBusy={isBusy} />
       {authRequired && <AuthBanner isBusy={isBusy} onRetry={handleRetry} onDismiss={dismissAuth} />}
       <RemoteActions onAction={handleAction} isBusy={isBusy} ahead={ahead} behind={behind} />
+      {/* Always-visible entry point: opens the commit modal where files are
+          picked. Discoverable even with nothing staged — staging first is
+          optional, the modal selects from the whole working tree. */}
+      <Button
+        type="button"
+        size="sm"
+        disabled={isBusy}
+        onClick={() => setCommitOpen(true)}
+        className="w-full justify-center"
+      >
+        <GitCommitHorizontal className="h-4 w-4" />
+        Commit
+        {entries.length > 0 && (
+          <span className="ml-0.5 rounded-full bg-primary-foreground/20 px-1 text-[10px] font-semibold tabular-nums">
+            {entries.length}
+          </span>
+        )}
+      </Button>
       <StagedList
         entries={stagedEntries}
         isBusy={isBusy}
         onUnstage={(path) => void unstageFiles([path])}
         onUnstageAll={() => void unstageFiles(stagedEntries.map((e) => e.path))}
-        onCommit={() => setCommitOpen(true)}
       />
       <ChangesList
         entries={changesEntries}

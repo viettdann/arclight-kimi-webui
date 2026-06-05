@@ -2,6 +2,8 @@ import type {
   CloneProgressPayload,
   CommandsAvailablePayload,
   SnapshotPayload,
+  ToolCallPayload,
+  ToolResultPayload,
   WSMessage,
 } from 'shared/types';
 import { showToast } from '@/components/toast-provider';
@@ -18,6 +20,13 @@ import { wsClient } from './ws-client';
 // A `turn_end` means the agent likely touched the working tree. Refresh the git
 // panel's status, but only when it's the active project AND the panel is open,
 // and debounced so a burst of turns coalesces into one refresh.
+// Tools that can mutate the working tree. We refresh the git panel the moment
+// one of these finishes (tool_result), so file changes appear live during a turn
+// rather than only at turn_end. The name lives on tool_call, so we remember the
+// call id there and fire when its result lands.
+const MUTATING_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'Bash']);
+const pendingMutatingCalls = new Set<string>();
+
 let gitRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 function scheduleGitRefresh(sessionId: string): void {
   const session = useSessionsStore.getState().sessions.find((s) => s.id === sessionId);
@@ -80,6 +89,17 @@ const unsubscribeMessage = wsClient.on('message', (ev: MessageEvent) => {
     // A completed turn may have changed files; nudge the git panel (no-op unless
     // it's the active, open project). Does not consume the event.
     if (msg.type === 'turn_end') scheduleGitRefresh(msg.sessionId);
+
+    // Finer-grained: refresh the moment a file-mutating tool finishes, so the
+    // panel tracks changes mid-turn instead of waiting for turn_end. Neither
+    // branch consumes the event — both fall through to applyEvent below.
+    if (msg.type === 'tool_call') {
+      const p = msg.payload as ToolCallPayload;
+      if (MUTATING_TOOLS.has(p.name)) pendingMutatingCalls.add(p.id);
+    } else if (msg.type === 'tool_result') {
+      const p = msg.payload as ToolResultPayload;
+      if (pendingMutatingCalls.delete(p.toolCallId)) scheduleGitRefresh(msg.sessionId);
+    }
 
     if (msg.type === 'snapshot') {
       const payload = msg.payload as SnapshotPayload;
