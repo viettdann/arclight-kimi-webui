@@ -6,6 +6,7 @@ import type {
   ProjectSummary,
 } from 'shared/types';
 import { create } from 'zustand';
+import { useActiveProjectStore } from './active-project-store';
 import { authFetch } from './auth-fetch';
 
 /**
@@ -77,6 +78,15 @@ function dropFromState(
 ): { projects: ProjectSummary[]; expanded: Record<string, boolean> } {
   const { [name]: _dropped, ...expanded } = s.expanded;
   return { projects: s.projects.filter((p) => p.name !== name), expanded };
+}
+
+/** Clear the right-panel selection if it pointed at a now-gone project, so the
+ *  Git panel doesn't keep operating on a folder that no longer exists. Shared by
+ *  every removal path (server delete, optimistic drop, canceled clone). */
+function clearSelectionIfDropped(name: string): void {
+  if (useActiveProjectStore.getState().selectedProjectName === name) {
+    useActiveProjectStore.getState().select(null);
+  }
 }
 
 interface ProjectsState {
@@ -171,6 +181,7 @@ export const useProjectsStore = create<ProjectsState>((set, get) => ({
 
   dropProject: (name) => {
     set((s) => (s.projects.some((p) => p.name === name) ? dropFromState(s, name) : s));
+    clearSelectionIfDropped(name);
   },
 
   cancelClone: async (name: string): Promise<void> => {
@@ -190,6 +201,7 @@ export const useProjectsStore = create<ProjectsState>((set, get) => ({
       throw await toProjectError(res, REMOVE_ERROR_MESSAGES, 'Delete failed');
     }
     set((s) => dropFromState(s, name));
+    clearSelectionIfDropped(name);
   },
 
   toggleExpanded: (name: string) => {

@@ -23,9 +23,11 @@ import {
 } from '@/components/ui/dialog';
 import { DropdownItem, DropdownMenu } from '@/components/ui/dropdown-menu';
 import { fetchProjectGitMetadata } from '../api/git';
+import { useActiveProjectStore } from '../lib/active-project-store';
 import { authFetch } from '../lib/auth-fetch';
 import { useNewSessionStore } from '../lib/new-session-store';
 import { useProjectsStore } from '../lib/projects-store';
+import { useRightSidebarStore } from '../lib/right-sidebar-store';
 import { useSessionsStore } from '../lib/sessions-store';
 import { useSidebarViewStore } from '../lib/sidebar-view-store';
 import { cn } from '../lib/utils';
@@ -55,10 +57,23 @@ export function ProjectRow({ project, sessions, isActive }: ProjectRowProps) {
     useState<Awaited<ReturnType<typeof fetchProjectGitMetadata>>>(null);
   const [checking, setChecking] = useState(false);
   const requestNewSession = useNewSessionStore((s) => s.request);
+  const selectProject = useActiveProjectStore((s) => s.select);
+  const showRightSidebar = useRightSidebarStore((s) => s.show);
 
   const handleNewTask = (e: React.MouseEvent) => {
     e.stopPropagation();
     requestNewSession(project);
+  };
+
+  // Click the project name: toggle its session dropdown AND scope the right
+  // panel to it so Git can be acted on without opening a session. Foreign
+  // projects have no local repo yet — they only toggle the dropdown until
+  // restored, so they don't become the active project.
+  const handleSelect = () => {
+    toggleExpanded(project.name);
+    if (isForeign) return;
+    selectProject(project.name);
+    showRightSidebar();
   };
 
   const handleRestoreClick = async (e: React.MouseEvent) => {
@@ -122,7 +137,7 @@ export function ProjectRow({ project, sessions, isActive }: ProjectRowProps) {
         <Button
           type="button"
           variant="ghost"
-          onClick={() => toggleExpanded(project.name)}
+          onClick={handleSelect}
           className={cn(
             'w-full justify-start gap-1.5 px-2 pr-8 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground',
             isActive && 'bg-transparent',

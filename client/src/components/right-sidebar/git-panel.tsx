@@ -32,11 +32,10 @@ import {
 import { DropdownItem, DropdownMenu, DropdownSeparator } from '@/components/ui/dropdown-menu';
 import { useGitCredentialsStore } from '../../lib/git-credentials-store';
 import { useGitPanelStore } from '../../lib/git-panel-store';
-import { useSessionsStore } from '../../lib/sessions-store';
 import { CommitDialog } from './commit-dialog';
 
 interface GitPanelProps {
-  sessionId: string | undefined;
+  projectName: string | null;
 }
 
 // ─────────────────────────── Building blocks ───────────────────────────
@@ -640,11 +639,7 @@ function CredentialDialog({
 
 // ─────────────────────────── Main panel ───────────────────────────
 
-export function GitPanel({ sessionId }: GitPanelProps) {
-  const projectName = useSessionsStore(
-    (s) => s.sessions.find((x) => x.id === sessionId)?.projectName ?? null,
-  );
-
+export function GitPanel({ projectName }: GitPanelProps) {
   const status = useGitPanelStore((s) => s.status);
   const statusData = useGitPanelStore((s) => s.statusData);
   const isBusy = useGitPanelStore((s) => s.isBusy);

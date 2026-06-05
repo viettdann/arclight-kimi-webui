@@ -23,6 +23,14 @@ describe('useRightSidebarStore', () => {
     useRightSidebarStore.getState().close();
     expect(useRightSidebarStore.getState().open).toBe(false);
   });
+
+  it('show forces open regardless of current state', () => {
+    useRightSidebarStore.getState().show();
+    expect(useRightSidebarStore.getState().open).toBe(true);
+    // Idempotent — showing again leaves it open.
+    useRightSidebarStore.getState().show();
+    expect(useRightSidebarStore.getState().open).toBe(true);
+  });
 });
 
 describe('useSidebarViewStore', () => {

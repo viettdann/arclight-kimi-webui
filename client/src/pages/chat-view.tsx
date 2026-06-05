@@ -7,9 +7,9 @@ import { PendingApprovalDock } from '../components/pending-approval-dock';
 import { RightSidebar } from '../components/right-sidebar/right-sidebar';
 import { Transcript } from '../components/transcript';
 import { WelcomeScreen } from '../components/welcome-screen';
+import { useActiveProjectName } from '../lib/active-project-store';
 import { persistWidth, useOpenFileStore } from '../lib/open-file-store';
 import { DRAFT_SESSION_PATH } from '../lib/router';
-import { useSessionsStore } from '../lib/sessions-store';
 
 // CodeMirror + every language mode + react-markdown live behind this split
 // chunk; it only loads once the user actually opens a file.
@@ -29,10 +29,9 @@ export function ChatView() {
   const { pathname } = useLocation();
   const isDraft = pathname === DRAFT_SESSION_PATH;
 
-  // Narrow selector — only re-render on projectName change for THIS session.
-  const activeProjectName = useSessionsStore(
-    (s) => s.sessions.find((x) => x.id === sessionId)?.projectName ?? null,
-  );
+  // Active project = open session's project, else the explicitly-selected one
+  // (project-only mode). Scopes both the editor auto-close and the right panel.
+  const activeProjectName = useActiveProjectName(sessionId);
 
   const openFile = useOpenFileStore((s) => s.openFile);
   const editorWidthPct = useOpenFileStore((s) => s.editorWidthPct);
@@ -192,9 +191,9 @@ export function ChatView() {
         </>
       )}
 
-      {/* Right sidebar (Todo + Context). Desktop: ~320px flex column to the
-          right of the editor; mobile: right overlay drawer. */}
-      <RightSidebar sessionId={sessionId} />
+      {/* Right sidebar (Todo + Context + Git, or Git alone in project-only mode).
+          Desktop: ~320px flex column right of the editor; mobile: right drawer. */}
+      <RightSidebar sessionId={sessionId} activeProjectName={activeProjectName} />
     </div>
   );
 }

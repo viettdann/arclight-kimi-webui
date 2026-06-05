@@ -1,5 +1,6 @@
 import type { ProjectSummary } from 'shared/types';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { useActiveProjectStore } from '@/lib/active-project-store';
 import { cloneErrorMessage, useProjectsStore } from '@/lib/projects-store';
 
 const project = (name: string, status?: ProjectSummary['status']): ProjectSummary => ({
@@ -24,6 +25,7 @@ describe('cloneErrorMessage', () => {
 describe('useProjectsStore reducers', () => {
   beforeEach(() => {
     useProjectsStore.setState({ projects: [], status: 'idle', error: null, expanded: {} });
+    useActiveProjectStore.setState({ selectedProjectName: null });
   });
 
   it('addProject appends a ready project and expands it', () => {
@@ -70,6 +72,21 @@ describe('useProjectsStore reducers', () => {
     const before = useProjectsStore.getState().projects;
     useProjectsStore.getState().dropProject('nope');
     expect(useProjectsStore.getState().projects).toBe(before);
+  });
+
+  it('dropProject clears the active selection when it pointed at the dropped project', () => {
+    useProjectsStore.getState().addProject(project('sel'));
+    useActiveProjectStore.getState().select('sel');
+    useProjectsStore.getState().dropProject('sel');
+    expect(useActiveProjectStore.getState().selectedProjectName).toBeNull();
+  });
+
+  it('dropProject leaves the active selection alone when a different project is dropped', () => {
+    useProjectsStore.getState().addProject(project('sel'));
+    useProjectsStore.getState().addProject(project('other'));
+    useActiveProjectStore.getState().select('sel');
+    useProjectsStore.getState().dropProject('other');
+    expect(useActiveProjectStore.getState().selectedProjectName).toBe('sel');
   });
 
   it('toggleExpanded flips the flag both ways', () => {

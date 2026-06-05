@@ -8,12 +8,15 @@ import { TodoPanel } from './todo-panel';
 
 interface RightSidebarProps {
   sessionId: string | undefined;
+  activeProjectName: string | null;
 }
 
-// Stacked, always-open panels (Todo → Context → Git). No accordion/disclosure:
-// every panel renders inline and the column scrolls when content runs long.
-// Git renders nothing for non-git projects, so it never adds an empty block.
-export function RightSidebar({ sessionId }: RightSidebarProps) {
+// Stacked panels. With an open session: Todo → Context → Git (Todo/Context are
+// session-scoped). With only a selected project (no session): Git alone, so the
+// user can act on git without opening a chat. No accordion/disclosure: every
+// panel renders inline and the column scrolls when content runs long. Git
+// renders nothing for non-git projects, so it never adds an empty block.
+export function RightSidebar({ sessionId, activeProjectName }: RightSidebarProps) {
   const open = useRightSidebarStore((s) => s.open);
   const close = useRightSidebarStore((s) => s.close);
   // A turn-end signal from the store: bumped once per completed turn (including
@@ -23,12 +26,13 @@ export function RightSidebar({ sessionId }: RightSidebarProps) {
     sessionId ? (s.sessions[sessionId]?.contextEpoch ?? 0) : 0,
   );
 
-  // Force the panel closed on every session switch — open state is scoped to the
-  // chat you're looking at, not carried into the next one.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: sessionId is the trigger — close on every session switch
+  // Close only when there's nothing left to scope the panel to — leaving for the
+  // welcome screen with no project selected. Switching session ↔ project or
+  // project ↔ project keeps the panel as-is (selecting a project explicitly
+  // opens it via the store).
   useEffect(() => {
-    close();
-  }, [sessionId, close]);
+    if (sessionId == null && activeProjectName == null) close();
+  }, [sessionId, activeProjectName, close]);
 
   // While open, request fresh context usage on open, on session switch, and once
   // per completed turn (contextEpoch). The server doesn't push context_usage on
@@ -51,9 +55,15 @@ export function RightSidebar({ sessionId }: RightSidebarProps) {
         }`}
       >
         <div className="flex flex-1 flex-col divide-y divide-border overflow-y-auto">
-          <TodoPanel sessionId={sessionId} />
-          <ContextPanel sessionId={sessionId} />
-          <GitPanel sessionId={sessionId} />
+          {/* Todo + Context are session-scoped — only shown when a chat is open.
+              In project-only mode the column is Git alone. */}
+          {sessionId && (
+            <>
+              <TodoPanel sessionId={sessionId} />
+              <ContextPanel sessionId={sessionId} />
+            </>
+          )}
+          <GitPanel projectName={activeProjectName} />
         </div>
       </aside>
 

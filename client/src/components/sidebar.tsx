@@ -4,6 +4,7 @@ import { useLocation, useNavigate, useParams } from 'react-router';
 import type { WSMessageType } from 'shared/types';
 import { Button } from '@/components/ui/button';
 import { DropdownItem, DropdownMenu, DropdownSeparator } from '@/components/ui/dropdown-menu';
+import { useActiveProjectStore, useSessionProjectName } from '../lib/active-project-store';
 import { useAuthStore } from '../lib/auth-store';
 import { useProjectLaunchStore } from '../lib/project-launch-store';
 import { useProjectsStore } from '../lib/projects-store';
@@ -165,10 +166,11 @@ export function Sidebar({ isOpen, onClose, onLoginClick }: SidebarProps) {
   const launchNewTask = useProjectLaunchStore((s) => s.launch);
   const openNewProject = useProjectLaunchStore((s) => s.openNewProject);
 
-  const activeProjectName = useMemo(() => {
-    if (!openSessionId) return null;
-    return sessions.find((s) => s.id === openSessionId)?.projectName ?? null;
-  }, [openSessionId, sessions]);
+  const selectedProjectName = useActiveProjectStore((s) => s.selectedProjectName);
+  // The highlighted/scoped project: an open session's project wins; with no
+  // session it's the one explicitly selected in the rail (project-only mode).
+  const sessionProjectName = useSessionProjectName(openSessionId);
+  const activeProjectName = sessionProjectName ?? selectedProjectName;
 
   const showFiles = filesOpen && filesProjectName !== null;
 
@@ -178,6 +180,13 @@ export function Sidebar({ isOpen, onClose, onLoginClick }: SidebarProps) {
   useEffect(() => {
     if (activeProjectName) useProjectsStore.getState().expand(activeProjectName);
   }, [activeProjectName]);
+
+  // Opening a session makes its project the active one — mirror that into the
+  // selection store so the rail highlight and the right panel agree with the
+  // route (and the project stays scoped after navigating away from the chat).
+  useEffect(() => {
+    if (sessionProjectName) useActiveProjectStore.getState().select(sessionProjectName);
+  }, [sessionProjectName]);
 
   // When the user switches to a different session while the files panel is open,
   // the panel should follow the active project. If the user wants a different

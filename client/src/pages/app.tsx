@@ -8,6 +8,7 @@ import { NewProjectModal } from '../components/new-project-modal';
 import { ProjectPickerModal } from '../components/project-picker-modal';
 import { Sidebar } from '../components/sidebar';
 import { showToast, ToastProvider } from '../components/toast-provider';
+import { useActiveProjectName } from '../lib/active-project-store';
 import { useAuthStore } from '../lib/auth-store';
 import { useProjectLaunchStore } from '../lib/project-launch-store';
 import { useProjectsStore } from '../lib/projects-store';
@@ -66,6 +67,9 @@ export function Shell() {
   const lastClearReason = useAuthStore((s) => s.lastClearReason);
   const wasPreviouslyAuthenticated = useRef(false);
   const toggleRightSidebar = useRightSidebarStore((s) => s.toggle);
+  // The right panel has content whenever there's a session OR a selected project
+  // (Git-only mode), so the header toggle is shown for both.
+  const activeProjectName = useActiveProjectName(sessionId);
 
   // New-task project modals. They render once here (shared by the sidebar "New
   // task" and the Welcome composer) so two triggers can't mount two copies.
@@ -175,7 +179,7 @@ export function Shell() {
           </div>
 
           <div className="flex items-center gap-1">
-            {sessionId && (
+            {(sessionId || activeProjectName) && (
               <Button
                 type="button"
                 variant="ghost"

@@ -8,11 +8,14 @@ import { create } from 'zustand';
 interface RightSidebarState {
   open: boolean;
   toggle: () => void;
+  /** Force the panel open (e.g. when selecting a project). */
+  show: () => void;
   close: () => void;
 }
 
 export const useRightSidebarStore = create<RightSidebarState>((set, get) => ({
   open: false,
   toggle: () => set({ open: !get().open }),
+  show: () => set({ open: true }),
   close: () => set({ open: false }),
 }));
