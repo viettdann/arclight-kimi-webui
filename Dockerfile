@@ -50,7 +50,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     apt-get install -y --no-install-recommends \
     curl ca-certificates git ripgrep bubblewrap socat make dumb-init \
     wget zip jq less openssh-client procps findutils openssl sed gawk tzdata \
-    gcc pkg-config libssl-dev
+    gcc pkg-config libssl-dev libc6-dev
 
 RUN mkdir -p /data/workspace /data/agent-state && chown -R bun:bun /data /app
 
