@@ -37,7 +37,12 @@ function scheduleGitRefresh(sessionId: string): void {
   if (gitRefreshTimer) clearTimeout(gitRefreshTimer);
   gitRefreshTimer = setTimeout(() => {
     gitRefreshTimer = null;
-    void useGitPanelStore.getState().refreshStatus();
+    // Bash may have run git itself (commit/pull/checkout), which moves history
+    // and branch heads — refresh those too, not just the file tree.
+    const git = useGitPanelStore.getState();
+    void git.refreshStatus();
+    void git.refreshBranches();
+    void git.refreshLog();
   }, 500);
 }
 

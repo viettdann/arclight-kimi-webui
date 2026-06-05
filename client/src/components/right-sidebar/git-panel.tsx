@@ -40,6 +40,9 @@ interface GitPanelProps {
   projectName: string | null;
 }
 
+// VS Code-style auto-fetch cadence (`git.autofetchPeriod` defaults to 3 min).
+const AUTO_FETCH_INTERVAL_MS = 3 * 60_000;
+
 // ─────────────────────────── Building blocks ───────────────────────────
 
 function SectionLabel({ children }: { children: ReactNode }) {
@@ -636,6 +639,7 @@ export function GitPanel({ projectName }: GitPanelProps) {
   const linkedCredentialId = useGitPanelStore((s) => s.linkedCredentialId);
 
   const setProject = useGitPanelStore((s) => s.setProject);
+  const autoFetch = useGitPanelStore((s) => s.autoFetch);
   const executeCommand = useGitPanelStore((s) => s.executeCommand);
   const linkCredential = useGitPanelStore((s) => s.linkCredential);
   const dismissAuth = useGitPanelStore((s) => s.dismissAuth);
@@ -664,6 +668,37 @@ export function GitPanel({ projectName }: GitPanelProps) {
     if (sidebarOpen && !wasOpenRef.current && projectName) void refreshStatus();
     wasOpenRef.current = sidebarOpen;
   }, [sidebarOpen, projectName, refreshStatus]);
+
+  // Auto-fetch: ahead/behind only moves when remote-tracking refs do, and those
+  // only move on `git fetch` — so poll the remote VS Code-style. Fetch on panel
+  // open / project switch, then every 3 minutes while the panel is open and the
+  // tab visible. Hidden tabs skip ticks; returning after a long absence fires
+  // immediately. Failures back off via the store (autoFetchDisabled) instead of
+  // toasting every tick.
+  const lastAutoFetchRef = useRef(0);
+  useEffect(() => {
+    if (!sidebarOpen || !projectName) return;
+    const tick = () => {
+      if (document.visibilityState !== 'visible') return;
+      lastAutoFetchRef.current = Date.now();
+      void autoFetch();
+    };
+    tick();
+    const id = setInterval(tick, AUTO_FETCH_INTERVAL_MS);
+    const onVisibilityChange = () => {
+      if (
+        document.visibilityState === 'visible' &&
+        Date.now() - lastAutoFetchRef.current >= AUTO_FETCH_INTERVAL_MS
+      ) {
+        tick();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [sidebarOpen, projectName, autoFetch]);
 
   useEffect(() => {
     ensureCredentialsLoaded();

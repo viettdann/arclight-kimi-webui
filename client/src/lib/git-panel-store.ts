@@ -42,6 +42,13 @@ interface GitPanelState {
   /** True while a command is executing. */
   isBusy: boolean;
 
+  /**
+   * Backoff for the background auto-fetch: set after a failed silent fetch
+   * (network down, missing credential) so the loop stops retrying every tick.
+   * Cleared when a manual remote command succeeds or the project changes.
+   */
+  autoFetchDisabled: boolean;
+
   // Auth prompt state
   authRequired: boolean;
   /**
@@ -68,6 +75,12 @@ interface GitPanelState {
   ) => Promise<GitCommandResponse>;
   /** Commit the given paths (GitStatusEntry.path) with a message. Resolves true on success. */
   commitFiles: (files: string[], message: string, amend?: boolean) => Promise<boolean>;
+  /**
+   * Background `git fetch` for the auto-fetch loop. Silent by design — no
+   * toast, no isBusy spinner, no auth banner. A failure flips
+   * `autoFetchDisabled` instead of surfacing an error.
+   */
+  autoFetch: () => Promise<void>;
   /** Stage files (git add). Lightweight — no toast, no isBusy. */
   stageFiles: (paths: string[]) => Promise<void>;
   /** Unstage files (git reset HEAD). Lightweight — no toast, no isBusy. */
@@ -86,6 +99,7 @@ const initialState = {
   linkedCredentialId: null,
   commandResult: null,
   isBusy: false,
+  autoFetchDisabled: false,
   authRequired: false,
   authKind: null,
   authCommand: null,
@@ -94,6 +108,14 @@ const initialState = {
 
 // Remote-touching commands trigger a status+branch refresh and may persist auth.
 const REFRESH_AFTER: GitSubcommand[] = ['push', 'pull', 'fetch', 'checkout', 'add', 'reset'];
+
+// Commands that talk to the remote — proof of reachable remote + working
+// credential, so a success also lifts the auto-fetch backoff.
+const REMOTE_COMMANDS: GitSubcommand[] = ['push', 'pull', 'fetch'];
+
+// Re-entrancy guard for autoFetch: a slow fetch must not stack a second one
+// from the next interval tick.
+let autoFetchInFlight = false;
 
 // Friendly one-line label per command when git has nothing terse to say.
 const SUCCESS_LABEL: Partial<Record<GitSubcommand, string>> = {
@@ -255,8 +277,10 @@ export const useGitPanelStore = create<GitPanelState>((set, get) => ({
         // A remote op that succeeded with an explicitly-chosen credential means
         // the user just resolved an auth prompt — persist it so next time the
         // server auto-injects and no prompt appears.
-        if (credentialId && (command === 'pull' || command === 'push' || command === 'fetch')) {
-          void get().linkCredential(credentialId);
+        if (REMOTE_COMMANDS.includes(command)) {
+          if (credentialId) void get().linkCredential(credentialId);
+          // The remote answered — whatever broke auto-fetch is resolved.
+          set({ autoFetchDisabled: false });
         }
       } else {
         toast.error(message);
@@ -274,6 +298,31 @@ export const useGitPanelStore = create<GitPanelState>((set, get) => ({
       set({ commandResult: { type: 'error', message }, isBusy: false });
       toast.error(message);
       throw e;
+    }
+  },
+
+  autoFetch: async () => {
+    const { projectName, status, isBusy, autoFetchDisabled } = get();
+    // Skip while a user command runs (no concurrent git ops) and while backed
+    // off; not_git_repo can't fetch at all.
+    if (!projectName || isBusy || autoFetchDisabled || autoFetchInFlight) return;
+    if (status === 'not_git_repo') return;
+    autoFetchInFlight = true;
+    try {
+      const result = await executeGitCommand({ projectName, command: 'fetch', args: [] });
+      // Guard against a project switch mid-flight.
+      if (get().projectName !== projectName) return;
+      if (result.exitCode === 0 && !result.requiresAuth && !result.permissionDenied) {
+        void get().refreshStatus();
+        void get().refreshBranches();
+        void get().refreshLog();
+      } else {
+        set({ autoFetchDisabled: true });
+      }
+    } catch {
+      if (get().projectName === projectName) set({ autoFetchDisabled: true });
+    } finally {
+      autoFetchInFlight = false;
     }
   },
 
