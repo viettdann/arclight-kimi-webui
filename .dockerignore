@@ -8,6 +8,7 @@
 **/.vite
 **/.cache
 **/*.tsbuildinfo
+.code-review-graph
 
 # Build outputs
 **/dist
@@ -17,6 +18,8 @@ coverage
 # Tests & dev-only scripts — not needed by `bun build --compile` or migrator
 **/test
 server/scripts
+playwright-report
+test-results
 
 # Secrets & runtime state — never ship in the build context
 .env
@@ -24,8 +27,10 @@ server/scripts
 certs
 .kimi
 workspace
+agent-state
 .antigravitycli
 .runtime
+.claude
 
 # Docs are the user's personal works
 docs
@@ -43,6 +48,9 @@ Thumbs.db
 # Markdown / meta files
 **/*.md
 compose.yaml
+compose.local.yaml
+compose.dev.yaml
+compose.infra.yaml
 Dockerfile
 .dockerignore
 docker
