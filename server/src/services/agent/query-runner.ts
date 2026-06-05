@@ -9,6 +9,7 @@ import { db } from '../../db';
 import { logger } from '../../lib/logger';
 import { ProviderUnavailableError, resolveProviderForUser } from '../providers/resolve';
 import type { ActiveSession } from '../session-manager';
+import { getGitIncludeCoAuthoredBy } from '../user-settings';
 import { agentConfigDirFor, agentHomeFor } from './agent-paths';
 import { buildCanUseTool } from './approval';
 import { buildAgentEnv } from './env';
@@ -77,6 +78,13 @@ export async function startQuery(
   await ensureClaudeOnboarding(configDir);
   const env = buildAgentEnv(provider, { home, configDir });
 
+  // Git attribution: by default strip Claude's `Co-Authored-By` trailer (and the
+  // PR attribution) from agent-driven commits. Empty strings hide attribution
+  // entirely; opting in leaves the SDK default in place. Loaded into the
+  // flag-settings layer via `options.settings`.
+  const includeCoAuthoredBy = await getGitIncludeCoAuthoredBy(db, active.userId);
+  const attribution = includeCoAuthoredBy ? undefined : { commit: '', pr: '' };
+
   // Delete-local-before-resume guard: discard any local scratch JSONL so the
   // SDK `load()` rematerializes this session from the DB store (the single
   // source of truth), regardless of whether `agent-state` is tmpfs or a
@@ -113,6 +121,9 @@ export async function startQuery(
       // a mid-turn reload sees the transcript within ~1 frame of live.
       sessionStore,
       sessionStoreFlush: 'eager',
+      // Highest-priority "flag settings" layer; only set when we override the
+      // default attribution (opt-in keeps the SDK default untouched).
+      ...(attribution ? { settings: { attribution } } : {}),
       ...permissionOptions(active.approvalMode),
       ...thinkingOptions(active.thinking),
       ...effortOptions(active.effort),

@@ -51,7 +51,7 @@ export const router = createBrowserRouter([
               {
                 element: <SettingsView />,
                 children: [
-                  { index: true, element: <Navigate to="providers" replace /> },
+                  { index: true, element: <Navigate to="general" replace /> },
                   { path: 'providers', element: <ProvidersSection /> },
                   { path: 'workspace', element: <WorkspacePanel /> },
                   { path: 'general', element: <GeneralSection /> },

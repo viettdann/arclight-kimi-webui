@@ -411,6 +411,24 @@ describe('useChatStore', () => {
       expect(session!.contextEpoch).toBe(1);
     });
 
+    it('should append a cancelled marker on a user-interrupted turn_end', () => {
+      useChatStore.getState().applyEvent(sessionId, 'text_delta', {
+        id: 'text-1',
+        text: 'partial',
+        final: false,
+      });
+
+      useChatStore.getState().applyEvent(sessionId, 'turn_end', { status: 'cancelled' });
+
+      const session = useChatStore.getState().sessions[sessionId];
+      // Streaming stopped, no error block, a single cancelled marker appended.
+      expect((session!.blocks[0] as any).isStreaming).toBe(false);
+      const cancelled = session!.blocks.filter((b) => b.kind === 'cancelled');
+      expect(cancelled).toHaveLength(1);
+      expect(session!.blocks.some((b) => b.kind === 'error')).toBe(false);
+      expect(session!.isTurnInProgress).toBe(false);
+    });
+
     it('should handle error block insertion', () => {
       useChatStore.getState().applyEvent(sessionId, 'error', {
         code: 'rate_limit',

@@ -476,8 +476,15 @@ export async function consumeQueryOutput(active: ActiveSession): Promise<void> {
       log.error({ err, sessionId: active.sessionId }, 'failed to persist turn usage');
     }
 
-    const turnEnd: TurnEndPayload = { status: mapTurnStatus(msg.subtype), steps: msg.num_turns };
-    if (msg.subtype !== 'success' && msg.errors?.length) {
+    // A user interrupt lands here as `error_during_execution` (the turn was cut
+    // mid-tool). Surface it as a clean `cancelled` turn_end with no error block,
+    // instead of a SYSTEM_ERROR.
+    const cancelled = active.interruptRequested;
+    const turnEnd: TurnEndPayload = {
+      status: cancelled ? 'cancelled' : mapTurnStatus(msg.subtype),
+      steps: msg.num_turns,
+    };
+    if (!cancelled && msg.subtype !== 'success' && msg.errors?.length) {
       turnEnd.errors = msg.errors;
       // Make the failure visible as an error block, unless the assistant-level
       // API error (same failure, richer text) already emitted one this turn.
@@ -491,6 +498,7 @@ export async function consumeQueryOutput(active: ActiveSession): Promise<void> {
       }
     }
     apiErrorEmitted = false;
+    active.interruptRequested = false;
     broadcastEvent(active, 'turn_end', turnEnd, sessionManager);
     active.turnInProgress = false;
 

@@ -48,7 +48,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache && \
     apt-get update && \
     apt-get install -y --no-install-recommends \
-    curl ca-certificates git ripgrep bubblewrap socat dumb-init \
+    curl ca-certificates git ripgrep bubblewrap socat make dumb-init \
     wget zip jq less openssh-client procps findutils openssl sed gawk tzdata \
     gcc pkg-config libssl-dev
 

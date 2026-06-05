@@ -68,6 +68,15 @@ export interface ActiveSession {
   commands?: CommandInfo[];
   /** True while a query is consuming/emitting for this session. */
   turnInProgress: boolean;
+  /**
+   * True once the user asked to interrupt the in-flight turn (via
+   * `interrupt_turn`) and before the resulting `result` message is handled. The
+   * SDK reports an interrupted turn as `result` subtype `error_during_execution`
+   * — this flag lets `handleResult` recognize it as a user cancel and surface it
+   * as a `cancelled` turn_end instead of a SYSTEM_ERROR block. Reset at the start
+   * of every turn and once the result is consumed.
+   */
+  interruptRequested: boolean;
   wsSet: Set<ServerWebSocket<WSData>>;
   pendingApprovals: Map<string, PendingApproval>;
   pendingQuestions: Map<string, PendingQuestion>;
@@ -134,6 +143,7 @@ export class SessionManager {
       approvalMode: args.approvalMode ?? 'ask',
       effort: args.effort ?? null,
       turnInProgress: false,
+      interruptRequested: false,
       wsSet: new Set(),
       pendingApprovals: new Map(),
       pendingQuestions: new Map(),
