@@ -143,9 +143,13 @@ export function Shell() {
                   onClick={() => navigate('/')}
                   aria-label="Go to home"
                   title="More Than Code — home"
-                  className="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md bg-primary text-primary-foreground font-bold text-sm transition-opacity hover:opacity-80"
+                  className="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center transition-opacity hover:opacity-80"
                 >
-                  M
+                  <img
+                    src="/logo.png"
+                    alt="More Than Code Logo"
+                    className="h-7 w-7 rounded-md object-contain"
+                  />
                 </button>
                 <div className="flex flex-col min-w-0 leading-tight">
                   <span className="text-sm font-semibold truncate text-sidebar-foreground">
@@ -168,9 +172,11 @@ export function Shell() {
                 title="More Than Code — home"
                 className="flex min-w-0 items-center gap-2 cursor-pointer text-left transition-opacity hover:opacity-80"
               >
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground font-bold text-sm">
-                  M
-                </span>
+                <img
+                  src="/logo.png"
+                  alt="More Than Code Logo"
+                  className="h-7 w-7 rounded-md object-contain"
+                />
                 <span className="text-sm font-semibold truncate text-sidebar-foreground">
                   More Than Code
                 </span>

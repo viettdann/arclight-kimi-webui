@@ -305,9 +305,11 @@ export function Sidebar({ isOpen, onClose, onLoginClick }: SidebarProps) {
           title="More Than Code — home"
           className="flex items-center gap-2 px-4 py-3 text-left transition-opacity hover:opacity-80 cursor-pointer"
         >
-          <span className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground font-bold text-sm">
-            M
-          </span>
+          <img
+            src="/logo.png"
+            alt="More Than Code Logo"
+            className="h-7 w-7 rounded-md object-contain"
+          />
           <span className="text-sm font-semibold">More Than Code</span>
         </button>
 
