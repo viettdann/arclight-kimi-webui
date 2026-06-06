@@ -73,7 +73,11 @@ export function ProjectRow({ project, sessions, isActive }: ProjectRowProps) {
     toggleExpanded(project.name);
     if (isForeign) return;
     selectProject(project.name);
-    showRightSidebar();
+    // Desktop only: the right panel is a static column there, so revealing Git
+    // on select is helpful. On mobile it's a full-screen drawer — auto-opening
+    // it hijacks the view and its backdrop traps the left drawer's outside-tap
+    // (both sit at z-30), so leave opening to the header toggle.
+    if (window.matchMedia('(min-width: 768px)').matches) showRightSidebar();
   };
 
   const handleRestoreClick = async (e: React.MouseEvent) => {

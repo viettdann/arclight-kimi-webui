@@ -1,4 +1,6 @@
+import { X } from 'lucide-react';
 import { useEffect } from 'react';
+import { Button } from '@/components/ui/button';
 import { useActiveWorkflow, useChatStore } from '../../lib/chat-store';
 import { useRightSidebarStore } from '../../lib/right-sidebar-store';
 import { sendWS } from '../../lib/ws-send';
@@ -58,6 +60,23 @@ export function RightSidebar({ sessionId, activeProjectName }: RightSidebarProps
           open ? 'translate-x-0 md:w-[320px]' : 'translate-x-full md:hidden'
         }`}
       >
+        {/* Mobile-only header: an explicit Close button so the drawer can be
+            dismissed without hunting for the backdrop. Desktop is a static
+            column with no overlay, so it needs no close affordance. */}
+        <div className="flex h-14 shrink-0 items-center justify-between border-b border-border px-3 md:hidden">
+          <span className="text-sm font-semibold text-sidebar-foreground">Details</span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            onClick={close}
+            aria-label="Close panel"
+            className="hover:bg-sidebar-accent text-sidebar-foreground cursor-pointer"
+          >
+            <X className="h-5 w-5" />
+          </Button>
+        </div>
+
         <div className="flex flex-1 flex-col divide-y divide-border overflow-y-auto">
           {/* Todo + Context are session-scoped — only shown when a chat is open.
               In project-only mode the column is Git alone. */}
@@ -79,7 +98,9 @@ export function RightSidebar({ sessionId, activeProjectName }: RightSidebarProps
         <button
           type="button"
           aria-label="Close panel"
-          className="fixed inset-0 z-30 bg-background/80 backdrop-blur-sm md:hidden animate-in fade-in duration-200"
+          // A light scrim, not an opaque paper fill: the real app shell stays
+          // visible behind the drawer (just dimmed), and the tap still closes.
+          className="fixed inset-0 z-30 bg-foreground/20 md:hidden animate-in fade-in duration-200"
           onClick={close}
         />
       )}
