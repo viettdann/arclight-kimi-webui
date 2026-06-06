@@ -57,6 +57,7 @@ export async function buildSnapshot(args: BuildSnapshotArgs): Promise<SnapshotPa
     thinking: sessRow.thinking,
     approvalMode: sessRow.approvalMode as ApprovalMode,
     effort: (sessRow.effort as EffortLevel | null) ?? null,
+    ultracode: sessRow.ultracode,
     commands: getCatalog(sessRow.workDir) ?? [],
     contextUsage: activeSession?.lastContextUsage ?? null,
     live: {
@@ -81,6 +82,7 @@ export function emptySnapshot(): SnapshotPayload {
     thinking: false,
     approvalMode: 'ask',
     effort: null,
+    ultracode: false,
     commands: [],
     contextUsage: null,
     live: {

@@ -32,6 +32,7 @@ export const sessions = pgTable(
     model: varchar({ length: 100 }),
     providerId: uuid().references(() => providers.id, { onDelete: 'set null' }),
     thinking: boolean().notNull().default(false),
+    ultracode: boolean().notNull().default(false),
     approvalMode: text().notNull().default('ask'), // ask | safe | bypass
     effort: text(), // low | medium | high | null(default)
     sdkSessionId: varchar({ length: 100 }),

@@ -5,6 +5,7 @@ import {
   CornerDownLeft,
   FolderGit2,
   Gauge,
+  Rocket,
   ShieldCheck,
   Square,
   Zap,
@@ -66,11 +67,11 @@ const KIND_ORDER: Record<CommandInfo['kind'], number> = { builtin: 0, project: 1
 // snapshot, triggering an infinite render loop ("getSnapshot should be cached").
 const NO_COMMANDS: CommandInfo[] = [];
 
-function Switch({ on }: { on: boolean }) {
+function Switch({ on, tone = 'primary' }: { on: boolean; tone?: 'primary' | 'ultracode' }) {
   return (
     <span
       className={`relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors ${
-        on ? 'bg-primary' : 'bg-muted-foreground/30'
+        on ? (tone === 'ultracode' ? 'bg-ultracode' : 'bg-primary') : 'bg-muted-foreground/30'
       }`}
     >
       <span
@@ -196,6 +197,9 @@ export function ChatInput() {
   const [draftThinking, setDraftThinking] = useState<boolean>(
     () => useSessionDefaultsStore.getState().thinking,
   );
+  const [draftUltracode, setDraftUltracode] = useState<boolean>(
+    () => useSessionDefaultsStore.getState().ultracode,
+  );
   const [draftEffort, setDraftEffort] = useState<EffortLevel | null>(
     () => useSessionDefaultsStore.getState().effort,
   );
@@ -241,12 +245,16 @@ export function ChatInput() {
   const sessionThinking = useChatStore((s) =>
     sessionId ? (s.sessions[sessionId]?.thinking ?? false) : false,
   );
+  const sessionUltracode = useChatStore((s) =>
+    sessionId ? (s.sessions[sessionId]?.ultracode ?? false) : false,
+  );
   // `null` effort is the provider default.
   const sessionEffort = useChatStore((s) =>
     sessionId ? (s.sessions[sessionId]?.effort ?? null) : null,
   );
   const approvalMode = isDraft ? draftApprovalMode : sessionApprovalMode;
   const thinking = isDraft ? draftThinking : sessionThinking;
+  const ultracode = isDraft ? draftUltracode : sessionUltracode;
   const effort = isDraft ? draftEffort : sessionEffort;
 
   // Picker state: `activeIndex` is the keyboard cursor; `pickerDismissed` is set
@@ -307,6 +315,7 @@ export function ChatInput() {
     const defaults = useSessionDefaultsStore.getState();
     setDraftApprovalMode(defaults.approvalMode);
     setDraftThinking(defaults.thinking);
+    setDraftUltracode(defaults.ultracode);
     setDraftEffort(defaults.effort);
     setDraftProviderId(defaults.providerId);
     setDraftModel(defaults.model);
@@ -373,6 +382,7 @@ export function ChatInput() {
     const flags = {
       content,
       thinking,
+      ultracode,
       approvalMode,
       effort,
       model: isUnresolvable ? undefined : (effectiveModel ?? undefined),
@@ -434,6 +444,24 @@ export function ChatInput() {
     if (!sessionId) return;
     useChatStore.getState().setSessionFlags(sessionId, { thinking: !thinking });
     withSilentSave(() => useSessionDefaultsStore.getState().setThinking(!thinking));
+  };
+
+  // One-shot ripple feedback when Ultracode flips on; keyed so re-toggling restarts it.
+  const [ultracodeRipple, setUltracodeRipple] = useState(0);
+
+  const toggleUltracode = () => {
+    if (!ultracode) setUltracodeRipple((k) => k + 1);
+    if (isDraft) {
+      setDraftUltracode((on) => {
+        const next = !on;
+        withSilentSave(() => useSessionDefaultsStore.getState().setUltracode(next));
+        return next;
+      });
+      return;
+    }
+    if (!sessionId) return;
+    useChatStore.getState().setSessionFlags(sessionId, { ultracode: !ultracode });
+    withSilentSave(() => useSessionDefaultsStore.getState().setUltracode(!ultracode));
   };
 
   const setEffort = (next: EffortLevel | null) => {
@@ -540,10 +568,22 @@ export function ChatInput() {
   return (
     <div className="mx-auto w-full max-w-3xl px-3 pb-4 md:px-4 md:pb-6 shrink-0 bg-transparent">
       <div
-        className={`relative rounded-2xl border bg-card shadow-sm transition-all focus-within:ring-1 focus-within:ring-ring ${
-          isTurnInProgress ? 'border-primary/30' : 'border-border'
+        className={`relative rounded-2xl border bg-card shadow-sm transition-all focus-within:ring-1 ${
+          ultracode
+            ? 'border-ultracode/50 focus-within:ring-ultracode/40'
+            : isTurnInProgress
+              ? 'border-primary/30 focus-within:ring-ring'
+              : 'border-border focus-within:ring-ring'
         }`}
       >
+        {/* Static plum glow while Ultracode is on — separate overlay so it
+            never fights Tailwind's ring/shadow composition on the container. */}
+        {ultracode && (
+          <span
+            aria-hidden="true"
+            className="ultracode-glow pointer-events-none absolute -inset-px rounded-2xl"
+          />
+        )}
         {pickerOpen && (
           <SlashCommandMenu
             items={pickerItems}
@@ -688,8 +728,11 @@ export function ChatInput() {
                     {/* Compact (no namespace) on mobile, full form on desktop. */}
                     <span className="max-w-[16ch] truncate sm:hidden">{modelLabelCompact}</span>
                     <span className="hidden max-w-[16ch] truncate sm:inline">{modelLabel}</span>
-                    {/* Effort initial in the pill, only under extended thinking. */}
-                    {thinking && effort ? (
+                    {/* Effort initial in the pill, only under extended thinking.
+                        Ultracode overrides the display to Xhigh ("X"). */}
+                    {ultracode ? (
+                      <span className="font-semibold uppercase text-ultracode">{' · X'}</span>
+                    ) : thinking && effort ? (
                       <span className="font-semibold uppercase text-primary">
                         {' · '}
                         {effort.charAt(0)}
@@ -747,16 +790,18 @@ export function ChatInput() {
                 <DropdownSeparator />
 
                 {/* Effort submenu with a Thinking toggle in its footer. Effort
-                    only bites under extended thinking, so it's disabled when off. */}
+                    only bites under extended thinking, so it's disabled when off.
+                    Ultracode forces Xhigh and locks the whole submenu. */}
                 <DropdownSubmenu
                   icon={<Gauge className="h-3.5 w-3.5" />}
                   label="Effort"
-                  value={thinking ? effortLabel(effort) : 'Off'}
+                  disabled={ultracode}
+                  value={ultracode ? 'Xhigh' : thinking ? effortLabel(effort) : 'Off'}
                 >
                   {EFFORT_OPTIONS.map((opt) => (
                     <DropdownItem
                       key={opt.label}
-                      disabled={!thinking}
+                      disabled={ultracode || !thinking}
                       onClick={() => setEffort(opt.value)}
                       icon={
                         <Check className={thinking && effort === opt.value ? '' : 'opacity-0'} />
@@ -768,8 +813,14 @@ export function ChatInput() {
                   <DropdownSeparator />
                   <DropdownItem
                     onClick={toggleThinking}
+                    disabled={ultracode}
                     closeOnClick={false}
-                    trailing={<Switch on={thinking} />}
+                    trailing={
+                      <Switch
+                        on={ultracode ? true : thinking}
+                        tone={ultracode ? 'ultracode' : 'primary'}
+                      />
+                    }
                   >
                     <span className="flex items-center gap-2">
                       <Brain className="h-3.5 w-3.5" />
@@ -777,6 +828,36 @@ export function ChatInput() {
                     </span>
                   </DropdownItem>
                 </DropdownSubmenu>
+
+                {/* Ultracode lives below Effort (not inside the submenu) so it
+                    stays reachable while it locks the submenu above. */}
+                <DropdownItem
+                  onClick={toggleUltracode}
+                  closeOnClick={false}
+                  trailing={<Switch on={ultracode} tone="ultracode" />}
+                >
+                  <span className="flex items-center gap-2">
+                    <span className="relative inline-flex">
+                      <Rocket
+                        className={`h-3.5 w-3.5 ${ultracode ? 'text-ultracode' : ''} transition-colors`}
+                      />
+                      {ultracodeRipple > 0 && (
+                        <span
+                          key={ultracodeRipple}
+                          aria-hidden="true"
+                          className="pointer-events-none absolute inset-0"
+                        >
+                          <span className="ultracode-ripple absolute inset-0 rounded-full border border-ultracode" />
+                          <span
+                            className="ultracode-ripple absolute inset-0 rounded-full border border-ultracode"
+                            style={{ animationDelay: '150ms' }}
+                          />
+                        </span>
+                      )}
+                    </span>
+                    Ultracode
+                  </span>
+                </DropdownItem>
               </DropdownMenu>
             </span>
           </div>

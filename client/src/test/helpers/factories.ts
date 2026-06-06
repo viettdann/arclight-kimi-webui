@@ -176,6 +176,7 @@ export function makeSnapshot(overrides?: Partial<SnapshotPayload>): SnapshotPayl
     thinking: true,
     approvalMode: 'ask',
     effort: null,
+    ultracode: false,
     commands: [],
     live: { turnInProgress: false },
     contextUsage: null,

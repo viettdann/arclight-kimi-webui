@@ -6,7 +6,9 @@ import type {
   SDKPartialAssistantMessage,
   SDKResultMessage,
   SDKTaskNotificationMessage,
+  SDKTaskProgressMessage,
   SDKTaskStartedMessage,
+  SDKTaskUpdatedMessage,
   SDKUserMessage,
 } from '@anthropic-ai/claude-agent-sdk';
 import { eq } from 'drizzle-orm';
@@ -16,6 +18,10 @@ import type {
   RateLimitPayload,
   StatusUpdatePayload,
   SubagentEventPayload,
+  TaskNotificationPayload,
+  TaskProgressPayload,
+  TaskStartedPayload,
+  TaskUpdatedPayload,
   TextDeltaPayload,
   ThinkingDeltaPayload,
   ToolCallDeltaPayload,
@@ -25,6 +31,7 @@ import type {
   TurnEndStatus,
   WSMessageType,
 } from 'shared/types';
+import { LOCAL_WORKFLOW_TASK_TYPE } from 'shared/types';
 import { LIGHT_MODEL } from 'shared/types/providers';
 import { db, schema } from '../../db';
 import { logger } from '../../lib/logger';
@@ -32,8 +39,10 @@ import { broadcastEvent } from '../../lib/ws-broadcast';
 import { resolveProviderForUser } from '../providers/resolve';
 import type { ActiveSession } from '../session-manager';
 import { sessionManager } from '../session-manager';
+import { normalizeApiError } from './api-errors';
 import { refreshCatalog } from './commands-catalog';
 import { toDisplayBlocks } from './display-blocks';
+import { mapTaskUsage } from './task-usage';
 import { generateTitle } from './title';
 import { readTranscriptTitleInputs } from './transcript-store';
 
@@ -162,6 +171,18 @@ export async function consumeQueryOutput(active: ActiveSession): Promise<void> {
   // `handleResult` from duplicating the same failure as a second error block.
   let apiErrorEmitted = false;
 
+  // ── Workflow attribution ──
+  // Active workflow RUNS keyed by the run's `tool_use_id` → the run's OWN
+  // `task_id`. A run is a `task_started` with `task_type === 'local_workflow'`
+  // (or a `workflow_name`); its child subagent tasks carry the SAME `tool_use_id`
+  // but distinct task_ids. The run-task_id lets `task_notification` tell the
+  // run's terminal event apart from a child's. Cleared on the run's own end.
+  const activeWorkflowRuns = new Map<string, string>();
+  // `task_id` → owning run's `tool_use_id`, for BOTH the run's own task_id and
+  // every child task_id. `task_updated` has no `tool_use_id`, so attribution for
+  // it (and `task_progress`) MUST route through this map.
+  const workflowRunByTaskId = new Map<string, { workflowToolCallId: string }>();
+
   function getIndexMap(scope: string): Map<number, string> {
     let m = toolUseIdByIndex.get(scope);
     if (!m) {
@@ -278,7 +299,7 @@ export async function consumeQueryOutput(active: ActiveSession): Promise<void> {
         .join('\n');
       const payload: ErrorPayload = {
         code: msg.error,
-        message: text || msg.error,
+        message: normalizeApiError(text || msg.error),
         retryable: msg.error === 'rate_limit' || msg.error === 'server_error',
       };
       emit(parent, 'error', payload);
@@ -389,6 +410,43 @@ export async function consumeQueryOutput(active: ActiveSession): Promise<void> {
       }
       case 'task_started': {
         const t = msg as SDKTaskStartedMessage;
+        // Workflow RUN: explicit local_workflow task_type, or a workflow_name
+        // (only set for runs). The run anchors on its own tool_use_id; children
+        // reuse that same id.
+        const isRun = t.task_type === LOCAL_WORKFLOW_TASK_TYPE || t.workflow_name != null;
+        // Workflow CHILD: a task whose tool_use_id matches an active run (and is
+        // not itself a run). task_updated carries no tool_use_id, so record this
+        // child's task_id → run mapping here.
+        const isChild = !isRun && t.tool_use_id != null && activeWorkflowRuns.has(t.tool_use_id);
+
+        if (isRun && t.tool_use_id != null) {
+          activeWorkflowRuns.set(t.tool_use_id, t.task_id);
+          workflowRunByTaskId.set(t.task_id, { workflowToolCallId: t.tool_use_id });
+          const payload: TaskStartedPayload = {
+            taskId: t.task_id,
+            toolCallId: t.tool_use_id,
+            description: t.description,
+            ...(t.task_type ? { taskType: t.task_type } : {}),
+            ...(t.workflow_name ? { workflowName: t.workflow_name } : {}),
+            ...(t.prompt ? { prompt: t.prompt } : {}),
+          };
+          emit(null, 'task_started', payload);
+          break;
+        }
+
+        if (isChild && t.tool_use_id != null) {
+          workflowRunByTaskId.set(t.task_id, { workflowToolCallId: t.tool_use_id });
+          const payload: TaskStartedPayload = {
+            taskId: t.task_id,
+            toolCallId: t.tool_use_id,
+            description: t.description,
+            ...(t.task_type ? { taskType: t.task_type } : {}),
+          };
+          emit(null, 'task_started', payload);
+          break;
+        }
+
+        // Plain subagent task — existing subagent_event path, unchanged.
         if (t.tool_use_id) {
           const payload: SubagentEventPayload = {
             parentToolCallId: t.tool_use_id,
@@ -400,8 +458,64 @@ export async function consumeQueryOutput(active: ActiveSession): Promise<void> {
         }
         break;
       }
+      case 'task_progress': {
+        const t = msg as SDKTaskProgressMessage;
+        const run = workflowRunByTaskId.get(t.task_id);
+        if (!run) break; // non-workflow progress — no client surface.
+        const payload: TaskProgressPayload = {
+          taskId: t.task_id,
+          toolCallId: run.workflowToolCallId,
+          description: t.description,
+          ...(t.subagent_type ? { subagentType: t.subagent_type } : {}),
+          usage: mapTaskUsage(t.usage),
+          ...(t.last_tool_name ? { lastToolName: t.last_tool_name } : {}),
+          ...(t.summary ? { summary: t.summary } : {}),
+        };
+        emit(null, 'task_progress', payload);
+        break;
+      }
+      case 'task_updated': {
+        const t = msg as SDKTaskUpdatedMessage;
+        // No tool_use_id on this message — attribution is strictly via the map.
+        if (!workflowRunByTaskId.has(t.task_id)) break;
+        const patch: TaskUpdatedPayload['patch'] = {};
+        if (t.patch.status != null) patch.status = t.patch.status;
+        if (t.patch.description != null) patch.description = t.patch.description;
+        if (t.patch.error != null) patch.error = t.patch.error;
+        if (t.patch.is_backgrounded != null) patch.isBackgrounded = t.patch.is_backgrounded;
+        const payload: TaskUpdatedPayload = { taskId: t.task_id, patch };
+        emit(null, 'task_updated', payload);
+        break;
+      }
       case 'task_notification': {
         const t = msg as SDKTaskNotificationMessage;
+        const run = workflowRunByTaskId.get(t.task_id);
+        if (run) {
+          const payload: TaskNotificationPayload = {
+            taskId: t.task_id,
+            toolCallId: run.workflowToolCallId,
+            status: t.status,
+            summary: t.summary,
+            ...(t.usage ? { usage: mapTaskUsage(t.usage) } : {}),
+          };
+          emit(null, 'task_notification', payload);
+          // The run's OWN terminal notification (its task_id == the recorded run
+          // task_id) ends the run — drop it so a later reused tool_use_id can't
+          // re-attribute children. A child's notification leaves the run open.
+          if (activeWorkflowRuns.get(run.workflowToolCallId) === t.task_id) {
+            activeWorkflowRuns.delete(run.workflowToolCallId);
+            // Sweep every task_id mapping owned by the ended run (its own +
+            // children) so the map doesn't grow unbounded over a session's life.
+            for (const [taskId, entry] of workflowRunByTaskId) {
+              if (entry.workflowToolCallId === run.workflowToolCallId) {
+                workflowRunByTaskId.delete(taskId);
+              }
+            }
+          }
+          break;
+        }
+
+        // Non-workflow subagent — existing synthetic turn_end path, unchanged.
         if (t.tool_use_id) {
           const turnEnd: TurnEndPayload = { status: 'finished', steps: 0 };
           const payload: SubagentEventPayload = {
@@ -446,8 +560,8 @@ export async function consumeQueryOutput(active: ActiveSession): Promise<void> {
         broadcastEvent(active, 'api_retry', payload, sessionManager);
         break;
       }
-      // task_progress / task_updated / thinking_tokens / permission_denied /
-      // status / etc. → skipped (no client-facing surface in MVP).
+      // thinking_tokens / permission_denied / status / etc. → skipped (no
+      // client-facing surface in MVP).
       default:
         break;
     }
@@ -485,13 +599,16 @@ export async function consumeQueryOutput(active: ActiveSession): Promise<void> {
       steps: msg.num_turns,
     };
     if (!cancelled && msg.subtype !== 'success' && msg.errors?.length) {
-      turnEnd.errors = msg.errors;
+      // Normalize each error so the client never sees the raw ultracode xhigh/max
+      // 400 — both in the turn_end errors array and the surfaced error block.
+      const errors = msg.errors.map(normalizeApiError);
+      turnEnd.errors = errors;
       // Make the failure visible as an error block, unless the assistant-level
       // API error (same failure, richer text) already emitted one this turn.
       if (!apiErrorEmitted) {
         const payload: ErrorPayload = {
           code: msg.subtype,
-          message: msg.errors.join('\n'),
+          message: errors.join('\n'),
           retryable: false,
         };
         broadcastEvent(active, 'error', payload, sessionManager);

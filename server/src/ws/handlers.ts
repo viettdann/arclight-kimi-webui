@@ -19,6 +19,7 @@ import type {
   SessionUpdatedPayload,
   SnapshotPayload,
   StartSessionPayload,
+  StopTaskPayload,
   SubscribePayload,
   TurnBeginPayload,
   WSMessage,
@@ -127,6 +128,7 @@ const defaultRestore: RestoreInjection = async (sessionId, mgr, dbh) => {
     thinking: row.thinking,
     approvalMode: row.approvalMode as ApprovalMode,
     effort: (row.effort as EffortLevel | null) ?? null,
+    ultracode: row.ultracode,
   });
   // Carry the persisted SDK session id so the lazy query can `resume`.
   active.sdkSessionId = row.sdkSessionId ?? null;
@@ -286,6 +288,9 @@ export async function handleMessage(ws: WS, raw: string | Buffer): Promise<void>
         return;
       case 'interrupt_turn':
         await handleInterruptTurn(ws, sessionId);
+        return;
+      case 'stop_task':
+        await handleStopTask(ws, sessionId, parsed.payload as StopTaskPayload | undefined);
         return;
       case 'request_context_usage':
         await handleRequestContextUsage(ws, sessionId);
@@ -451,6 +456,10 @@ async function handleStartSession(ws: WS, payload: StartSessionPayload | undefin
     sendError(ws, 'bad_request');
     return;
   }
+  if (payload.ultracode !== undefined && typeof payload.ultracode !== 'boolean') {
+    sendError(ws, 'bad_request');
+    return;
+  }
   if (payload.providerId !== undefined && typeof payload.providerId !== 'string') {
     sendError(ws, 'bad_request');
     return;
@@ -476,10 +485,11 @@ async function handleStartSession(ws: WS, payload: StartSessionPayload | undefin
   }
 
   // Thinking is on by default; approvalMode defaults to ask; effort defaults to
-  // the provider default (null).
+  // the provider default (null); ultracode is off by default.
   const thinking = payload.thinking ?? true;
   const approvalMode: ApprovalMode = payload.approvalMode ?? 'ask';
   const effort: EffortLevel | null = payload.effort ?? null;
+  const ultracode = payload.ultracode ?? false;
 
   let providerId = typeof payload.providerId === 'string' ? payload.providerId : null;
   let model = payload.model ?? null;
@@ -508,6 +518,7 @@ async function handleStartSession(ws: WS, payload: StartSessionPayload | undefin
     thinking,
     approvalMode,
     effort,
+    ultracode,
     status: 'active',
     title: null,
   });
@@ -521,6 +532,7 @@ async function handleStartSession(ws: WS, payload: StartSessionPayload | undefin
     thinking,
     approvalMode,
     effort,
+    ultracode,
   });
   deps.manager.attachWS(active, ws);
 
@@ -550,6 +562,7 @@ async function handleSendMessage(
   }
   if (
     (payload.thinking !== undefined && typeof payload.thinking !== 'boolean') ||
+    (payload.ultracode !== undefined && typeof payload.ultracode !== 'boolean') ||
     (payload.approvalMode !== undefined && !VALID_APPROVAL_MODE.has(payload.approvalMode)) ||
     isInvalidEffort(payload.effort)
   ) {
@@ -578,11 +591,15 @@ async function handleSendMessage(
   // running subprocess honors it without a respawn.
   const flagChanges: {
     thinking?: boolean;
+    ultracode?: boolean;
     approvalMode?: ApprovalMode;
     effort?: EffortLevel | null;
   } = {};
   if (payload.thinking !== undefined && payload.thinking !== active.thinking) {
     flagChanges.thinking = payload.thinking;
+  }
+  if (payload.ultracode !== undefined && payload.ultracode !== active.ultracode) {
+    flagChanges.ultracode = payload.ultracode;
   }
   if (payload.approvalMode !== undefined && payload.approvalMode !== active.approvalMode) {
     flagChanges.approvalMode = payload.approvalMode;
@@ -590,8 +607,28 @@ async function handleSendMessage(
   if (payload.effort !== undefined && payload.effort !== active.effort) {
     flagChanges.effort = payload.effort;
   }
+
+  // Ultracode is a non-destructive runtime override (effective effort = SDK-managed
+  // xhigh, thinking forced on). While it is ON, thinking/effort are not the user's
+  // to set — the UI disables those controls, but be defensive: drop any thinking/
+  // effort flag change that rides along so neither the live query nor the DB is
+  // mutated. Evaluated against the PRE-toggle state so a same-message ultracode:true
+  // doesn't suppress its own override (which is applied explicitly below). The
+  // ultracode:false case keeps thinking/effort changes — the session is reverting.
+  if (active.ultracode && flagChanges.ultracode === undefined) {
+    if (flagChanges.thinking !== undefined || flagChanges.effort !== undefined) {
+      logger.debug(
+        { sessionId, code: 'ultracode_flag_locked' },
+        'thinking/effort flag change dropped while ultracode is on',
+      );
+    }
+    flagChanges.thinking = undefined;
+    flagChanges.effort = undefined;
+  }
+
   if (
     flagChanges.thinking !== undefined ||
+    flagChanges.ultracode !== undefined ||
     flagChanges.approvalMode !== undefined ||
     flagChanges.effort !== undefined
   ) {
@@ -615,7 +652,36 @@ async function handleSendMessage(
       // A live query applies the effort flag in place; passing null resets it.
       await active.query?.applyFlagSettings({ effortLevel: flagChanges.effort });
     }
-    await deps.db.update(schema.sessions).set(flagChanges).where(eq(schema.sessions.id, sessionId));
+    if (flagChanges.ultracode !== undefined) {
+      active.ultracode = flagChanges.ultracode;
+      // A live query toggles ultracode (xhigh + workflow orchestration) in place.
+      await active.query?.applyFlagSettings({ ultracode: flagChanges.ultracode });
+      if (flagChanges.ultracode) {
+        // Apply the non-destructive override to the live query: force thinking on
+        // (alwaysThinkingEnabled: null falls back to enabled-by-default) and clear
+        // our effort so the SDK's xhigh isn't fought. Stored active.thinking/
+        // active.effort and the DB stay untouched — only the ultracode column moves.
+        await active.query?.applyFlagSettings({ alwaysThinkingEnabled: null, effortLevel: null });
+      } else {
+        // Reverting: re-apply the stored thinking/effort to the live query so the
+        // session returns to its persisted settings.
+        await active.query?.applyFlagSettings({
+          alwaysThinkingEnabled: active.thinking ? null : false,
+          effortLevel: active.effort,
+        });
+      }
+    }
+    // Persist only the columns that actually changed. The `undefined` thinking/
+    // effort entries the ultracode-lock cleared are stripped so the row keeps its
+    // stored values (the override is runtime-only).
+    const persist: Record<string, unknown> = {};
+    if (flagChanges.thinking !== undefined) persist.thinking = flagChanges.thinking;
+    if (flagChanges.approvalMode !== undefined) persist.approvalMode = flagChanges.approvalMode;
+    if (flagChanges.effort !== undefined) persist.effort = flagChanges.effort;
+    if (flagChanges.ultracode !== undefined) persist.ultracode = flagChanges.ultracode;
+    if (Object.keys(persist).length > 0) {
+      await deps.db.update(schema.sessions).set(persist).where(eq(schema.sessions.id, sessionId));
+    }
   }
 
   // Tracks whether a model and/or provider change was persisted, so we emit a
@@ -774,6 +840,32 @@ async function handleInterruptTurn(ws: WS, sessionId: string): Promise<void> {
   }
   // Settle any canUseTool promise that was waiting on the interrupted turn.
   deps.manager.drainPendingRequests(active);
+}
+
+/**
+ * Stop a single in-flight workflow task (a run or one of its children) by id,
+ * leaving the rest of the turn running. Best-effort: a query that has no such
+ * task or already finalized is a no-op.
+ */
+async function handleStopTask(
+  ws: WS,
+  sessionId: string,
+  payload: StopTaskPayload | undefined,
+): Promise<void> {
+  if (!sessionId) {
+    sendError(ws, 'bad_request');
+    return;
+  }
+  if (!payload || typeof payload.taskId !== 'string' || payload.taskId.length === 0) {
+    sendError(ws, 'bad_request', sessionId);
+    return;
+  }
+  const active = deps.manager.getForUser(ws.data.userId, sessionId);
+  if (!active) {
+    sendError(ws, 'not_found', sessionId);
+    return;
+  }
+  await active.query?.stopTask(payload.taskId);
 }
 
 /**

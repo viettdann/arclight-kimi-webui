@@ -9,6 +9,7 @@ import { ThinkingBlock } from './thinking-block';
 import { ToolCallCard } from './tool-call-card';
 import { ToolResultCard } from './tool-result-card';
 import { UserBlock } from './user-block';
+import { WorkflowBlock } from './workflow-block';
 
 interface BlockRegistryProps {
   block: Block;
@@ -82,6 +83,8 @@ export function BlockRegistry({ block }: BlockRegistryProps) {
           isStreaming={block.isStreaming}
         />
       );
+    case 'workflow':
+      return <WorkflowBlock block={block} />;
     default:
       return null;
   }

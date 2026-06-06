@@ -1,0 +1,1 @@
+ALTER TABLE "sessions" ADD COLUMN "ultracode" boolean DEFAULT false NOT NULL;

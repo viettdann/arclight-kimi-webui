@@ -1,10 +1,11 @@
 import { useEffect } from 'react';
-import { useChatStore } from '../../lib/chat-store';
+import { useActiveWorkflow, useChatStore } from '../../lib/chat-store';
 import { useRightSidebarStore } from '../../lib/right-sidebar-store';
 import { sendWS } from '../../lib/ws-send';
 import { ContextPanel } from './context-panel';
 import { GitPanel } from './git-panel';
 import { TodoPanel } from './todo-panel';
+import { WorkflowPanel } from './workflow-panel';
 
 interface RightSidebarProps {
   sessionId: string | undefined;
@@ -25,6 +26,9 @@ export function RightSidebar({ sessionId, activeProjectName }: RightSidebarProps
   const contextEpoch = useChatStore((s) =>
     sessionId ? (s.sessions[sessionId]?.contextEpoch ?? 0) : 0,
   );
+  // When a workflow run is active (or just finished within the turn), the
+  // Workflow panel replaces the Todo panel — the hook already encodes that.
+  const activeWorkflow = useActiveWorkflow(sessionId ?? null);
 
   // Close only when there's nothing left to scope the panel to — leaving for the
   // welcome screen with no project selected. Switching session ↔ project or
@@ -59,7 +63,11 @@ export function RightSidebar({ sessionId, activeProjectName }: RightSidebarProps
               In project-only mode the column is Git alone. */}
           {sessionId && (
             <>
-              <TodoPanel sessionId={sessionId} />
+              {activeWorkflow ? (
+                <WorkflowPanel sessionId={sessionId} />
+              ) : (
+                <TodoPanel sessionId={sessionId} />
+              )}
               <ContextPanel sessionId={sessionId} />
             </>
           )}

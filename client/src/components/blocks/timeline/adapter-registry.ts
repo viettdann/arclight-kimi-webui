@@ -15,6 +15,7 @@ import { BashOutputAdapter, KillShellAdapter, ShellAdapter } from './adapters/sh
 import { TaskAdapter } from './adapters/task-adapters';
 import { SetTodoListAdapter } from './adapters/todo-adapter';
 import { FetchURLAdapter, SearchWebAdapter } from './adapters/web-adapters';
+import { WorkflowAdapter } from './adapters/workflow-adapter';
 import type { Adapter } from './types';
 
 /** Tool name → adapter. Names match Claude Agent SDK built-in tools. */
@@ -33,6 +34,7 @@ const REGISTRY: Record<string, Adapter> = {
   WebSearch: SearchWebAdapter,
   WebFetch: FetchURLAdapter,
   Task: TaskAdapter,
+  Workflow: WorkflowAdapter,
   AskUserQuestion: AskUserQuestionAdapter,
 };
 
@@ -56,6 +58,7 @@ export const SUMMARY_VERB: Record<string, string> = {
   WebFetch: 'Fetched',
   Read: 'Read',
   Task: 'Delegated',
+  Workflow: 'Orchestrated',
   AskUserQuestion: 'Asked',
   // Native thinking blocks aggregate under the synthetic "Think" key.
   Think: 'Thought',

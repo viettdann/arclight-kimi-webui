@@ -64,6 +64,8 @@ export interface ActiveSession {
   approvalMode: ApprovalMode;
   /** Reasoning effort, applied from the prompt it rides with onward; `null` is the provider default. */
   effort: EffortLevel | null;
+  /** Ultracode mode: xhigh effort plus standing dynamic-workflow orchestration. */
+  ultracode: boolean;
   /** Dynamic command/skill catalog, populated on the first `system/init`. */
   commands?: CommandInfo[];
   /** True while a query is consuming/emitting for this session. */
@@ -113,6 +115,7 @@ export interface RegisterArgs {
   thinking?: boolean;
   approvalMode?: ApprovalMode;
   effort?: EffortLevel | null;
+  ultracode?: boolean;
 }
 
 export type RestoreFn = (sessionId: string) => Promise<ActiveSession>;
@@ -142,6 +145,7 @@ export class SessionManager {
       thinking: args.thinking ?? false,
       approvalMode: args.approvalMode ?? 'ask',
       effort: args.effort ?? null,
+      ultracode: args.ultracode ?? false,
       turnInProgress: false,
       interruptRequested: false,
       wsSet: new Set(),

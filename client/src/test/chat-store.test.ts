@@ -61,6 +61,7 @@ describe('useChatStore', () => {
       thinking: false,
       approvalMode: 'ask' as const,
       effort: 'medium' as const,
+      ultracode: false,
       commands: [],
     };
 
@@ -519,6 +520,7 @@ describe('useChatStore', () => {
         thinking: false,
         approvalMode: 'ask',
         effort: null,
+        ultracode: false,
         commands: [],
       });
 
@@ -554,6 +556,7 @@ describe('useChatStore', () => {
         thinking: false,
         approvalMode: 'ask',
         effort: null,
+        ultracode: false,
         commands: [],
       });
     }

@@ -2,15 +2,11 @@ import { BookText, FileText, Info, MessageSquare, Settings2 } from 'lucide-react
 import { type ComponentType, useEffect, useRef, useState } from 'react';
 import type { ContextUsagePayload } from 'shared/types';
 import { useSessionChat } from '../../lib/chat-store';
+import { fmtTokens } from '../../lib/utils';
 import { sendWS } from '../../lib/ws-send';
 
 interface ContextPanelProps {
   sessionId: string | undefined;
-}
-
-function fmtTokens(n: number): string {
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
-  return String(n);
 }
 
 // Compact a memory-file path to its last two segments (parent/file) so two

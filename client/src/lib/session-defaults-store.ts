@@ -9,16 +9,18 @@ const DEBOUNCE_MS = 500;
 const USER_KEYS = {
   approvalMode: 'session_defaults.approval_mode',
   thinking: 'session_defaults.thinking',
+  ultracode: 'session_defaults.ultracode',
   providerId: 'session_defaults.provider_id',
   model: 'session_defaults.model',
   effort: 'session_defaults.effort',
 } as const;
 
-type DefaultField = 'approvalMode' | 'thinking' | 'providerId' | 'model' | 'effort';
+type DefaultField = 'approvalMode' | 'thinking' | 'ultracode' | 'providerId' | 'model' | 'effort';
 
 interface OverrideState {
   approvalMode: boolean;
   thinking: boolean;
+  ultracode: boolean;
   providerId: boolean;
   model: boolean;
   effort: boolean;
@@ -27,6 +29,7 @@ interface OverrideState {
 interface SessionDefaultsState {
   approvalMode: ApprovalMode;
   thinking: boolean;
+  ultracode: boolean;
   providerId: string | null;
   model: string | null;
   effort: EffortLevel | null;
@@ -36,6 +39,7 @@ interface SessionDefaultsState {
 
   setApprovalMode: (mode: ApprovalMode) => void;
   setThinking: (on: boolean) => void;
+  setUltracode: (on: boolean) => void;
   setProviderId: (id: string | null) => void;
   setModel: (model: string | null) => void;
   setEffort: (effort: EffortLevel | null) => void;
@@ -43,6 +47,7 @@ interface SessionDefaultsState {
   /** Reset deletes the user_settings row so the value cascades. */
   resetApprovalMode: () => void;
   resetThinking: () => void;
+  resetUltracode: () => void;
   resetProviderId: () => void;
   resetModel: () => void;
   resetEffort: () => void;
@@ -155,6 +160,7 @@ export const useSessionDefaultsStore = create<SessionDefaultsState>((set) => {
   return {
     approvalMode: 'ask',
     thinking: true,
+    ultracode: false,
     providerId: null,
     model: null,
     effort: null,
@@ -162,6 +168,7 @@ export const useSessionDefaultsStore = create<SessionDefaultsState>((set) => {
     isUserOverride: {
       approvalMode: false,
       thinking: false,
+      ultracode: false,
       providerId: false,
       model: false,
       effort: false,
@@ -177,6 +184,8 @@ export const useSessionDefaultsStore = create<SessionDefaultsState>((set) => {
 
     setThinking: (thinking) => setField('thinking', USER_KEYS.thinking, thinking),
 
+    setUltracode: (ultracode) => setField('ultracode', USER_KEYS.ultracode, ultracode),
+
     setProviderId: (providerId) => setField('providerId', USER_KEYS.providerId, providerId),
 
     setModel: (model) => setField('model', USER_KEYS.model, model),
@@ -189,6 +198,8 @@ export const useSessionDefaultsStore = create<SessionDefaultsState>((set) => {
     resetApprovalMode: () => resetField('approvalMode', USER_KEYS.approvalMode),
 
     resetThinking: () => resetField('thinking', USER_KEYS.thinking),
+
+    resetUltracode: () => resetField('ultracode', USER_KEYS.ultracode, false),
 
     resetProviderId: () => resetField('providerId', USER_KEYS.providerId, null),
 
@@ -203,6 +214,7 @@ export const useSessionDefaultsStore = create<SessionDefaultsState>((set) => {
 
         const approvalMode = isApprovalMode(defaults.approvalMode) ? defaults.approvalMode : 'ask';
         const thinking = typeof defaults.thinking === 'boolean' ? defaults.thinking : true;
+        const ultracode = typeof defaults.ultracode === 'boolean' ? defaults.ultracode : false;
         const providerId = typeof defaults.providerId === 'string' ? defaults.providerId : null;
         const model = typeof defaults.model === 'string' ? defaults.model : null;
         const effort = isEffortLevel(defaults.effort) ? defaults.effort : null;
@@ -210,12 +222,14 @@ export const useSessionDefaultsStore = create<SessionDefaultsState>((set) => {
         set({
           approvalMode,
           thinking,
+          ultracode,
           providerId,
           model,
           effort,
           isUserOverride: {
             approvalMode: mySettings[USER_KEYS.approvalMode] !== undefined,
             thinking: mySettings[USER_KEYS.thinking] !== undefined,
+            ultracode: mySettings[USER_KEYS.ultracode] !== undefined,
             providerId: mySettings[USER_KEYS.providerId] !== undefined,
             model: mySettings[USER_KEYS.model] !== undefined,
             effort: mySettings[USER_KEYS.effort] !== undefined,

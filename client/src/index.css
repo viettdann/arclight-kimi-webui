@@ -32,6 +32,7 @@
     --color-warning: var(--warning);
     --color-warning-wash: var(--warning-wash);
     --color-info: var(--info);
+    --color-ultracode: var(--ultracode);
     --color-accent-foreground: var(--accent-foreground);
     --color-accent: var(--accent);
     --color-muted-foreground: var(--muted-foreground);
@@ -84,6 +85,7 @@
     --destructive: #B0413A;
     --destructive-wash: #F2DEDB;
     --info: #4B6FA8;
+    --ultracode: #7D5BA6; /* warm plum — Ultracode mode accent */
     --border: #E5DDD0; /* warm hairline */
     --border-strong: #D8CDBB;
     --input: #E5DDD0;
@@ -163,6 +165,35 @@
     width: 3px;
     border-radius: 99px;
     background: var(--primary);
+  }
+
+  /* Ultracode one-shot ripple: rings expand from the toggle icon once when the
+     mode turns on, then settle — feedback, never an ambient loop. Base opacity
+     0 keeps delayed rings invisible until their animation starts. */
+  .ultracode-ripple {
+    opacity: 0;
+    animation: ultracode-ripple 600ms ease-out forwards;
+  }
+
+  /* Static outer glow drawn by a dedicated overlay span, so it never fights
+     Tailwind's ring/shadow box-shadow composition on the composer itself. */
+  .ultracode-glow {
+    box-shadow: 0 0 14px 1px color-mix(in srgb, var(--ultracode) 22%, transparent);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .ultracode-ripple { animation: none; }
+  }
+}
+
+@keyframes ultracode-ripple {
+  from {
+    transform: scale(0.5);
+    opacity: 0.7;
+  }
+  to {
+    transform: scale(2.6);
+    opacity: 0;
   }
 }
 

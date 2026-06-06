@@ -106,6 +106,7 @@ describe('chat-store — rate_limit / api_retry events', () => {
       thinking: true,
       approvalMode: 'ask',
       effort: null,
+      ultracode: false,
       commands: [],
       live: { turnInProgress: false },
       contextUsage: null,

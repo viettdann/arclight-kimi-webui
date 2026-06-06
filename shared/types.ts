@@ -43,6 +43,10 @@ export type WSMessageType =
   | 'context_usage'
   | 'rate_limit'
   | 'api_retry'
+  | 'task_started'
+  | 'task_progress'
+  | 'task_updated'
+  | 'task_notification'
   | 'error'
   // client → server
   | 'subscribe'
@@ -54,7 +58,8 @@ export type WSMessageType =
   | 'interrupt_turn'
   | 'adopt_project'
   | 'request_context_usage'
-  | 'compact_session';
+  | 'compact_session'
+  | 'stop_task';
 
 // ─────────────────────────── Domain types ───────────────────────────
 
@@ -92,6 +97,76 @@ export type DisplayBlock =
   | { type: 'task'; op: 'list'; items: { id: string; title: string; status: TodoStatus }[] }
   | { type: 'brief'; text: string }
   | { type: 'unknown'; rawType: string; raw: Record<string, unknown> };
+
+/** Aggregate usage for a workflow run or child task (camelCase mirror of the SDK snake_case fields). */
+export interface TaskUsage {
+  totalTokens: number;
+  toolUses: number;
+  durationMs: number;
+}
+
+/** SDK `task_type` value marking a workflow run's own task. */
+export const LOCAL_WORKFLOW_TASK_TYPE = 'local_workflow';
+
+/** Full SDK task lifecycle vocabulary (patch statuses plus the `stopped` terminal). */
+export type TaskLifecycleStatus =
+  | 'pending'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'killed'
+  | 'paused'
+  | 'stopped';
+/** Statuses carried by a `task_updated` patch. */
+export type TaskPatchStatus = Exclude<TaskLifecycleStatus, 'stopped'>;
+/** Terminal statuses carried by a `task_notification`. */
+export type TaskTerminalStatus = 'completed' | 'failed' | 'stopped';
+
+export type WorkflowRunStatus = 'running' | 'completed' | 'failed' | 'stopped';
+export type WorkflowChildStatus = 'pending' | 'running' | 'completed' | 'failed';
+
+/**
+ * Single truth table mapping SDK lifecycle statuses onto a workflow run block.
+ * Shared by the live consumer (client) and the transcript rehydrate (server) so
+ * a reloaded session can't disagree with what the live events produced.
+ * `null` = no run-level transition; leave the current status unchanged.
+ */
+export function mapWorkflowRunStatus(status: TaskLifecycleStatus): WorkflowRunStatus | null {
+  switch (status) {
+    case 'killed':
+    case 'stopped':
+      return 'stopped';
+    case 'running':
+    case 'completed':
+    case 'failed':
+      return status;
+    default:
+      return null; // pending/paused carry no run-level transition
+  }
+}
+
+/** Run/child counterpart of `mapWorkflowRunStatus`; `null` = leave unchanged. */
+export function mapWorkflowChildStatus(status: TaskLifecycleStatus): WorkflowChildStatus | null {
+  switch (status) {
+    case 'killed':
+    case 'stopped':
+      return 'failed';
+    case 'paused':
+      return 'running'; // a paused child is still mid-flight
+    default:
+      return status;
+  }
+}
+
+/** A subagent task attributed to a workflow run, keyed by SDK `task_id`. */
+export interface WorkflowChild {
+  taskId: string;
+  description: string;
+  status: WorkflowChildStatus;
+  lastToolName?: string;
+  summary?: string;
+  usage?: TaskUsage;
+}
 
 export type Block =
   | { kind: 'user'; id: string; content: string; createdAt: string; status?: 'pending' | 'sent' }
@@ -147,6 +222,22 @@ export type Block =
       description?: string;
       blocks: Block[];
       isStreaming: boolean;
+      createdAt: string;
+    }
+  | {
+      // id = `workflow:${toolCallId}` where toolCallId is the Workflow tool_use.id.
+      // Built from the task_* events: the run-level task_started creates it,
+      // child task_started/task_progress fill `children`, task_updated/
+      // task_notification settle statuses.
+      kind: 'workflow';
+      id: string;
+      toolCallId: string;
+      runId?: string;
+      workflowName?: string;
+      status: WorkflowRunStatus;
+      children: WorkflowChild[];
+      summary?: string;
+      usage?: TaskUsage;
       createdAt: string;
     }
   | {
@@ -243,6 +334,8 @@ export interface SnapshotPayload {
   approvalMode: ApprovalMode;
   /** Reasoning effort, applied from the prompt it rides with onward; `null` is the provider default. */
   effort: EffortLevel | null;
+  /** Ultracode toggle: xhigh effort + standing dynamic-workflow orchestration. */
+  ultracode: boolean;
   /**
    * Dynamic command/skill catalog for this session's workDir, captured from the
    * live session's `system/init`. Empty until the first turn populates it.
@@ -329,6 +422,50 @@ export interface SubagentEventPayload {
    * frames (task_started/task_done) that just set subagentType/streaming.
    */
   inner: { type: WSMessageType; payload: unknown } | null;
+}
+
+/**
+ * Workflow run or attributed child task started. A run-level event carries
+ * `workflowName`/`prompt`; a child event carries the parent run's `toolCallId`.
+ */
+export interface TaskStartedPayload {
+  taskId: string;
+  /** Workflow tool_use.id — anchors the workflow block after its tool_call. */
+  toolCallId?: string;
+  description: string;
+  taskType?: string;
+  workflowName?: string;
+  prompt?: string;
+}
+
+export interface TaskProgressPayload {
+  taskId: string;
+  toolCallId?: string;
+  description: string;
+  subagentType?: string;
+  usage: TaskUsage;
+  lastToolName?: string;
+  summary?: string;
+}
+
+/** Wire-safe patch of changed task fields; the client merges by `taskId`. */
+export interface TaskUpdatedPayload {
+  taskId: string;
+  patch: {
+    status?: TaskPatchStatus;
+    description?: string;
+    error?: string;
+    isBackgrounded?: boolean;
+  };
+}
+
+/** Terminal task result for a workflow run or attributed child. */
+export interface TaskNotificationPayload {
+  taskId: string;
+  toolCallId?: string;
+  status: TaskTerminalStatus;
+  summary: string;
+  usage?: TaskUsage;
 }
 
 export interface StatusUpdatePayload {
@@ -510,6 +647,8 @@ export interface StartSessionPayload {
   approvalMode?: ApprovalMode;
   /** Initial reasoning effort; `null` or omitted is the provider default. */
   effort?: EffortLevel | null;
+  /** Initial ultracode state; omitted means off. */
+  ultracode?: boolean;
 }
 
 export interface ResumeSessionPayload {
@@ -535,6 +674,8 @@ export interface SendMessagePayload {
    * provider default; an omitted field leaves the current effort unchanged.
    */
   effort?: EffortLevel | null;
+  /** Ultracode toggle to apply for this prompt onward; omitted leaves it unchanged. */
+  ultracode?: boolean;
 }
 
 export type ApprovalResponse = 'approve' | 'approve_for_session' | 'reject';
@@ -560,6 +701,11 @@ export interface AnswerQuestionPayload {
 
 export type InterruptTurnPayload = Record<string, never>;
 export type CloseSessionPayload = Record<string, never>;
+
+/** Stop a running workflow task (run or child) via `Query.stopTask`. */
+export interface StopTaskPayload {
+  taskId: string;
+}
 
 export interface AdoptProjectPayload {
   /** Logical project slug; must equal slugifyProjectName(name). */

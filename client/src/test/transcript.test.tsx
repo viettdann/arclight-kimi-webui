@@ -65,6 +65,7 @@ const defaultSession = (over: Partial<ChatSessionState> = {}): ChatSessionState 
   thinking: false,
   approvalMode: 'ask',
   effort: null,
+  ultracode: false,
   rateLimit: null,
   apiRetry: null,
   ...over,

@@ -17,12 +17,14 @@ describe('useSessionDefaultsStore', () => {
       providerId: null,
       model: null,
       effort: null,
+      ultracode: false,
       isUserOverride: {
         approvalMode: false,
         thinking: false,
         providerId: false,
         model: false,
         effort: false,
+        ultracode: false,
       },
       status: 'idle',
     });

@@ -1,4 +1,5 @@
 // biome-ignore-all lint/suspicious/noExplicitAny: WS event payloads are dynamically shaped per WSMessageType; consumed by the applyEvent switch
+
 import type {
   ApiRetryPayload,
   ApprovalMode,
@@ -10,7 +11,17 @@ import type {
   RateLimitPayload,
   SnapshotPayload,
   StatusUpdatePayload,
+  TaskNotificationPayload,
+  TaskProgressPayload,
+  TaskStartedPayload,
+  TaskUpdatedPayload,
+  WorkflowChild,
   WSMessageType,
+} from 'shared/types';
+import {
+  LOCAL_WORKFLOW_TASK_TYPE,
+  mapWorkflowChildStatus,
+  mapWorkflowRunStatus,
 } from 'shared/types';
 import { create } from 'zustand';
 
@@ -36,6 +47,8 @@ export interface ChatSessionState {
   approvalMode: ApprovalMode;
   /** Reasoning effort, applied from the prompt it rides with onward; `null` is the provider default. */
   effort: EffortLevel | null;
+  /** Ultracode toggle: xhigh effort + standing dynamic-workflow orchestration. */
+  ultracode: boolean;
   /** Latest provider quota status from `rate_limit`; null when the provider never reports it. */
   rateLimit: RateLimitPayload | null;
   /** In-flight API retry notice from `api_retry`; cleared on the next stream activity. */
@@ -51,7 +64,12 @@ interface ChatStore {
   /** Optimistic local update of agent flags; server echoes the truth via snapshot. */
   setSessionFlags: (
     sessionId: string,
-    flags: { thinking?: boolean; approvalMode?: ApprovalMode; effort?: EffortLevel | null },
+    flags: {
+      thinking?: boolean;
+      approvalMode?: ApprovalMode;
+      effort?: EffortLevel | null;
+      ultracode?: boolean;
+    },
   ) => void;
   /** Drop a session's in-memory chat state when the session is deleted. */
   removeSession: (sessionId: string) => void;
@@ -69,6 +87,7 @@ const createDefaultSessionState = (): ChatSessionState => ({
   thinking: true,
   approvalMode: 'ask',
   effort: null,
+  ultracode: false,
   rateLimit: null,
   apiRetry: null,
 });
@@ -302,6 +321,18 @@ function applyEventToBlocks(
       return applySubagentEvent(blocks, payload, seq);
     }
 
+    case 'task_started':
+      return applyTaskStarted(blocks, payload as TaskStartedPayload);
+
+    case 'task_progress':
+      return applyTaskProgress(blocks, payload as TaskProgressPayload);
+
+    case 'task_updated':
+      return applyTaskUpdated(blocks, payload as TaskUpdatedPayload);
+
+    case 'task_notification':
+      return applyTaskNotification(blocks, payload as TaskNotificationPayload);
+
     case 'turn_end': {
       const stopped = blocks.map((b) =>
         (b.kind === 'text' ||
@@ -391,6 +422,185 @@ function applySubagentEvent(blocks: Block[], payload: any, seq: number): Block[]
   return next;
 }
 
+type WorkflowBlock = Extract<Block, { kind: 'workflow' }>;
+
+/**
+ * Upsert a child task into a workflow block's `children`, keyed by `taskId`.
+ * `undefined` patch fields are dropped so they never clobber the required
+ * `description`/`status` on an existing child.
+ */
+function upsertWorkflowChild(
+  block: WorkflowBlock,
+  taskId: string,
+  patch: Partial<WorkflowChild>,
+): WorkflowBlock {
+  const idx = block.children.findIndex((c) => c.taskId === taskId);
+  const existing = idx >= 0 ? block.children[idx] : undefined;
+  const merged: WorkflowChild = existing
+    ? { ...existing, taskId }
+    : { taskId, description: '', status: 'running' };
+  if (patch.description !== undefined) merged.description = patch.description;
+  if (patch.status !== undefined) merged.status = patch.status;
+  if (patch.lastToolName !== undefined) merged.lastToolName = patch.lastToolName;
+  if (patch.summary !== undefined) merged.summary = patch.summary;
+  if (patch.usage !== undefined) merged.usage = patch.usage;
+  if (existing) {
+    const children = [...block.children];
+    children[idx] = merged;
+    return { ...block, children };
+  }
+  return { ...block, children: [...block.children, merged] };
+}
+
+/**
+ * `task_started`: a RUN frame (workflowName set or taskType 'local_workflow')
+ * upserts the run-level workflow block, anchored right after its tool_call; any
+ * other frame attributes a CHILD task to the workflow named by `toolCallId`.
+ */
+function applyTaskStarted(blocks: Block[], payload: TaskStartedPayload): Block[] {
+  const toolCallId = payload.toolCallId ?? '';
+  const isRun = payload.workflowName !== undefined || payload.taskType === LOCAL_WORKFLOW_TASK_TYPE;
+
+  if (isRun) {
+    const id = `workflow:${toolCallId}`;
+    const idx = blocks.findIndex((b) => b.kind === 'workflow' && b.id === id);
+    if (idx >= 0) {
+      const existing = blocks[idx] as WorkflowBlock;
+      const next = [...blocks];
+      next[idx] = {
+        ...existing,
+        status: 'running',
+        runId: payload.taskId,
+        workflowName: payload.workflowName ?? existing.workflowName,
+      };
+      return next;
+    }
+    const newBlock: Block = {
+      kind: 'workflow',
+      id,
+      toolCallId,
+      runId: payload.taskId,
+      workflowName: payload.workflowName,
+      status: 'running',
+      children: [],
+      createdAt: now(),
+    };
+    const parentIdx = blocks.findIndex(
+      (b) => b.kind === 'tool_call' && b.toolCallId === toolCallId,
+    );
+    if (parentIdx >= 0) {
+      return [...blocks.slice(0, parentIdx + 1), newBlock, ...blocks.slice(parentIdx + 1)];
+    }
+    return [...blocks, newBlock];
+  }
+
+  // Child task: attribute to the workflow named by `toolCallId`.
+  const idx = blocks.findIndex((b) => b.kind === 'workflow' && b.toolCallId === toolCallId);
+  if (idx < 0) return blocks;
+  const next = [...blocks];
+  next[idx] = upsertWorkflowChild(next[idx] as WorkflowBlock, payload.taskId, {
+    description: payload.description,
+    status: 'running',
+  });
+  return next;
+}
+
+/**
+ * `task_progress`: a run-level frame (matched by `runId`) updates the block's
+ * aggregate usage; otherwise the frame updates the matching child task.
+ */
+function applyTaskProgress(blocks: Block[], payload: TaskProgressPayload): Block[] {
+  const runIdx = blocks.findIndex((b) => b.kind === 'workflow' && b.runId === payload.taskId);
+  if (runIdx >= 0) {
+    const existing = blocks[runIdx] as WorkflowBlock;
+    const next = [...blocks];
+    next[runIdx] = { ...existing, usage: payload.usage };
+    return next;
+  }
+  const childIdx = blocks.findIndex(
+    (b) => b.kind === 'workflow' && b.children.some((c) => c.taskId === payload.taskId),
+  );
+  if (childIdx < 0) return blocks;
+  const next = [...blocks];
+  next[childIdx] = upsertWorkflowChild(next[childIdx] as WorkflowBlock, payload.taskId, {
+    description: payload.description,
+    lastToolName: payload.lastToolName,
+    summary: payload.summary,
+    usage: payload.usage,
+    status: 'running',
+  });
+  return next;
+}
+
+/**
+ * `task_updated`: merge a wire-safe patch by `taskId`. Status is mapped through
+ * the shared `mapWorkflowRunStatus`/`mapWorkflowChildStatus` truth tables
+ * (`null` leaves the current status unchanged). The child union has no error
+ * field, so `patch.error` is ignored.
+ */
+function applyTaskUpdated(blocks: Block[], payload: TaskUpdatedPayload): Block[] {
+  const { patch } = payload;
+
+  const runIdx = blocks.findIndex((b) => b.kind === 'workflow' && b.runId === payload.taskId);
+  if (runIdx >= 0) {
+    const existing = blocks[runIdx] as WorkflowBlock;
+    const mapped = patch.status !== undefined ? mapWorkflowRunStatus(patch.status) : null;
+    const next = [...blocks];
+    next[runIdx] = { ...existing, status: mapped ?? existing.status };
+    return next;
+  }
+
+  const childIdx = blocks.findIndex(
+    (b) => b.kind === 'workflow' && b.children.some((c) => c.taskId === payload.taskId),
+  );
+  if (childIdx < 0) return blocks;
+  const childPatch: Partial<WorkflowChild> = {};
+  if (patch.status !== undefined) {
+    const mapped = mapWorkflowChildStatus(patch.status);
+    if (mapped !== null) childPatch.status = mapped;
+  }
+  if (patch.description !== undefined) childPatch.description = patch.description;
+  const next = [...blocks];
+  next[childIdx] = upsertWorkflowChild(next[childIdx] as WorkflowBlock, payload.taskId, childPatch);
+  return next;
+}
+
+/**
+ * `task_notification`: terminal result for a run (matched by `runId`) or an
+ * attributed child. Status is mapped through the shared
+ * `mapWorkflowRunStatus`/`mapWorkflowChildStatus` truth tables, so a child
+ * `stopped` settles as `failed` (the child union has no `stopped` state).
+ */
+function applyTaskNotification(blocks: Block[], payload: TaskNotificationPayload): Block[] {
+  const runIdx = blocks.findIndex((b) => b.kind === 'workflow' && b.runId === payload.taskId);
+  if (runIdx >= 0) {
+    const existing = blocks[runIdx] as WorkflowBlock;
+    const mapped = mapWorkflowRunStatus(payload.status);
+    const next = [...blocks];
+    next[runIdx] = {
+      ...existing,
+      status: mapped ?? existing.status,
+      summary: payload.summary,
+      usage: payload.usage ?? existing.usage,
+    };
+    return next;
+  }
+
+  const childIdx = blocks.findIndex(
+    (b) => b.kind === 'workflow' && b.children.some((c) => c.taskId === payload.taskId),
+  );
+  if (childIdx < 0) return blocks;
+  const childPatch: Partial<WorkflowChild> = {
+    summary: payload.summary,
+    usage: payload.usage,
+  };
+  const mapped = mapWorkflowChildStatus(payload.status);
+  if (mapped !== null) childPatch.status = mapped;
+  const next = [...blocks];
+  next[childIdx] = upsertWorkflowChild(next[childIdx] as WorkflowBlock, payload.taskId, childPatch);
+  return next;
+}
+
 export const useChatStore = create<ChatStore>((set, get) => ({
   sessions: {},
 
@@ -421,6 +631,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           thinking: payload.thinking ?? true,
           approvalMode: payload.approvalMode ?? 'ask',
           effort: payload.effort ?? null,
+          ultracode: payload.ultracode ?? false,
           // Provider quota status survives a re-snapshot (it is provider-level,
           // not transcript state); the transient retry notice does not.
           rateLimit: state.sessions[sessionId]?.rateLimit ?? null,
@@ -526,12 +737,14 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       if (flags.thinking !== undefined) session.thinking = flags.thinking;
       if (flags.approvalMode !== undefined) session.approvalMode = flags.approvalMode;
       if (flags.effort !== undefined) session.effort = flags.effort;
+      if (flags.ultracode !== undefined) session.ultracode = flags.ultracode;
       return { sessions: { ...state.sessions, [sessionId]: session } };
     });
   },
 
   removeSession: (sessionId: string) => {
     todoFoldCache.delete(sessionId);
+    activeWorkflowCache.delete(sessionId);
     set((state) => {
       if (!(sessionId in state.sessions)) return state;
       const { [sessionId]: _removed, ...rest } = state.sessions;
@@ -631,6 +844,73 @@ export function useLatestTodos(sessionId: string | undefined): TodoItems | null 
     }
     const value = foldTodos(relevant);
     todoFoldCache.set(sessionId, { key: relevant, value });
+    return value;
+  });
+}
+
+/** Collect the workflow blocks from the timeline, in order. */
+function collectWorkflowBlocks(blocks: Block[]): WorkflowBlock[] {
+  const out: WorkflowBlock[] = [];
+  for (const b of blocks) {
+    if (b.kind === 'workflow') out.push(b);
+  }
+  return out;
+}
+
+/**
+ * Resolve the workflow block the active-run UI should track: the latest running
+ * workflow, or — only while the turn is still in progress — the latest finished
+ * one. Returns null once the turn ends and nothing is running.
+ */
+function resolveActiveWorkflow(
+  workflows: WorkflowBlock[],
+  turnInProgress: boolean,
+): WorkflowBlock | null {
+  let latestRunning: WorkflowBlock | null = null;
+  let latestFinished: WorkflowBlock | null = null;
+  for (const b of workflows) {
+    if (b.status === 'running') latestRunning = b;
+    else latestFinished = b;
+  }
+  if (latestRunning) return latestRunning;
+  return turnInProgress ? latestFinished : null;
+}
+
+// Per-session active-workflow cache. Mirrors `todoFoldCache`: streaming deltas
+// churn `session.blocks` identity many times per second while the workflow
+// blocks keep theirs — comparing those identities (plus the turn flag, which
+// flips the finished-fallback) returns a stable reference until a workflow
+// block or the turn state actually changes.
+const activeWorkflowCache = new Map<
+  string,
+  { key: WorkflowBlock[]; turnInProgress: boolean; value: WorkflowBlock | null }
+>();
+
+/**
+ * Hook: the workflow block the active-run UI should surface for `sessionId`
+ * (see `resolveActiveWorkflow`), or null when none applies.
+ */
+export function useActiveWorkflow(sessionId: string | null): WorkflowBlock | null {
+  return useChatStore((state) => {
+    if (!sessionId) return null;
+    const session = state.sessions[sessionId];
+    if (!session) return null;
+    const relevant = collectWorkflowBlocks(session.blocks);
+    const cached = activeWorkflowCache.get(sessionId);
+    if (
+      cached &&
+      cached.turnInProgress === session.isTurnInProgress &&
+      cached.key.length === relevant.length &&
+      cached.key.every((b, i) => b === relevant[i])
+    ) {
+      return cached.value;
+    }
+    const value = resolveActiveWorkflow(relevant, session.isTurnInProgress);
+    activeWorkflowCache.set(sessionId, {
+      key: relevant,
+      turnInProgress: session.isTurnInProgress,
+      value,
+    });
     return value;
   });
 }

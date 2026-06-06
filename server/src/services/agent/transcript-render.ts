@@ -20,8 +20,14 @@
 //  - user id = the user line's `uuid`
 //  - error id = `error:${i}` (sequential within the render)
 
-import type { Block, DisplayBlock } from 'shared/types';
+import type { Block, DisplayBlock, TaskLifecycleStatus, WorkflowChild } from 'shared/types';
+import {
+  LOCAL_WORKFLOW_TASK_TYPE,
+  mapWorkflowChildStatus,
+  mapWorkflowRunStatus,
+} from 'shared/types';
 import { toDisplayBlocks } from './display-blocks';
+import { mapTaskUsageSafe } from './task-usage';
 
 /**
  * Structural transcript entry — a JSONL line as a POJO. Matches the SDK's
@@ -66,6 +72,26 @@ function isRecord(v: unknown): v is AnyRecord {
 function asString(v: unknown): string {
   return typeof v === 'string' ? v : '';
 }
+
+const LIFECYCLE_STATUSES: ReadonlySet<string> = new Set<TaskLifecycleStatus>([
+  'pending',
+  'running',
+  'completed',
+  'failed',
+  'killed',
+  'paused',
+  'stopped',
+]);
+
+/** Narrow an untrusted JSONL status value to the SDK lifecycle vocabulary. */
+function asLifecycleStatus(v: unknown): TaskLifecycleStatus | undefined {
+  return typeof v === 'string' && LIFECYCLE_STATUSES.has(v)
+    ? (v as TaskLifecycleStatus)
+    : undefined;
+}
+
+/** Narrowed `workflow` block — the only Block variant T9 mutates after creation. */
+type WorkflowBlock = Extract<Block, { kind: 'workflow' }>;
 
 /** Parse the JSONL body line-by-line, tolerating blank/malformed lines. */
 function parseLines(content: string): AnyRecord[] {
@@ -128,10 +154,37 @@ export function renderTranscript(
   let contentBlockIndex = 0;
   let errorSeq = 0;
 
+  // ── Workflow attribution (mirrors the live consumer's T8 logic) ──
+  // Active workflow RUNS keyed by the run's `tool_use_id`; children carry the
+  // same id. `workflow:${tool_use_id}` → the rendered block, for child folding.
+  const activeWorkflowRuns = new Set<string>();
+  const workflowBlockByToolCallId = new Map<string, WorkflowBlock>();
+  // `task_id` → owning run's `tool_use_id`, for BOTH the run and its children.
+  // task_updated/task_progress carry no usable tool_use_id, so attribution for
+  // them routes through this map.
+  const workflowRunByTaskId = new Map<string, string>();
+
   for (const rec of lines) {
     const type = asString(rec.type);
-    if (IGNORED_LINE_TYPES.has(type)) continue;
     const timestamp = asString(rec.timestamp);
+
+    // task_* are stored as `type:'system'` entries — `'system'` is in
+    // IGNORED_LINE_TYPES, so fold them into `workflow` blocks BEFORE the ignore
+    // check drops them. Same attribution logic as the live consumer (T8).
+    if (type === 'system') {
+      const subtype = asString(rec.subtype);
+      if (subtype.startsWith('task_')) {
+        handleWorkflowEntry(rec, subtype, timestamp, {
+          blocks,
+          activeWorkflowRuns,
+          workflowBlockByToolCallId,
+          workflowRunByTaskId,
+        });
+        continue;
+      }
+    }
+
+    if (IGNORED_LINE_TYPES.has(type)) continue;
 
     if (type === 'assistant') {
       const message = isRecord(rec.message) ? rec.message : undefined;
@@ -258,6 +311,185 @@ export function renderTranscript(
   attachSubagents(blocks, subagents, agentIdToParent, opts);
   if (opts.terminal) synthesizeInterruptedResults(blocks);
   return blocks;
+}
+
+/** Mutable attribution state threaded through {@link handleWorkflowEntry}. */
+interface WorkflowState {
+  blocks: Block[];
+  activeWorkflowRuns: Set<string>;
+  workflowBlockByToolCallId: Map<string, WorkflowBlock>;
+  workflowRunByTaskId: Map<string, string>;
+}
+
+/**
+ * Fold one persisted `task_*` system entry into the `workflow` blocks. Mirrors
+ * the live consumer's attribution (T8): a `local_workflow`/`workflow_name`
+ * `task_started` opens a run; subsequent tasks with the same `tool_use_id` are
+ * its children; `task_progress`/`task_updated`/`task_notification` settle them.
+ * Reload-only statuses ('killed'/'paused') are mapped per the spec.
+ */
+function handleWorkflowEntry(
+  rec: AnyRecord,
+  subtype: string,
+  timestamp: string,
+  state: WorkflowState,
+): void {
+  const { blocks, activeWorkflowRuns, workflowBlockByToolCallId, workflowRunByTaskId } = state;
+  const taskId = asString(rec.task_id);
+  if (!taskId) return;
+  const toolUseId = asString(rec.tool_use_id);
+
+  switch (subtype) {
+    case 'task_started': {
+      const taskType = asString(rec.task_type);
+      const workflowName = asString(rec.workflow_name);
+      const isRun = taskType === LOCAL_WORKFLOW_TASK_TYPE || workflowName !== '';
+      const isChild = !isRun && toolUseId !== '' && activeWorkflowRuns.has(toolUseId);
+
+      if (isRun && toolUseId !== '') {
+        // Idempotent: a duplicate run-start for the same tool_use_id is ignored.
+        if (workflowBlockByToolCallId.has(toolUseId)) return;
+        activeWorkflowRuns.add(toolUseId);
+        workflowRunByTaskId.set(taskId, toolUseId);
+        const block: WorkflowBlock = {
+          kind: 'workflow',
+          id: `workflow:${toolUseId}`,
+          toolCallId: toolUseId,
+          ...(taskId ? { runId: taskId } : {}),
+          ...(workflowName ? { workflowName } : {}),
+          status: 'running',
+          children: [],
+          createdAt: timestamp,
+        };
+        workflowBlockByToolCallId.set(toolUseId, block);
+        // Anchor right AFTER the originating tool_call when present, else append.
+        const parentIdx = blocks.findIndex(
+          (b) => b.kind === 'tool_call' && b.toolCallId === toolUseId,
+        );
+        if (parentIdx !== -1) blocks.splice(parentIdx + 1, 0, block);
+        else blocks.push(block);
+        return;
+      }
+
+      if (isChild) {
+        workflowRunByTaskId.set(taskId, toolUseId);
+        const run = workflowBlockByToolCallId.get(toolUseId);
+        if (!run) return;
+        if (run.children.some((c) => c.taskId === taskId)) return; // dedupe
+        run.children.push({
+          taskId,
+          description: asString(rec.description),
+          status: 'running',
+        });
+      }
+      return;
+    }
+
+    case 'task_progress': {
+      const runToolCallId = workflowRunByTaskId.get(taskId);
+      if (runToolCallId === undefined) return;
+      const usage = mapTaskUsageSafe(rec.usage);
+
+      // Run-level progress (task_id == the run's own id): update aggregate usage
+      // on the run block (mirrors the live consumer's run branch).
+      const run = workflowBlockByToolCallId.get(runToolCallId);
+      if (run?.runId === taskId) {
+        if (usage) run.usage = usage;
+        return;
+      }
+
+      const child = findChild(workflowBlockByToolCallId, workflowRunByTaskId, taskId);
+      if (!child) return;
+      child.status = 'running';
+      const description = asString(rec.description);
+      if (description) child.description = description;
+      const lastToolName = asString(rec.last_tool_name);
+      if (lastToolName) child.lastToolName = lastToolName;
+      const summary = asString(rec.summary);
+      if (summary) child.summary = summary;
+      if (usage) child.usage = usage;
+      return;
+    }
+
+    case 'task_updated': {
+      // No tool_use_id on this entry — attribution is strictly via the map.
+      const runToolCallId = workflowRunByTaskId.get(taskId);
+      if (runToolCallId === undefined) return;
+      const patch = isRecord(rec.patch) ? rec.patch : {};
+      const status = asLifecycleStatus(patch.status);
+      const description = asString(patch.description);
+      const run = workflowBlockByToolCallId.get(runToolCallId);
+      const isRunTask = run?.runId === taskId;
+
+      if (isRunTask && run) {
+        // Shared truth table: killed → stopped, paused/pending leave unchanged.
+        if (status) {
+          const mapped = mapWorkflowRunStatus(status);
+          if (mapped) run.status = mapped;
+        }
+        return;
+      }
+
+      const child = findChild(workflowBlockByToolCallId, workflowRunByTaskId, taskId);
+      if (!child) return;
+      // Shared truth table: killed → failed, paused → running (mid-flight).
+      if (status) {
+        const mapped = mapWorkflowChildStatus(status);
+        if (mapped) child.status = mapped;
+      }
+      if (description) child.description = description;
+      return;
+    }
+
+    case 'task_notification': {
+      const runToolCallId = workflowRunByTaskId.get(taskId);
+      if (runToolCallId === undefined) return;
+      const status = asLifecycleStatus(rec.status);
+      const summary = asString(rec.summary);
+      const usage = mapTaskUsageSafe(rec.usage);
+      const run = workflowBlockByToolCallId.get(runToolCallId);
+
+      if (run?.runId === taskId) {
+        // Shared truth table: stopped stays stopped, completed/failed pass through.
+        if (status) {
+          const mapped = mapWorkflowRunStatus(status);
+          if (mapped) run.status = mapped;
+        }
+        if (summary) run.summary = summary;
+        if (usage) run.usage = usage;
+        // Run ended — stop attributing later same-id children to it.
+        activeWorkflowRuns.delete(runToolCallId);
+        return;
+      }
+
+      const child = findChild(workflowBlockByToolCallId, workflowRunByTaskId, taskId);
+      if (!child) return;
+      // Shared truth table: stopped → failed, completed/failed pass through.
+      if (status) {
+        const mapped = mapWorkflowChildStatus(status);
+        if (mapped) child.status = mapped;
+      }
+      if (summary) child.summary = summary;
+      if (usage) child.usage = usage;
+      return;
+    }
+
+    default:
+      return;
+  }
+}
+
+/** Resolve the {@link WorkflowChild} a `task_id` belongs to, via the run map. */
+function findChild(
+  workflowBlockByToolCallId: Map<string, WorkflowBlock>,
+  workflowRunByTaskId: Map<string, string>,
+  taskId: string,
+): WorkflowChild | undefined {
+  const runToolCallId = workflowRunByTaskId.get(taskId);
+  if (runToolCallId === undefined) return undefined;
+  const run = workflowBlockByToolCallId.get(runToolCallId);
+  if (!run || run.runId === taskId) return undefined; // not a child of the run
+  return run.children.find((c) => c.taskId === taskId);
 }
 
 /**

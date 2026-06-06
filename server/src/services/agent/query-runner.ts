@@ -121,12 +121,21 @@ export async function startQuery(
       // a mid-turn reload sees the transcript within ~1 frame of live.
       sessionStore,
       sessionStoreFlush: 'eager',
-      // Highest-priority "flag settings" layer; only set when we override the
-      // default attribution (opt-in keeps the SDK default untouched).
-      ...(attribution ? { settings: { attribution } } : {}),
+      // Highest-priority "flag settings" layer. Workflows are always enabled so
+      // ultracode (xhigh + standing workflow orchestration) can be turned on per
+      // session; attribution overrides only set when we strip the SDK default.
+      settings: {
+        enableWorkflows: true,
+        ...(active.ultracode ? { ultracode: true } : {}),
+        ...(attribution ? { attribution } : {}),
+      },
       ...permissionOptions(active.approvalMode),
-      ...thinkingOptions(active.thinking),
-      ...effortOptions(active.effort),
+      // Ultracode is a non-destructive runtime override: force thinking on and
+      // stop sending our own effort so the SDK's internally-driven xhigh effort
+      // isn't fought. Stored `active.thinking`/`active.effort` are untouched —
+      // turning ultracode off reverts to them.
+      ...thinkingOptions(active.ultracode ? true : active.thinking),
+      ...(active.ultracode ? {} : effortOptions(active.effort)),
       ...(opts.resume ? { resume: opts.resume } : {}),
       stderr: (line: string) => logger.debug({ line }, 'claude stderr'),
     },
