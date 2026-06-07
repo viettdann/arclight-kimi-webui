@@ -172,3 +172,59 @@ describe('wsClient reconnection', () => {
     expect(MockWebSocket.instances).toHaveLength(1);
   });
 });
+
+const PING_FRAME = JSON.stringify({ type: 'ping', payload: {}, sessionId: '', seq: 0 });
+
+describe('wsClient heartbeat', () => {
+  it('sends a ping after the 25s interval', () => {
+    wsClient.connect();
+    last().open();
+    expect(last().send).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(25_000);
+    expect(last().send).toHaveBeenCalledWith(PING_FRAME);
+  });
+
+  it('reconnects when no frame answers the ping within 10s (zombie)', () => {
+    wsClient.connect();
+    last().open();
+    expect(MockWebSocket.instances).toHaveLength(1);
+
+    vi.advanceTimersByTime(25_000); // ping sent, pong deadline armed
+    vi.advanceTimersByTime(9_999);
+    expect(MockWebSocket.instances).toHaveLength(1); // still waiting
+    vi.advanceTimersByTime(1);
+    expect(MockWebSocket.instances).toHaveLength(2); // deadline → force reconnect
+  });
+
+  it('any inbound frame proves liveness and cancels the pong deadline', () => {
+    wsClient.connect();
+    last().open();
+
+    vi.advanceTimersByTime(25_000); // ping sent
+    last().message('any-frame'); // counts as a pong
+    vi.advanceTimersByTime(20_000); // past the 10s deadline
+    expect(MockWebSocket.instances).toHaveLength(1); // no zombie reconnect
+  });
+});
+
+describe('wsClient wake recovery', () => {
+  it('probes immediately with a ping when the tab becomes visible', () => {
+    wsClient.connect();
+    last().open();
+    expect(last().send).not.toHaveBeenCalled();
+
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(last().send).toHaveBeenCalledWith(PING_FRAME); // no 25s wait
+  });
+
+  it('dials immediately on `online` while waiting on backoff', () => {
+    wsClient.connect();
+    last().open();
+    last().drop(1006); // state → reconnecting, backoff pending
+    expect(MockWebSocket.instances).toHaveLength(1);
+
+    window.dispatchEvent(new Event('online'));
+    expect(MockWebSocket.instances).toHaveLength(2); // skipped the backoff wait
+  });
+});

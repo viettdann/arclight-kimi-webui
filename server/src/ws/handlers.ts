@@ -264,6 +264,12 @@ export async function handleMessage(ws: WS, raw: string | Buffer): Promise<void>
 
   try {
     switch (parsed.type as WSMessageType) {
+      case 'ping':
+        // Client liveness probe. The reply is what proves the socket is alive —
+        // the client treats any inbound frame as a pong, so the body is empty and
+        // session-agnostic. The auth revalidation above already ran.
+        sendDirect(ws, envelope('pong', {}, ''));
+        return;
       case 'start_session':
         await handleStartSession(ws, parsed.payload as StartSessionPayload | undefined);
         return;

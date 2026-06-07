@@ -47,8 +47,10 @@ export type WSMessageType =
   | 'task_progress'
   | 'task_updated'
   | 'task_notification'
+  | 'pong'
   | 'error'
   // client → server
+  | 'ping'
   | 'subscribe'
   | 'start_session'
   | 'resume_session'

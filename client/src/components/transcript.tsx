@@ -85,11 +85,10 @@ export function Transcript() {
   const isTurnInProgress = session?.isTurnInProgress || false;
   const segments = useMemo(() => groupIntoSegments(bundleSubagents(blocks)), [blocks]);
 
-  // Hydrate session from server when we land on /session/:id directly (F5 / deep link).
+  // Hydrate session from server when we land on /session/:id directly (F5 / deep
+  // link), AND re-subscribe on every reconnect.
   useEffect(() => {
     if (!sessionId) return;
-    const hasSnapshot = !!useChatStore.getState().sessions[sessionId];
-    if (hasSnapshot) return;
 
     let cancelled = false;
     const request = () => {
@@ -97,7 +96,15 @@ export function Transcript() {
       sendWS('resume_session', { sessionId });
     };
 
-    if (wsClient.isOpen()) request();
+    // Initial hydration only for a session we don't already hold — a cached
+    // session needs no first fetch.
+    if (!useChatStore.getState().sessions[sessionId] && wsClient.isOpen()) request();
+
+    // Re-subscribe on every (re)connect. A reconnect opens a BRAND NEW socket
+    // the server has not attached to this session; without re-sending
+    // resume_session it fans broadcasts to the dead socket and this tab goes
+    // silent until F5. The fresh snapshot also reconciles events missed during
+    // the gap. (sendWS dedups identical resume_session within 1.5s.)
     const unsubOpen = wsClient.on('open', () => request());
     return () => {
       cancelled = true;
