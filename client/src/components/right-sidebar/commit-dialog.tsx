@@ -1,5 +1,5 @@
 import { ArrowRight, Check, GitCommitHorizontal } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { GitStatusEntry } from 'shared/types/git-credentials';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -16,6 +16,8 @@ import { useAuthStore } from '../../lib/auth-store';
 import { useGitPanelStore } from '../../lib/git-panel-store';
 import { classifyStatus, isStaged, TONE_BADGE } from './git-panel';
 
+const EMPTY_ENTRIES: GitStatusEntry[] = [];
+
 // Modal staging + commit. The full file list lives here rather than the sidebar
 // so a long working tree never crowds the 320px column. Selection is explicit:
 // staged files are pre-selected, but the user can toggle any file.
@@ -26,7 +28,7 @@ export function CommitDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const entries = useGitPanelStore((s) => s.statusData?.entries ?? []);
+  const entries = useGitPanelStore((s) => s.statusData?.entries ?? EMPTY_ENTRIES);
   const logData = useGitPanelStore((s) => s.logData);
   const isBusy = useGitPanelStore((s) => s.isBusy);
   const refreshStatus = useGitPanelStore((s) => s.refreshStatus);
@@ -48,14 +50,18 @@ export function CommitDialog({
 
   // Fetch a fresh status each time the modal opens, and reset the form so a
   // previous (committed) selection/message never lingers. Pre-select staged files.
+  // Guard on the false→true transition so a background status refresh (or the
+  // very refreshStatus() below) does not wipe the message while the user types.
+  const wasOpenRef = useRef(false);
   useEffect(() => {
-    if (open) {
+    if (open && !wasOpenRef.current) {
       const stagedPaths = entries.filter(isStaged).map((e) => e.path);
       setSelected(new Set(stagedPaths));
       setMessage('');
       setAmend(false);
       void refreshStatus();
     }
+    wasOpenRef.current = open;
   }, [open, refreshStatus, entries]);
 
   // Reconcile selection against the latest status: a path that vanished (e.g.
