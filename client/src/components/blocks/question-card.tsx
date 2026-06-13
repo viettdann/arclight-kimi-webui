@@ -75,7 +75,7 @@ function CardHeader({
         ? 'text-muted-foreground'
         : 'text-primary';
   return (
-    <div className="flex items-center justify-between gap-2 px-4 py-2 select-none border-b border-border/20">
+    <div className="flex items-center justify-between gap-2 px-4 py-2 select-none border-b border-border/20 shrink-0">
       <div className={`flex items-center gap-2 text-xs font-semibold ${toneClass}`}>
         {icon ?? <HelpCircle className="h-4.5 w-4.5" />}
         <span>{title}</span>
@@ -290,7 +290,11 @@ export function QuestionCard({
   };
 
   return (
-    <div className="rounded-xl border border-primary/20 bg-primary/5 shadow-sm overflow-hidden backdrop-blur-sm animate-in fade-in duration-200">
+    <div
+      className={`rounded-xl border border-primary/20 bg-primary/5 shadow-sm overflow-hidden backdrop-blur-sm animate-in fade-in duration-200 ${
+        variant === 'dock' ? 'flex flex-col max-h-[80dvh]' : ''
+      }`}
+    >
       <CardHeader
         tone="primary"
         title={isSummary ? 'Review & Submit' : 'Question from Assistant'}
@@ -310,7 +314,7 @@ export function QuestionCard({
 
       {/* Progress dots + review node */}
       {total > 1 && (
-        <div className="flex items-center gap-1.5 px-4 pt-3">
+        <div className="flex items-center gap-1.5 px-4 pt-3 shrink-0">
           {questions.map((_, i) => {
             const hasAns = !!effectiveAnswer(i);
             const isActive = !isSummary && i === idx;
@@ -346,7 +350,11 @@ export function QuestionCard({
         </div>
       )}
 
-      <div className="p-4 space-y-3">
+      <div
+        className={`p-4 space-y-3 ${
+          variant === 'dock' ? 'flex-1 overflow-y-auto min-h-0' : ''
+        }`}
+      >
         {isSummary ? (
           // ── Review screen: answers + optional per-question notes ───────────
           <div className="space-y-2 max-h-[50vh] overflow-y-auto -mx-1 px-1">
@@ -533,55 +541,56 @@ export function QuestionCard({
           </>
         )}
 
-        {/* Footer / Nav */}
-        <div className="pt-2 border-t border-border/20 flex items-center justify-between gap-2">
+      </div>
+
+      {/* Footer / Nav */}
+      <div className="px-4 py-3 border-t border-border/20 flex items-center justify-between gap-2 shrink-0">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={dismiss}
+          className="flex items-center gap-1.5 text-destructive hover:bg-destructive-wash hover:text-destructive"
+        >
+          <X className="h-4 w-4" />
+          <span>Dismiss</span>
+        </Button>
+
+        <div className="flex items-center gap-2">
           <Button
             type="button"
             variant="ghost"
             size="sm"
-            onClick={dismiss}
-            className="flex items-center gap-1.5 text-destructive hover:bg-destructive-wash hover:text-destructive"
+            onClick={goBack}
+            disabled={step === 0}
+            className="flex items-center gap-1.5"
           >
-            <X className="h-4 w-4" />
-            <span>Dismiss</span>
+            <ArrowLeft className="h-4 w-4" />
+            <span>Back</span>
           </Button>
 
-          <div className="flex items-center gap-2">
+          {isSummary ? (
             <Button
               type="button"
-              variant="ghost"
-              size="sm"
-              onClick={goBack}
-              disabled={step === 0}
+              onClick={submit}
+              disabled={answeredCount === 0}
               className="flex items-center gap-1.5"
             >
-              <ArrowLeft className="h-4 w-4" />
-              <span>Back</span>
+              <span>Submit Answer</span>
+              <Check className="h-4 w-4" />
             </Button>
-
-            {isSummary ? (
-              <Button
-                type="button"
-                onClick={submit}
-                disabled={answeredCount === 0}
-                className="flex items-center gap-1.5"
-              >
-                <span>Submit Answer</span>
-                <Check className="h-4 w-4" />
-              </Button>
-            ) : (
-              <Button
-                type="button"
-                onClick={goNext}
-                variant="default"
-                size="sm"
-                className="flex items-center gap-1.5"
-              >
-                <span>{idx === total - 1 ? 'Review' : 'Next'}</span>
-                <ArrowRight className="h-4 w-4" />
-              </Button>
-            )}
-          </div>
+          ) : (
+            <Button
+              type="button"
+              onClick={goNext}
+              variant="default"
+              size="sm"
+              className="flex items-center gap-1.5"
+            >
+              <span>{idx === total - 1 ? 'Review' : 'Next'}</span>
+              <ArrowRight className="h-4 w-4" />
+            </Button>
+          )}
         </div>
       </div>
     </div>
