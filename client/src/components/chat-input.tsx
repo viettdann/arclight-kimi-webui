@@ -7,6 +7,7 @@ import {
   Gauge,
   Rocket,
   ShieldCheck,
+  Slash,
   Square,
   Zap,
 } from 'lucide-react';
@@ -273,6 +274,16 @@ export function ChatInput() {
     sessionId ? (s.commandsBySession[sessionId] ?? NO_COMMANDS) : NO_COMMANDS,
   );
 
+  // Whether the live session has actually reported its catalog yet. Until it has
+  // (cold start, or a resumed chat whose subprocess hasn't re-emitted
+  // `system/init` after a server restart — the catalog is in-memory only),
+  // classify-on-send must not hard-block unknown `/skill` names: forward them so
+  // the CLI can resolve them. `?? NO_COMMANDS` above erases the undefined, so read
+  // the raw entry here.
+  const catalogKnown = useCommandStore((s) =>
+    sessionId ? s.commandsBySession[sessionId] !== undefined : false,
+  );
+
   // Full catalog for classify-on-send (the picker filters it further): dynamic
   // commands + built-ins, deduped by name (builtin wins), ordered by group.
   const mergedCatalog = useMemo(() => {
@@ -367,9 +378,10 @@ export function ChatInput() {
     if (content.startsWith('/')) {
       const parsed = parseSlashCommand(content);
       if (parsed) {
-        const result = classifyCommand(parsed.name, {
-          dynamic: mergedCatalog.map((c) => c.name),
-        });
+        const result = classifyCommand(
+          parsed.name,
+          catalogKnown ? { dynamic: mergedCatalog.map((c) => c.name) } : {},
+        );
         if (result.type === 'unsupported') {
           showToast({ message: result.hint, type: 'error' });
           return;
@@ -508,6 +520,23 @@ export function ChatInput() {
     }
   };
 
+  // Toolbar affordance for the slash picker: seed a bare slash into an empty
+  // composer (which matches SLASH_PICKER_RE and opens the menu) and focus. A
+  // non-empty draft is left intact — only focus — so the button never clobbers it.
+  const openCommandPicker = () => {
+    if (!canCompose) return;
+    setPickerDismissed(false);
+    if (text.trim() === '') setText('/');
+    const el = textareaRef.current;
+    if (el) {
+      el.focus();
+      requestAnimationFrame(() => {
+        const len = el.value.length;
+        el.setSelectionRange(len, len);
+      });
+    }
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // When the picker is open it owns navigation/selection keys. Send is
     // suppressed; Enter/Tab select, arrows move, Esc dismisses.
@@ -636,6 +665,18 @@ export function ChatInput() {
         {/* Controls bar: Approval + Model on the left, Send/Stop on the right. */}
         <div className="flex items-center justify-between gap-2 px-3 pb-2.5">
           <div className="flex min-w-0 items-center gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="xs"
+              onClick={openCommandPicker}
+              disabled={!canCompose}
+              className="cursor-pointer rounded-xl border border-border bg-card-2 px-2 text-muted-foreground transition-colors hover:bg-muted"
+              aria-label="Commands"
+              title="Slash commands"
+            >
+              <Slash className="h-3.5 w-3.5" />
+            </Button>
             <span className="inline-flex min-w-0 items-center rounded-xl border border-border bg-card-2 px-1 transition-colors hover:bg-muted">
               <DropdownMenu
                 align="start"

@@ -180,6 +180,48 @@ describe('ChatInput — slash picker', () => {
     expect(input.value).toBe('/compact ');
     expect(sendWS).not.toHaveBeenCalled();
   });
+
+  it('opens the picker from the Commands button and seeds a bare slash', async () => {
+    const user = userEvent.setup();
+    render(<ChatInput />);
+    const input = screen.getByLabelText('Chat input') as HTMLTextAreaElement;
+
+    expect(screen.queryByText('/compact')).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Commands' }));
+    expect(input.value).toBe('/');
+    expect(screen.getByText('/compact')).toBeInTheDocument();
+  });
+
+  it('forwards an unknown /command while the session catalog is not yet reported', async () => {
+    // commandsBySession is empty (beforeEach) → catalog unknown for sess-1, so a
+    // resumed chat is not hard-blocked before its subprocess re-emits system/init.
+    const user = userEvent.setup();
+    render(<ChatInput />);
+
+    await user.type(screen.getByLabelText('Chat input'), '/brainstorming');
+    await user.keyboard('{Enter}');
+    expect(showToast).not.toHaveBeenCalled();
+    expect(sendWS).toHaveBeenCalledWith(
+      'send_message',
+      expect.objectContaining({ content: '/brainstorming' }),
+      'sess-1',
+    );
+  });
+
+  it('blocks an unknown /command once the session catalog is known', async () => {
+    // A reported (even empty) catalog flips the classifier to strict mode.
+    useCommandStore.setState({ commandsBySession: { 'sess-1': [] } });
+    const user = userEvent.setup();
+    render(<ChatInput />);
+
+    await user.type(screen.getByLabelText('Chat input'), '/brainstorming');
+    await user.keyboard('{Enter}');
+    expect(sendWS).not.toHaveBeenCalled();
+    expect(showToast).toHaveBeenCalledWith({
+      message: 'Not supported in the web UI.',
+      type: 'error',
+    });
+  });
 });
 
 describe('ChatInput — bypass confirmation', () => {
