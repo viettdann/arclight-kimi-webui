@@ -43,7 +43,7 @@ export function TodoPanel({ sessionId }: TodoPanelProps) {
           </div>
         </div>
       ) : (
-        <ul className="max-h-72 space-y-2 overflow-y-auto">
+        <ul className="max-h-72 space-y-2 overflow-y-auto [scrollbar-gutter:stable]">
           {items.map((item, index) => (
             <li
               // biome-ignore lint/suspicious/noArrayIndexKey: positional checklist, items keyed by order

@@ -25,7 +25,7 @@ export function WorkflowPanel({ sessionId }: WorkflowPanelProps) {
           {STATUS_LABEL[workflow.status]}
         </span>
       </div>
-      <ul className="max-h-72 space-y-2 overflow-y-auto">
+      <ul className="max-h-72 space-y-2 overflow-y-auto [scrollbar-gutter:stable]">
         {workflow.children.map((child) => (
           <li key={child.taskId} className="flex items-start gap-2.5 text-sm">
             <div className="shrink-0 pt-0.5">
