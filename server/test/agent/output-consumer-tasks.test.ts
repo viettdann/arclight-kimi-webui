@@ -248,8 +248,9 @@ describe('consumeQueryOutput — workflow run / child task events', () => {
         summary: 'all done',
         usage: { total_tokens: 50, tool_uses: 2, duration_ms: 3000 },
       }),
-      // Same tool_use_id reused AFTER the run ended → no longer a child, so this
-      // falls through to the plain-subagent path (subagent_event), not task_started.
+      // Same tool_use_id reused AFTER the run ended → no longer a child. With no
+      // subagent_type and no Task tool name, it is not a subagent either (it
+      // would be a backgrounded foreground tool), so it emits nothing.
       taskStarted({ task_id: 'late-child', tool_use_id: 'toolu_wf6', description: 'orphan' }),
     ]);
 
@@ -266,12 +267,11 @@ describe('consumeQueryOutput — workflow run / child task events', () => {
     });
 
     // The run was cleared: the later same-id task_started is NOT a top-level
-    // child task_started — it routes to the legacy subagent_event path instead.
+    // child task_started, and without subagent identity it is not a subagent.
     const started = broadcasts.filter((b) => b.type === 'task_started');
     expect(started).toHaveLength(1); // only the run itself, never the orphan
     const subagentEvents = broadcasts.filter((b) => b.type === 'subagent_event');
-    expect(subagentEvents).toHaveLength(1);
-    expect(subagentEvents[0]?.payload.parentToolCallId).toBe('toolu_wf6');
+    expect(subagentEvents).toHaveLength(0);
   });
 
   it('omits usage on a child notification that carries none', async () => {
@@ -388,5 +388,31 @@ describe('consumeQueryOutput — plain subagent task regression (legacy subagent
     expect(broadcasts.some((b) => b.type === 'task_updated')).toBe(false);
     expect(broadcasts.some((b) => b.type === 'subagent_event')).toBe(false);
     expect(broadcasts).toHaveLength(0);
+  });
+
+  it('does NOT render a backgrounded Bash task (no subagent_type) as a subagent', async () => {
+    broadcasts.length = 0;
+    const active = makeActive('s-bg-bash');
+    // The SDK backgrounds a foreground Bash command and emits task_started /
+    // task_notification carrying the Bash tool_use_id but no subagent_type. The
+    // Bash tool_use was already seen, so its name is in the lookup map.
+    active.toolNameByCallId.set('toolu_bash', 'Bash');
+    active.query = makeQuery([
+      taskStarted({ task_id: 'bg-1', tool_use_id: 'toolu_bash', description: 'sleep 60' }),
+      taskNotification({
+        task_id: 'bg-1',
+        tool_use_id: 'toolu_bash',
+        status: 'completed',
+        output_file: '/tmp/out',
+        summary: 'done',
+      }),
+    ]);
+
+    await consumeQueryOutput(active);
+
+    // Neither the started nor the settled event may surface as a subagent.
+    expect(broadcasts.some((b) => b.type === 'subagent_event')).toBe(false);
+    expect(broadcasts.some((b) => b.type === 'task_started')).toBe(false);
+    expect(broadcasts.some((b) => b.type === 'task_notification')).toBe(false);
   });
 });

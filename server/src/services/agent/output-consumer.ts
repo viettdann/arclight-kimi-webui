@@ -131,6 +131,22 @@ function isUserAbort(err: unknown): boolean {
 }
 
 /**
+ * True when a `task_started`/`task_notification` denotes a real subagent (a
+ * nested LLM transcript) rather than a backgrounded foreground tool.
+ *
+ * The SDK's task framework now backgrounds foreground tools too — a `Bash`
+ * command (auto-backgrounded after a timeout, or via the Ctrl+B control
+ * request) emits `task_started`/`task_notification` carrying the Bash
+ * `tool_use_id` but NO `subagent_type`. Only the `Task` tool spawns an actual
+ * subagent. Routing a Bash task through the subagent_event path would create a
+ * `subagent:${bashToolUseId}` block and the client would bundle the Bash
+ * tool_call inside it — rendering a plain shell command as a subagent.
+ */
+function startsSubagent(toolName: string | undefined, subagentType: string | undefined): boolean {
+  return toolName === 'Task' || subagentType != null;
+}
+
+/**
  * Live streaming consumer for one session's SDK query. Runs for the LIFETIME of
  * the session — the streaming-input `query` stays open across turns, so this
  * `for await` only ends when the bridge closes or the query is aborted. Every
@@ -182,6 +198,11 @@ export async function consumeQueryOutput(active: ActiveSession): Promise<void> {
   // every child task_id. `task_updated` has no `tool_use_id`, so attribution for
   // it (and `task_progress`) MUST route through this map.
   const workflowRunByTaskId = new Map<string, { workflowToolCallId: string }>();
+  // tool_use_ids whose `task_started` was classified as a real subagent. The
+  // matching `task_notification` carries no `subagent_type`, so this set is what
+  // pairs a notification back to a started subagent — and keeps a backgrounded
+  // foreground tool (Bash), which is never added here, off the subagent path.
+  const subagentToolUseIds = new Set<string>();
 
   function getIndexMap(scope: string): Map<number, string> {
     let m = toolUseIdByIndex.get(scope);
@@ -446,8 +467,11 @@ export async function consumeQueryOutput(active: ActiveSession): Promise<void> {
           break;
         }
 
-        // Plain subagent task — existing subagent_event path, unchanged.
-        if (t.tool_use_id) {
+        // Plain subagent task. A backgrounded foreground tool (Bash) also lands
+        // here with a tool_use_id but no subagent_type — skip it so it is not
+        // rendered as a subagent (see startsSubagent).
+        if (t.tool_use_id && startsSubagent(active.toolNameByCallId.get(t.tool_use_id), t.subagent_type)) {
+          subagentToolUseIds.add(t.tool_use_id);
           const payload: SubagentEventPayload = {
             parentToolCallId: t.tool_use_id,
             ...(t.subagent_type ? { subagentType: t.subagent_type } : {}),
@@ -515,8 +539,15 @@ export async function consumeQueryOutput(active: ActiveSession): Promise<void> {
           break;
         }
 
-        // Non-workflow subagent — existing synthetic turn_end path, unchanged.
-        if (t.tool_use_id) {
+        // Non-workflow subagent. A backgrounded foreground tool (Bash) settles
+        // here too — skip it for the same reason as task_started. Match on the
+        // started-subagent set (no subagent_type on this message), with the
+        // tool-name lookup as a fallback if the started event was missed.
+        if (
+          t.tool_use_id &&
+          (subagentToolUseIds.has(t.tool_use_id) ||
+            startsSubagent(active.toolNameByCallId.get(t.tool_use_id), undefined))
+        ) {
           const turnEnd: TurnEndPayload = { status: 'finished', steps: 0 };
           const payload: SubagentEventPayload = {
             parentToolCallId: t.tool_use_id,
