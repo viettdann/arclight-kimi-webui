@@ -368,44 +368,100 @@ function applyEventToBlocks(
 }
 
 /**
- * Find or create the `subagent` block for `parentToolCallId`, recurse the inner
- * event into its own block list via the same applicator, and write it back
- * immutably (matched by id — no index hacks). The subagent is attached right
- * after its parent tool_call when first created; if the parent is absent it is
- * appended at the end.
+ * Find the block container (a `Block[]`) at the end of `path`, where `path` is a
+ * list of subagent indices leading from the root blocks into nested subagent
+ * block lists. An empty path means the root blocks array.
  */
-function applySubagentEvent(blocks: Block[], payload: any, seq: number): Block[] {
-  const subagentId = `subagent:${payload.parentToolCallId}`;
-  let next = [...blocks];
+function getContainerByPath(root: Block[], path: number[]): Block[] {
+  let container = root;
+  for (const idx of path) {
+    const block = container[idx];
+    if (block?.kind !== 'subagent') return container;
+    container = block.blocks;
+  }
+  return container;
+}
 
-  let idx = next.findIndex((b) => b.kind === 'subagent' && b.id === subagentId);
-  if (idx < 0) {
-    const newSubagent: Block = {
-      kind: 'subagent',
-      id: subagentId,
-      parentToolCallId: payload.parentToolCallId,
-      subagentType: payload.subagentType,
-      description: payload.description,
-      blocks: [],
-      isStreaming: true,
-      createdAt: now(),
-    };
-    const parentIdx = next.findIndex(
-      (b) => b.kind === 'tool_call' && b.toolCallId === payload.parentToolCallId,
-    );
-    if (parentIdx >= 0) {
-      next = [...next.slice(0, parentIdx + 1), newSubagent, ...next.slice(parentIdx + 1)];
-      idx = parentIdx + 1;
-    } else {
-      next.push(newSubagent);
-      idx = next.length - 1;
+/**
+ * Apply an immutable update to a container identified by `path`. Recursively
+ * rebuilds the ancestor subagent blocks so React/Zustand consumers see a new
+ * reference at every level.
+ */
+function updateContainerAtPath(
+  root: Block[],
+  path: number[],
+  updater: (container: Block[]) => Block[],
+): Block[] {
+  if (path.length === 0) {
+    return updater(root);
+  }
+  const head = path[0];
+  if (head == null) return root;
+  const tail = path.slice(1);
+  const block = root[head];
+  if (block?.kind !== 'subagent') return root;
+  const updatedBlocks = updateContainerAtPath(block.blocks, tail, updater);
+  const next = [...root];
+  next[head] = { ...block, blocks: updatedBlocks };
+  return next;
+}
+
+/** Recursively locate a subagent block by id, returning its path + index. */
+function findSubagentLocation(
+  blocks: Block[],
+  id: string,
+  path: number[] = [],
+): { rootPath: number[]; index: number } | null {
+  for (let i = 0; i < blocks.length; i++) {
+    const b = blocks[i];
+    if (b == null) continue;
+    if (b.kind === 'subagent' && b.id === id) {
+      return { rootPath: path, index: i };
+    }
+    if (b.kind === 'subagent') {
+      const nested = findSubagentLocation(b.blocks, id, [...path, i]);
+      if (nested) return nested;
     }
   }
+  return null;
+}
 
-  const current = next[idx];
-  if (current?.kind !== 'subagent') return next;
+/** Recursively locate the parent `tool_call` for a subagent, returning its path + index. */
+function findParentToolCallLocation(
+  blocks: Block[],
+  parentToolCallId: string,
+  path: number[] = [],
+): { rootPath: number[]; index: number } | null {
+  for (let i = 0; i < blocks.length; i++) {
+    const b = blocks[i];
+    if (b == null) continue;
+    if (b.kind === 'tool_call' && b.toolCallId === parentToolCallId) {
+      return { rootPath: path, index: i };
+    }
+    if (b.kind === 'subagent') {
+      const nested = findParentToolCallLocation(b.blocks, parentToolCallId, [...path, i]);
+      if (nested) return nested;
+    }
+  }
+  return null;
+}
 
-  const updated: Block = { ...current };
+function createSubagentBlock(payload: any): Block {
+  return {
+    kind: 'subagent',
+    id: `subagent:${payload.parentToolCallId}`,
+    parentToolCallId: payload.parentToolCallId,
+    subagentType: payload.subagentType,
+    description: payload.description,
+    blocks: [],
+    isStreaming: true,
+    createdAt: now(),
+  };
+}
+
+function updateSubagentBlock(block: Block, payload: any, seq: number): Block {
+  if (block.kind !== 'subagent') return block;
+  const updated: Block = { ...block };
   // Header-only frames (inner === null) just carry subagentType/description.
   if (payload.subagentType !== undefined) updated.subagentType = payload.subagentType;
   if (payload.description !== undefined) updated.description = payload.description;
@@ -417,9 +473,81 @@ function applySubagentEvent(blocks: Block[], payload: any, seq: number): Block[]
     // event means it is still active.
     updated.isStreaming = inner.type !== 'turn_end';
   }
+  return updated;
+}
 
-  next[idx] = updated;
-  return next;
+/**
+ * Find or create the `subagent` block for `parentToolCallId`, recurse the inner
+ * event into its own block list via the same applicator, and write it back
+ * immutably (matched by id — no index hacks). The subagent is attached right
+ * after its parent tool_call when first created; if the parent is absent it is
+ * appended at the end.
+ *
+ * The search is recursive so that subagents spawned inside a workflow run (or
+ * any other nested subagent) are placed next to their parent `tool_call` inside
+ * the run's nested blocks, instead of being orphaned at the top level.
+ */
+function applySubagentEvent(blocks: Block[], payload: any, seq: number): Block[] {
+  const subagentId = `subagent:${payload.parentToolCallId}`;
+  const parentToolCallId = payload.parentToolCallId;
+
+  const parentLoc = findParentToolCallLocation(blocks, parentToolCallId);
+  const existingLoc = findSubagentLocation(blocks, subagentId);
+
+  // Parent tool_call exists somewhere — place the subagent right after it.
+  if (parentLoc) {
+    let working = blocks;
+    let subagent: Block;
+
+    if (existingLoc) {
+      const existingBlock = getContainerByPath(blocks, existingLoc.rootPath)[existingLoc.index];
+      if (!existingBlock) {
+        // Existing location is stale; treat as a fresh subagent.
+        subagent = updateSubagentBlock(createSubagentBlock(payload), payload, seq);
+      } else {
+        subagent = existingBlock;
+        // Remove from the old location first so the insert below is exact.
+        working = updateContainerAtPath(blocks, existingLoc.rootPath, (container) => [
+          ...container.slice(0, existingLoc.index),
+          ...container.slice(existingLoc.index + 1),
+        ]);
+      }
+      // Re-locate the parent in the post-removal tree (removal may have shifted indices).
+      const relocated = findParentToolCallLocation(working, parentToolCallId);
+      if (!relocated) {
+        // Parent disappeared during cleanup; shouldn't happen, but keep the subagent at top level.
+        return [...working, updateSubagentBlock(subagent, payload, seq)];
+      }
+      subagent = updateSubagentBlock(subagent, payload, seq);
+      return updateContainerAtPath(working, relocated.rootPath, (container) => [
+        ...container.slice(0, relocated.index + 1),
+        subagent,
+        ...container.slice(relocated.index + 1),
+      ]);
+    }
+
+    subagent = updateSubagentBlock(createSubagentBlock(payload), payload, seq);
+    return updateContainerAtPath(working, parentLoc.rootPath, (container) => [
+      ...container.slice(0, parentLoc.index + 1),
+      subagent,
+      ...container.slice(parentLoc.index + 1),
+    ]);
+  }
+
+  // No parent tool_call yet. Update an existing subagent if we have one, else
+  // append at the top level as a best-effort fallback.
+  if (existingLoc) {
+    return updateContainerAtPath(blocks, existingLoc.rootPath, (container) => {
+      const existingBlock = container[existingLoc.index];
+      if (!existingBlock) return container;
+      const updated = updateSubagentBlock(existingBlock, payload, seq);
+      const next = [...container];
+      next[existingLoc.index] = updated;
+      return next;
+    });
+  }
+
+  return [...blocks, updateSubagentBlock(createSubagentBlock(payload), payload, seq)];
 }
 
 type WorkflowBlock = Extract<Block, { kind: 'workflow' }>;

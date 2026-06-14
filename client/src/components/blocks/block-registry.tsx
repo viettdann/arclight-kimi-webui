@@ -81,6 +81,8 @@ export function BlockRegistry({ block }: BlockRegistryProps) {
           parentToolCallId={block.parentToolCallId}
           blocks={block.blocks}
           isStreaming={block.isStreaming}
+          subagentType={block.subagentType}
+          description={block.description}
         />
       );
     case 'workflow':

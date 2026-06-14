@@ -7,9 +7,16 @@ interface SubagentAccordionProps {
   parentToolCallId: string;
   blocks: Block[];
   isStreaming: boolean;
+  subagentType?: string;
+  description?: string;
 }
 
-export function SubagentAccordion({ blocks, isStreaming }: SubagentAccordionProps) {
+export function SubagentAccordion({
+  blocks,
+  isStreaming,
+  subagentType,
+  description,
+}: SubagentAccordionProps) {
   const [isOpen, setIsOpen] = useState(true);
 
   // Keep open if subagent is currently streaming events
@@ -38,14 +45,26 @@ export function SubagentAccordion({ blocks, isStreaming }: SubagentAccordionProp
           isStreaming ? 'cursor-default' : 'cursor-pointer hover:bg-primary/5'
         }`}
       >
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 min-w-0">
           {isStreaming ? (
             <Loader2 className="h-4.5 w-4.5 text-primary animate-spin" />
           ) : (
             <UserCog className="h-4.5 w-4.5 text-primary/70 shrink-0" />
           )}
-          <span>{isStreaming ? 'Subagent Active...' : 'Subagent Session'}</span>
-          <span className="text-[10px] bg-primary/10 border border-primary/20 px-1.5 py-0.5 rounded font-mono font-bold">
+          <span className="shrink-0">
+            {isStreaming ? 'Subagent Active...' : 'Subagent Session'}
+          </span>
+          {subagentType && (
+            <span className="font-mono bg-muted/40 border border-border/60 px-1.5 py-0.5 rounded text-[10px] text-muted-foreground shrink-0">
+              {subagentType}
+            </span>
+          )}
+          {description && (
+            <span className="text-foreground/80 truncate font-sans text-[11px] min-w-0">
+              {description}
+            </span>
+          )}
+          <span className="text-[10px] bg-primary/10 border border-primary/20 px-1.5 py-0.5 rounded font-mono font-bold shrink-0">
             {activityCount} {activityCount === 1 ? 'activity' : 'activities'}
           </span>
         </div>

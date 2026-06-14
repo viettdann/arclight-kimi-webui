@@ -392,6 +392,130 @@ describe('useChatStore', () => {
       expect(endedSubagent.isStreaming).toBe(false);
     });
 
+    it('should nest a subagent inside its parent subagent when the parent tool_call is nested', () => {
+      // Workflow-shaped scenario: the workflow tool_call lives at the top level,
+      // the workflow run is a subagent under it, and inside that run the model
+      // issues a child Task tool_call that itself spawns a subagent. The child
+      // subagent must live inside the run's nested blocks, not be pushed to the
+      // end of the top-level transcript.
+      useChatStore.getState().applyEvent(sessionId, 'tool_call', {
+        id: 'toolu_workflow',
+        name: 'Workflow',
+        arguments: {},
+      });
+
+      // Workflow run starts as a subagent under the Workflow tool_call.
+      useChatStore.getState().applyEvent(sessionId, 'subagent_event', {
+        parentToolCallId: 'toolu_workflow',
+        subagentType: 'workflow-run',
+        description: 'Run spec workflow',
+        inner: null,
+      });
+
+      // Inside the run, the model calls a Task tool that will spawn a subagent.
+      useChatStore.getState().applyEvent(sessionId, 'subagent_event', {
+        parentToolCallId: 'toolu_workflow',
+        inner: {
+          type: 'tool_call',
+          payload: { id: 'toolu_child_task', name: 'Task', arguments: {} },
+        },
+      });
+
+      // The child task's subagent stream arrives with the child Task as its parent.
+      useChatStore.getState().applyEvent(sessionId, 'subagent_event', {
+        parentToolCallId: 'toolu_child_task',
+        subagentType: 'Explore',
+        description: 'Find model quality limits',
+        inner: null,
+      });
+
+      const session = useChatStore.getState().sessions[sessionId];
+      expect(session!.blocks).toHaveLength(2); // workflow tool_call + run subagent
+
+      const runSubagent = session!.blocks[1] as Extract<Block, { kind: 'subagent' }>;
+      expect(runSubagent.parentToolCallId).toBe('toolu_workflow');
+      // The child Task tool_call and its subagent are nested inside the run.
+      expect(runSubagent.blocks).toHaveLength(2);
+      expect(runSubagent.blocks[0]).toMatchObject({
+        kind: 'tool_call',
+        toolCallId: 'toolu_child_task',
+      });
+      expect(runSubagent.blocks[1]).toMatchObject({
+        kind: 'subagent',
+        id: 'subagent:toolu_child_task',
+        parentToolCallId: 'toolu_child_task',
+        subagentType: 'Explore',
+        description: 'Find model quality limits',
+      });
+
+      // The child subagent must NOT be orphaned at the top level.
+      const topLevelSubagents = session!.blocks.filter((b) => b.kind === 'subagent');
+      expect(topLevelSubagents).toHaveLength(1);
+    });
+
+    it('moves an orphaned subagent to its parent once the parent tool_call appears', () => {
+      // Out-of-order SDK stream: the child subagent announces itself before its
+      // parent Task tool_call has been emitted.
+      useChatStore.getState().applyEvent(sessionId, 'tool_call', {
+        id: 'toolu_workflow',
+        name: 'Workflow',
+        arguments: {},
+      });
+
+      useChatStore.getState().applyEvent(sessionId, 'subagent_event', {
+        parentToolCallId: 'toolu_workflow',
+        subagentType: 'workflow-run',
+        description: 'Run spec workflow',
+        inner: null,
+      });
+
+      // Child subagent arrives BEFORE its parent Task tool_call.
+      useChatStore.getState().applyEvent(sessionId, 'subagent_event', {
+        parentToolCallId: 'toolu_child_task',
+        subagentType: 'Explore',
+        description: 'Find model quality limits',
+        inner: null,
+      });
+
+      let session = useChatStore.getState().sessions[sessionId];
+      // Currently orphaned at the top level.
+      expect(session!.blocks).toHaveLength(3);
+      expect(session!.blocks[2]).toMatchObject({
+        kind: 'subagent',
+        id: 'subagent:toolu_child_task',
+      });
+
+      // Now the parent Task tool_call appears inside the workflow run.
+      useChatStore.getState().applyEvent(sessionId, 'subagent_event', {
+        parentToolCallId: 'toolu_workflow',
+        inner: {
+          type: 'tool_call',
+          payload: { id: 'toolu_child_task', name: 'Task', arguments: {} },
+        },
+      });
+
+      // The next event for the child subagent should move it under its parent.
+      useChatStore.getState().applyEvent(sessionId, 'subagent_event', {
+        parentToolCallId: 'toolu_child_task',
+        inner: {
+          type: 'text_delta',
+          payload: { id: 'inner-text', text: 'nested result', final: true },
+        },
+      });
+
+      session = useChatStore.getState().sessions[sessionId];
+      expect(session!.blocks).toHaveLength(2);
+      const runSubagent = session!.blocks[1] as Extract<Block, { kind: 'subagent' }>;
+      expect(runSubagent.blocks).toHaveLength(2);
+      expect(runSubagent.blocks[0]).toMatchObject({
+        kind: 'tool_call',
+        toolCallId: 'toolu_child_task',
+      });
+      const childSubagent = runSubagent.blocks[1] as Extract<Block, { kind: 'subagent' }>;
+      expect(childSubagent.blocks).toHaveLength(1);
+      expect(childSubagent.blocks[0]).toMatchObject({ kind: 'text', content: 'nested result' });
+    });
+
     it('should handle turn_end and stop all streaming blocks', () => {
       // Setup: add streaming text block
       useChatStore.getState().applyEvent(sessionId, 'text_delta', {

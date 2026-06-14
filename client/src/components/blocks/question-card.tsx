@@ -351,9 +351,7 @@ export function QuestionCard({
       )}
 
       <div
-        className={`p-4 space-y-3 ${
-          variant === 'dock' ? 'flex-1 overflow-y-auto min-h-0' : ''
-        }`}
+        className={`p-4 space-y-3 ${variant === 'dock' ? 'flex-1 overflow-y-auto min-h-0' : ''}`}
       >
         {isSummary ? (
           // ── Review screen: answers + optional per-question notes ───────────
@@ -540,7 +538,6 @@ export function QuestionCard({
             )}
           </>
         )}
-
       </div>
 
       {/* Footer / Nav */}
