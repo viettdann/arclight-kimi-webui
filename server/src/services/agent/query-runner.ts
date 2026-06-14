@@ -131,6 +131,9 @@ export async function startQuery(
       // session; attribution overrides only set when we strip the SDK default.
       settings: {
         enableWorkflows: true,
+        // The web client has no Artifact renderer; disable the tool so the model
+        // never emits an artifact the UI can only show as a raw tool result.
+        disableArtifact: true,
         ...(active.ultracode ? { ultracode: true } : {}),
         ...(attribution ? { attribution } : {}),
       },

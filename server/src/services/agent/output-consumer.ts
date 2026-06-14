@@ -470,7 +470,10 @@ export async function consumeQueryOutput(active: ActiveSession): Promise<void> {
         // Plain subagent task. A backgrounded foreground tool (Bash) also lands
         // here with a tool_use_id but no subagent_type — skip it so it is not
         // rendered as a subagent (see startsSubagent).
-        if (t.tool_use_id && startsSubagent(active.toolNameByCallId.get(t.tool_use_id), t.subagent_type)) {
+        if (
+          t.tool_use_id &&
+          startsSubagent(active.toolNameByCallId.get(t.tool_use_id), t.subagent_type)
+        ) {
           subagentToolUseIds.add(t.tool_use_id);
           const payload: SubagentEventPayload = {
             parentToolCallId: t.tool_use_id,
