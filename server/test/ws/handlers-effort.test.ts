@@ -117,6 +117,50 @@ describe('handleSendMessage — effort ride-along', () => {
     expect(fake.calls.some((c) => c.op === 'update')).toBe(false);
   });
 
+  it('accepts xhigh effort and pushes it to the live query', async () => {
+    const active = manager.register({
+      sessionId: 'sess-1',
+      userId: 'alice',
+      workDir: '/tmp/work',
+      effort: null,
+    });
+    const { flagCalls, pushed } = attachLiveQuery(active);
+    manager.attachWS(active, asWS(new FakeWS('alice')));
+
+    const fake = makeFakeDb();
+    setHandlerDeps({ manager, db: fake.db });
+
+    const alice = new FakeWS('alice');
+    await send(alice, { content: 'hi', effort: 'xhigh' });
+
+    expect(active.effort).toBe('xhigh');
+    expect(flagCalls).toEqual([{ effortLevel: 'xhigh' }]);
+    const update = fake.calls.find((c) => c.op === 'update');
+    expect((update?.values as { effort?: string }).effort).toBe('xhigh');
+    expect(pushed).toEqual(['hi']);
+    expect(wsErrors(alice)).toHaveLength(0);
+  });
+
+  it('rejects max effort when a query is already live', async () => {
+    const active = manager.register({
+      sessionId: 'sess-1',
+      userId: 'alice',
+      workDir: '/tmp/work',
+      effort: 'high',
+    });
+    attachLiveQuery(active);
+    manager.attachWS(active, asWS(new FakeWS('alice')));
+
+    const fake = makeFakeDb();
+    setHandlerDeps({ manager, db: fake.db });
+
+    const alice = new FakeWS('alice');
+    await send(alice, { content: 'hi', effort: 'max' });
+
+    expect(active.effort).toBe('high');
+    expect(wsErrors(alice).at(-1)?.payload.code).toBe('bad_request');
+  });
+
   it('rejects an invalid effort value with bad_request', async () => {
     manager.register({
       sessionId: 'sess-1',

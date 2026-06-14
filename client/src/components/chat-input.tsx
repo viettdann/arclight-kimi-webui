@@ -18,7 +18,13 @@ import {
   classifyCommand,
   parseSlashCommand,
 } from 'shared/commands';
-import { type ApprovalMode, EFFORT_OPTIONS, type EffortLevel, effortLabel } from 'shared/types';
+import {
+  type ApprovalMode,
+  EFFORT_OPTIONS,
+  type EffortLevel,
+  effortLabel,
+  effortPill,
+} from 'shared/types';
 import type { ProviderDTO } from 'shared/types/providers';
 import { Button } from '@/components/ui/button';
 import {
@@ -728,14 +734,14 @@ export function ChatInput() {
                     {/* Compact (no namespace) on mobile, full form on desktop. */}
                     <span className="max-w-[16ch] truncate sm:hidden">{modelLabelCompact}</span>
                     <span className="hidden max-w-[16ch] truncate sm:inline">{modelLabel}</span>
-                    {/* Effort initial in the pill, only under extended thinking.
+                    {/* Effort pill via effortPill helper, only under extended thinking.
                         Ultracode overrides the display to Xhigh ("X"). */}
                     {ultracode ? (
                       <span className="font-semibold uppercase text-ultracode">{' · X'}</span>
                     ) : thinking && effort ? (
                       <span className="font-semibold uppercase text-primary">
                         {' · '}
-                        {effort.charAt(0)}
+                        {effortPill(effort)}
                       </span>
                     ) : null}
                     <ChevronDown className="h-3.5 w-3.5" />

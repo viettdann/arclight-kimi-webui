@@ -86,6 +86,13 @@ function isInvalidEffort(effort: EffortLevel | null | undefined): boolean {
   return effort !== undefined && effort !== null && !VALID_EFFORT.has(effort);
 }
 
+// The SDK's live `applyFlagSettings` accepts low/medium/high/xhigh for
+// `effortLevel`, but not `max`. `max` is only honored when a query is spawned,
+// so map it to `null` (provider default) for any mid-session push.
+function liveEffortLevel(effort: EffortLevel | null): 'low' | 'medium' | 'high' | 'xhigh' | null {
+  return effort === 'max' ? null : effort;
+}
+
 /**
  * Restore an idle session into memory. Loads the `sessions` row (authz: must
  * belong to `userId`), replays the persisted transcript to disk so the binary
@@ -654,9 +661,17 @@ async function handleSendMessage(
       await active.query?.setPermissionMode(mapMode(flagChanges.approvalMode));
     }
     if (flagChanges.effort !== undefined) {
+      // Max effort is only accepted at session start. The SDK does not support
+      // changing it on a live query, so reject an attempt to switch to max
+      // mid-session.
+      if (flagChanges.effort === 'max' && active.query) {
+        sendError(ws, 'bad_request', sessionId, 'max effort can only be set at session start');
+        return;
+      }
       active.effort = flagChanges.effort;
       // A live query applies the effort flag in place; passing null resets it.
-      await active.query?.applyFlagSettings({ effortLevel: flagChanges.effort });
+      // Max is mapped to null because applyFlagSettings does not accept it.
+      await active.query?.applyFlagSettings({ effortLevel: liveEffortLevel(flagChanges.effort) });
     }
     if (flagChanges.ultracode !== undefined) {
       active.ultracode = flagChanges.ultracode;
@@ -670,10 +685,11 @@ async function handleSendMessage(
         await active.query?.applyFlagSettings({ alwaysThinkingEnabled: null, effortLevel: null });
       } else {
         // Reverting: re-apply the stored thinking/effort to the live query so the
-        // session returns to its persisted settings.
+        // session returns to its persisted settings. Max effort is mapped to null
+        // because applyFlagSettings does not accept it.
         await active.query?.applyFlagSettings({
           alwaysThinkingEnabled: active.thinking ? null : false,
-          effortLevel: active.effort,
+          effortLevel: liveEffortLevel(active.effort),
         });
       }
     }

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import { normalizeApiError } from '../../src/services/agent/api-errors';
 
 const NORMALIZED =
-  'Ultracode requires an xhigh-capable model. This provider only supports low/medium/high effort — turn Ultracode off or switch model.';
+  'This model does not support xhigh/max effort. Switch to a model that supports it, pick low/medium/high effort, or turn off Ultracode.';
 
 describe('normalizeApiError', () => {
   it('normalizes the raw 400 mentioning output_config.effort and xhigh', () => {

@@ -68,13 +68,29 @@ export type WSMessageType =
 export const APPROVAL_MODES = ['ask', 'safe', 'bypass'] as const;
 export type ApprovalMode = (typeof APPROVAL_MODES)[number];
 
-export const EFFORT_LEVELS = ['low', 'medium', 'high'] as const;
+export const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
 /** Reasoning effort exposed in the composer. `null` means the provider default. */
 export type EffortLevel = (typeof EFFORT_LEVELS)[number];
 
 /** Human-readable effort label. `null` → "Default". */
 export function effortLabel(value: EffortLevel | null): string {
   return value ? value.charAt(0).toUpperCase() + value.slice(1) : 'Default';
+}
+
+/** Compact pill initials for effort level. */
+export function effortPill(value: EffortLevel): string {
+  switch (value) {
+    case 'low':
+      return 'L';
+    case 'medium':
+      return 'M';
+    case 'high':
+      return 'H';
+    case 'xhigh':
+      return 'Xh';
+    case 'max':
+      return 'Ma';
+  }
 }
 
 /** Effort selector options for dropdowns. `null` is the provider default. */
