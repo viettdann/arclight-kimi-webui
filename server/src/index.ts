@@ -21,6 +21,7 @@ import { createGitRouter } from './routes/git';
 import { createGitCredentialsRouter } from './routes/git-credentials';
 import { createMeRouter } from './routes/me';
 import { createMeProvidersRouter } from './routes/me-providers';
+import { createMeSkillsRouter } from './routes/me-skills';
 import { createOverviewRouter } from './routes/overview';
 import { createProjectDiscoveryRouter } from './routes/project-discovery';
 import projectsRoutes from './routes/projects';
@@ -110,6 +111,7 @@ app.use('/api/files/*', requireAllowed);
 app.use('/api/projects/*', requireAllowed);
 app.use('/api/sessions/*', requireAllowed);
 app.use('/api/me/preferences', requireAllowed);
+app.use('/api/me/skills/*', requireAllowed);
 app.use('/api/git-credentials/*', requireAllowed);
 app.use('/api/git/*', requireAllowed);
 app.use('/api/me-providers/*', requireAllowed);
@@ -118,6 +120,7 @@ app.use('/api/providers/*', requireAllowed);
 const startedAt = new Date();
 
 app.route('/api/me', createMeRouter({ db }));
+app.route('/api/me/skills', createMeSkillsRouter({ db }));
 app.route('/api/admin/access', createAccessRouter({ db }));
 app.route(
   '/api/admin/overview',

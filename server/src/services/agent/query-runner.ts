@@ -9,6 +9,7 @@ import { db } from '../../db';
 import { logger } from '../../lib/logger';
 import { ProviderUnavailableError, resolveProviderForUser } from '../providers/resolve';
 import type { ActiveSession } from '../session-manager';
+import { restoreSkillsForUser } from '../skills/restore';
 import { getGitIncludeCoAuthoredBy } from '../user-settings';
 import { agentConfigDirFor, agentHomeFor } from './agent-paths';
 import { buildCanUseTool } from './approval';
@@ -76,6 +77,10 @@ export async function startQuery(
   const home = agentHomeFor(active.workDir);
   const configDir = agentConfigDirFor(active.workDir);
   await ensureClaudeOnboarding(configDir);
+  // Re-materialize the user's enabled skills into the (tmpfs, restart-wiped)
+  // config dir so the SDK auto-loads them this turn. Best-effort: it logs and
+  // swallows on failure, never aborting the turn.
+  await restoreSkillsForUser(db, active.userId, configDir);
   const env = buildAgentEnv(provider, { home, configDir });
 
   // Git attribution: by default strip Claude's `Co-Authored-By` trailer (and the

@@ -987,3 +987,4 @@ export interface OverviewResponse {
 
 // Re-export git-credential types so `shared/types` entrypoint covers everything.
 export * from './types/git-credentials';
+export * from './types/skills';
