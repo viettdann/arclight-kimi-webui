@@ -103,11 +103,14 @@ export async function startQuery(
   const q = query({
     prompt: opts.prompt,
     options: {
-      // Claude Code's full default system prompt; `settingSources: ['project']`
-      // layers the project CLAUDE.md on top. Without it the SDK starts from an
-      // empty system prompt (generic assistant persona).
+      // Claude Code's full default system prompt; `'project'` layers the project
+      // CLAUDE.md on top, `'user'` loads the per-user config dir
+      // (`$CLAUDE_CONFIG_DIR`) so user-scope skills materialized into
+      // `$CLAUDE_CONFIG_DIR/skills` by restoreSkillsForUser are discovered.
+      // Without `'user'`, only built-in plugin skills load and uploaded skills
+      // never surface. Both sources are per-user isolated via agent-paths.
       systemPrompt: { type: 'preset', preset: 'claude_code' },
-      settingSources: ['project'],
+      settingSources: ['user', 'project'],
       model: active.model ?? undefined,
       cwd: active.workDir,
       abortController,
@@ -134,6 +137,9 @@ export async function startQuery(
         // The web client has no Artifact renderer; disable the tool so the model
         // never emits an artifact the UI can only show as a raw tool result.
         disableArtifact: true,
+        // Disable the CLI's auto-memory: no read/write of the auto-memory
+        // directory, no recall supervisor. Per-user memory is out of scope here.
+        autoMemoryEnabled: false,
         ...(active.ultracode ? { ultracode: true } : {}),
         ...(attribution ? { attribution } : {}),
       },
