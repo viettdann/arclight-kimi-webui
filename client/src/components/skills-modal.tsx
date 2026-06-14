@@ -11,6 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { useUserSkillsStore } from '@/lib/user-skills-store';
 import { cn } from '@/lib/utils';
 import { showToast } from './toast-provider';
 
@@ -126,7 +127,10 @@ export function SkillsModal({ isOpen, onClose }: SkillsModalProps) {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      setSkills(await listSkills());
+      const list = await listSkills();
+      setSkills(list);
+      // Keep the composer's preloaded skill picker in sync with edits made here.
+      useUserSkillsStore.getState().setFromList(list);
     } catch (err) {
       showToast({
         message: err instanceof Error ? err.message : 'Failed to load skills',

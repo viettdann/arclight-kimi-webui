@@ -7,8 +7,8 @@ import {
   Gauge,
   Rocket,
   ShieldCheck,
-  Slash,
   Square,
+  SquareSlash,
   Zap,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -43,6 +43,7 @@ import { isResolvable, labelFor, useProvidersStore } from '../lib/providers-stor
 import { DRAFT_WORKDIR_PARAM } from '../lib/router';
 import { useSessionDefaultsStore, withSilentSave } from '../lib/session-defaults-store';
 import { useSessionsStore } from '../lib/sessions-store';
+import { useUserSkillsStore } from '../lib/user-skills-store';
 import { sendWS } from '../lib/ws-send';
 import { ConfirmBypassDialog } from './confirm-bypass-dialog';
 import { SlashCommandMenu } from './slash-command-menu';
@@ -172,6 +173,7 @@ export function ChatInput() {
   // biome-ignore lint/correctness/useExhaustiveDependencies: one-shot on mount
   useEffect(() => {
     ensureLoaded();
+    useUserSkillsStore.getState().ensureLoaded();
     const defaults = useSessionDefaultsStore.getState();
     if (defaults.status === 'idle') void defaults.load();
   }, []);
@@ -274,6 +276,11 @@ export function ChatInput() {
     sessionId ? (s.commandsBySession[sessionId] ?? NO_COMMANDS) : NO_COMMANDS,
   );
 
+  // The user's enabled skills, preloaded from the DB so the picker lists `/skill`
+  // commands before the first turn spawns a subprocess. The live catalog above
+  // overrides these by name once it arrives.
+  const userSkills = useUserSkillsStore((s) => s.skills);
+
   // Whether the live session has actually reported its catalog yet. Until it has
   // (cold start, or a resumed chat whose subprocess hasn't re-emitted
   // `system/init` after a server restart — the catalog is in-memory only),
@@ -288,10 +295,13 @@ export function ChatInput() {
   // commands + built-ins, deduped by name (builtin wins), ordered by group.
   const mergedCatalog = useMemo(() => {
     const byName = new Map<string, CommandInfo>();
+    // Weakest layer first: preloaded skills are overridden by the live session's
+    // catalog (real metadata) and then built-ins, both keyed by name.
+    for (const cmd of userSkills) byName.set(cmd.name, cmd);
     for (const cmd of dynamicCommands) byName.set(cmd.name, cmd);
     for (const cmd of BUILTIN_COMMANDS) byName.set(cmd.name, cmd);
     return [...byName.values()].sort((a, b) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind]);
-  }, [dynamicCommands]);
+  }, [dynamicCommands, userSkills]);
 
   const slashMatch = SLASH_PICKER_RE.exec(text);
   const pickerFilter = slashMatch?.[1] ?? '';
@@ -675,7 +685,7 @@ export function ChatInput() {
               aria-label="Commands"
               title="Slash commands"
             >
-              <Slash className="h-3.5 w-3.5" />
+              <SquareSlash className="h-3.5 w-3.5" />
             </Button>
             <span className="inline-flex min-w-0 items-center rounded-xl border border-border bg-card-2 px-1 transition-colors hover:bg-muted">
               <DropdownMenu
