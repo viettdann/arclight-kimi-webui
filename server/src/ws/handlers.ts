@@ -37,7 +37,7 @@ import { tryHandleSlashCommand } from '../services/agent/commands';
 import { refreshContextUsage } from '../services/agent/context-usage';
 import { createMessageBridge } from '../services/agent/message-bridge';
 import { consumeQueryOutput } from '../services/agent/output-consumer';
-import { startQuery } from '../services/agent/query-runner';
+import { disposeQuery, startQuery } from '../services/agent/query-runner';
 import { adoptProjectForUser, ProjectNotFoundError } from '../services/projects';
 import {
   defaultSelectionForUser,
@@ -331,7 +331,13 @@ export async function handleMessage(ws: WS, raw: string | Buffer): Promise<void>
  * `send_message` turns reuse the single subprocess.
  */
 async function ensureQuery(active: ActiveSession): Promise<void> {
+  // Skills changed under a (then) in-flight turn: dispose the now-idle subprocess
+  // so the respawn below loads them. `disposeQuery` clears `skillsDirty`.
+  if (active.query && active.skillsDirty && !active.turnInProgress) {
+    await disposeQuery(active);
+  }
   if (active.query) return;
+  active.skillsDirty = false;
   active.bridge = createMessageBridge(active.sessionId);
   await startQuery(active, {
     prompt: active.bridge.iterable,
@@ -739,18 +745,7 @@ async function handleSendMessage(
     sessionPersisted = true;
     // The subprocess env is fixed at spawn — dispose any live query so ensureQuery
     // respawns with the new provider's credentials/endpoint.
-    if (active.query) {
-      try {
-        await active.query.interrupt();
-      } catch {
-        /* may already be idle */
-      }
-      active.abortController?.abort();
-      active.bridge?.close();
-      active.query = null;
-      active.abortController = null;
-      active.bridge = null;
-    }
+    await disposeQuery(active);
   }
 
   if (sessionPersisted) {

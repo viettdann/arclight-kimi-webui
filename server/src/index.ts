@@ -29,6 +29,7 @@ import { createProvidersRouter } from './routes/providers';
 import { createProvidersAvailableRouter } from './routes/providers-available';
 import { createSessionsRouter } from './routes/sessions';
 import { ephemeralPaths } from './services/agent/agent-paths';
+import { startIdleQueryReaper } from './services/agent/idle-reaper';
 import { ensureClaudeOnboarding } from './services/agent/onboarding';
 import { MAX_ENCODED_LEN } from './services/agent/transcript-store';
 import { reconcileOnStartup } from './services/reconcile';
@@ -120,7 +121,7 @@ app.use('/api/providers/*', requireAllowed);
 const startedAt = new Date();
 
 app.route('/api/me', createMeRouter({ db }));
-app.route('/api/me/skills', createMeSkillsRouter({ db }));
+app.route('/api/me/skills', createMeSkillsRouter({ db, manager: sessionManager }));
 app.route('/api/admin/access', createAccessRouter({ db }));
 app.route(
   '/api/admin/overview',
@@ -188,6 +189,12 @@ const server = Bun.serve<WSData>({
 
 const stopHeartbeat = startWsHeartbeat();
 
+// GC idle `claude` subprocesses; the session stays resumable and respawns lazily.
+const stopIdleReaper = startIdleQueryReaper(sessionManager, {
+  ttlMs: env.IDLE_QUERY_TTL_MS,
+  sweepMs: env.IDLE_QUERY_SWEEP_MS,
+});
+
 const SHUTDOWN_TIMEOUT_MS = 5_000;
 
 let shuttingDown = false;
@@ -201,6 +208,7 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
   try {
     logger.info({ signal }, 'shutting down');
     stopHeartbeat();
+    stopIdleReaper();
 
     for (const ws of snapshot()) {
       try {

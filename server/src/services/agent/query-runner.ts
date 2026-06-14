@@ -153,3 +153,29 @@ export async function startQuery(
   active.abortController = abortController;
   return q;
 }
+
+/**
+ * Tear down a session's live subprocess without unregistering the session. The
+ * streaming-input query is interrupted (best-effort — it may already be idle),
+ * its subprocess aborted, and the bridge closed; the consumer's `for await`
+ * then ends and resets `turnInProgress`. The session stays in memory and
+ * respawns lazily on the next `ensureQuery`. No-op when no query is live.
+ *
+ * Shared by the provider-change respawn, the idle reaper, and the skill-change
+ * refresh.
+ */
+export async function disposeQuery(active: ActiveSession): Promise<void> {
+  if (!active.query) return;
+  try {
+    await active.query.interrupt();
+  } catch {
+    // Already idle or finalized — abort still tears the subprocess down.
+  }
+  active.abortController?.abort();
+  active.bridge?.close();
+  active.query = null;
+  active.abortController = null;
+  active.bridge = null;
+  // A fresh subprocess reloads skills from disk, so any pending refresh is moot.
+  active.skillsDirty = false;
+}

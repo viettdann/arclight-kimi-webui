@@ -69,6 +69,37 @@ export function buildCatalog(
 }
 
 /**
+ * Overlay a user's enabled skills onto a session's cached catalog and broadcast
+ * the result, WITHOUT spawning a subprocess. Used the moment skills change so the
+ * picker accepts `/skill` immediately (the client hard-blocks unknown commands on
+ * send). Project commands keep their rich metadata from the prior catalog; skill
+ * entries are rebuilt from the DB (name + description, no argument hint). The next
+ * real `system/init` overwrites this with the authoritative catalog.
+ */
+export function applySkillsToCatalog(
+  active: ActiveSession,
+  enabled: readonly { name: string; description: string }[],
+  manager: SessionManager,
+): void {
+  const existing = active.commands ?? getCatalog(active.workDir) ?? [];
+  const nonSkill = existing.filter((c) => c.kind !== 'skill');
+  const taken = new Set(nonSkill.map((c) => c.name));
+  const skillCmds: CommandInfo[] = [];
+  for (const s of enabled) {
+    // Built-ins live in the static catalog; blacklisted names are never usable.
+    if (taken.has(s.name) || BLACKLIST[s.name] !== undefined || STATIC_PASSTHROUGH.has(s.name)) {
+      continue;
+    }
+    taken.add(s.name);
+    skillCmds.push({ name: s.name, description: s.description, argumentHint: '', kind: 'skill' });
+  }
+  const commands = [...nonSkill, ...skillCmds];
+  setCatalog(active.workDir, commands);
+  active.commands = commands;
+  broadcastEvent<CommandsAvailablePayload>(active, 'commands_available', { commands }, manager);
+}
+
+/**
  * Refresh and broadcast a session's dynamic catalog. Pulls rich metadata from
  * the live query (falling back to names-only when the call throws), builds the
  * catalog, stores it for the workDir, attaches it to the session, and broadcasts

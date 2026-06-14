@@ -3,6 +3,9 @@ import type { SkillUploadError, SkillUploadResponse } from 'shared/types';
 import { type AuthVariables, requireAuth } from '../auth/middleware';
 import { type DB, db as defaultDb } from '../db';
 import { env } from '../env';
+import { syncSkillsForUser } from '../services/agent/skill-sync';
+import type { SessionManager } from '../services/session-manager';
+import { sessionManager } from '../services/session-manager';
 import {
   type DetectedSkill,
   detectSkills,
@@ -15,6 +18,7 @@ import { deleteSkill, listSkills, setEnabled, toDTO, upsertSkill } from '../serv
 
 export interface MeSkillsRouterDeps {
   db: DB;
+  manager: SessionManager;
 }
 
 const errMsg = (err: unknown): string => (err instanceof Error ? err.message : String(err));
@@ -30,9 +34,16 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const isUuid = (id: string): boolean => UUID_RE.test(id);
 
 export function createMeSkillsRouter(deps: MeSkillsRouterDeps): Hono<{ Variables: AuthVariables }> {
-  const { db } = deps;
+  const { db, manager } = deps;
   const router = new Hono<{ Variables: AuthVariables }>();
   router.use('*', requireAuth);
+
+  // Push a skill change into the user's live sessions (catalog refresh + dispose
+  // idle subprocesses so the next turn reloads skills). Fire-and-forget: never
+  // block or fail the HTTP write on it.
+  const syncSessions = (userId: string): void => {
+    void syncSkillsForUser(manager, db, userId);
+  };
 
   // ─────────────────────────── GET / ───────────────────────────
 
@@ -165,6 +176,8 @@ export function createMeSkillsRouter(deps: MeSkillsRouterDeps): Hono<{ Variables
       }
     }
 
+    if (created.length > 0 || updated.length > 0) syncSessions(user.id);
+
     const body: SkillUploadResponse = { created, updated, errors };
     return c.json(body);
   });
@@ -188,6 +201,7 @@ export function createMeSkillsRouter(deps: MeSkillsRouterDeps): Hono<{ Variables
     if (!isUuid(id)) return c.json({ error: 'not_found' }, 404);
     const ok = await setEnabled(db, user.id, id, enabled);
     if (!ok) return c.json({ error: 'not_found' }, 404);
+    syncSessions(user.id);
     return c.json({ ok: true });
   });
 
@@ -200,10 +214,11 @@ export function createMeSkillsRouter(deps: MeSkillsRouterDeps): Hono<{ Variables
     if (!isUuid(id)) return c.json({ error: 'not_found' }, 404);
     const ok = await deleteSkill(db, user.id, id);
     if (!ok) return c.json({ error: 'not_found' }, 404);
+    syncSessions(user.id);
     return c.json({ ok: true });
   });
 
   return router;
 }
 
-export default createMeSkillsRouter({ db: defaultDb });
+export default createMeSkillsRouter({ db: defaultDb, manager: sessionManager });

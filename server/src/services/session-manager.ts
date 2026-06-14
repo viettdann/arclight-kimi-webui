@@ -68,6 +68,13 @@ export interface ActiveSession {
   ultracode: boolean;
   /** Dynamic command/skill catalog, populated on the first `system/init`. */
   commands?: CommandInfo[];
+  /**
+   * Set when the user's skills changed while a turn was in flight (so the live
+   * subprocess could not be respawned then). The next `ensureQuery` disposes the
+   * stale subprocess before the turn so the new skills are loaded. Cleared on
+   * dispose/respawn.
+   */
+  skillsDirty?: boolean;
   /** True while a query is consuming/emitting for this session. */
   turnInProgress: boolean;
   /**
@@ -306,6 +313,11 @@ export class SessionManager {
       return null;
     }
     return active.userId === userId ? active : null;
+  }
+
+  /** Snapshot of all in-memory sessions. For the idle reaper / diagnostics. */
+  allSessions(): ActiveSession[] {
+    return [...this.sessions.values()];
   }
 
   /** Total in-memory session count. Diagnostic / metrics. */

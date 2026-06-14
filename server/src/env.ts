@@ -41,6 +41,13 @@ const envSchema = z.object({
 
   MAX_UPLOAD_BYTES: z.coerce.number().int().positive().default(104_857_600),
   GIT_CLONE_TIMEOUT_MS: z.coerce.number().int().positive().default(120000),
+
+  // Idle-query GC. A session's `claude` subprocess is reaped after this many ms
+  // with no activity (the session stays in memory and respawns lazily on the
+  // next turn). `SWEEP_MS` is how often the reaper checks. Set TTL very large to
+  // effectively disable.
+  IDLE_QUERY_TTL_MS: z.coerce.number().int().positive().default(900_000),
+  IDLE_QUERY_SWEEP_MS: z.coerce.number().int().positive().default(60_000),
 });
 
 type ParsedEnv = z.infer<typeof envSchema>;
