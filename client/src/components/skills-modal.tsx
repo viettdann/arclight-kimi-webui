@@ -146,10 +146,13 @@ export function SkillsModal({ isOpen, onClose }: SkillsModalProps) {
   }, [isOpen, refresh]);
 
   // `webkitdirectory` is a non-standard attribute absent from React's prop
-  // types, so it is set imperatively on mount.
+  // types, so it is set imperatively. The dialog mounts its content lazily, so
+  // the input only exists once `isOpen` is true — keying off `isOpen` ensures
+  // the attribute is applied after the input is actually in the DOM.
   useEffect(() => {
+    if (!isOpen) return;
     folderInputRef.current?.setAttribute('webkitdirectory', '');
-  }, []);
+  }, [isOpen]);
 
   const upload = useCallback(
     async (fileList: FileList | File[]) => {
