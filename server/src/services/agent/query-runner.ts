@@ -77,8 +77,9 @@ export async function startQuery(
   const home = agentHomeFor(active.workDir);
   const configDir = agentConfigDirFor(active.workDir);
   await ensureClaudeOnboarding(configDir);
-  // Re-materialize the user's enabled skills into the (tmpfs, restart-wiped)
-  // config dir so the SDK auto-loads them this turn. Best-effort: it logs and
+  // Materialize the user's enabled skills into the (tmpfs, restart-wiped) config
+  // dir before the subprocess spawns, so the SDK discovers them at init — it
+  // scans the skills dir once per process, not per turn. Best-effort: it logs and
   // swallows on failure, never aborting the turn.
   await restoreSkillsForUser(db, active.userId, configDir);
   const env = buildAgentEnv(provider, { home, configDir });

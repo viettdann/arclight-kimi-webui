@@ -46,11 +46,11 @@ describe('buildSnapshot — effort + commands', () => {
     expect(snap?.commands).toEqual(catalog);
   });
 
-  it('defaults effort to null and commands to [] when unset', async () => {
+  it('defaults effort to null and commands to [] when no catalog and no enabled skills', async () => {
     const fake = makeFakeDb();
-    // workDir has no catalog registered.
+    // workDir has no catalog registered → falls back to the user's enabled skills.
     fake.selectQueue.push([sessionRow({ workDir: '/tmp/snap-work-none' })]);
-    fake.selectQueue.push([]);
+    fake.selectQueue.push([]); // listSkills → no skills
 
     const snap = await buildSnapshot({
       sessionId: 'sess-1',
@@ -60,6 +60,25 @@ describe('buildSnapshot — effort + commands', () => {
 
     expect(snap?.effort).toBeNull();
     expect(snap?.commands).toEqual([]);
+  });
+
+  it('falls back to the user enabled skills when the workDir catalog is empty', async () => {
+    const fake = makeFakeDb();
+    fake.selectQueue.push([sessionRow({ workDir: '/tmp/snap-work-fallback', userId: 'u-1' })]);
+    fake.selectQueue.push([
+      { name: 'verifier', description: 'Review work', enabled: true },
+      { name: 'disabled-skill', description: 'Off', enabled: false },
+    ]);
+
+    const snap = await buildSnapshot({
+      sessionId: 'sess-1',
+      db: fake.db,
+      manager: new SessionManager(),
+    });
+
+    expect(snap?.commands).toEqual([
+      { name: 'verifier', description: 'Review work', argumentHint: '', kind: 'skill' },
+    ]);
   });
 });
 

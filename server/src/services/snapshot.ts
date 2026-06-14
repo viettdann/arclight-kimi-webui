@@ -1,10 +1,11 @@
 import { eq } from 'drizzle-orm';
 import type { ApprovalMode, EffortLevel, SnapshotPayload } from 'shared/types';
 import { type DB, db, schema } from '../db';
-import { getCatalog } from './agent/commands-catalog';
+import { getCatalog, skillsToCommandInfo } from './agent/commands-catalog';
 import { readSessionEntries } from './agent/session-store';
 import { renderEntries } from './agent/transcript-render';
 import { type SessionManager, sessionManager } from './session-manager';
+import { listSkills } from './skills/store';
 
 export interface BuildSnapshotArgs {
   sessionId: string;
@@ -48,6 +49,16 @@ export async function buildSnapshot(args: BuildSnapshotArgs): Promise<SnapshotPa
       ? { text: sessRow.pendingPrompt, enqueuedAt: sessRow.pendingEnqueuedAt.toISOString() }
       : null;
 
+  // The live in-memory catalog when present, else a fallback built from the
+  // user's enabled skills. The catalog is wiped on restart while skills persist
+  // in the DB, so without this fallback a post-restart reconnect serves an empty
+  // picker and the client hard-blocks skill commands until the next turn respawns
+  // a subprocess and re-emits its catalog.
+  const cachedCatalog = getCatalog(sessRow.workDir);
+  const commands = cachedCatalog?.length
+    ? cachedCatalog
+    : skillsToCommandInfo((await listSkills(dbh, sessRow.userId)).filter((s) => s.enabled));
+
   return {
     blocks,
     totalTokens: sessRow.totalTokens,
@@ -58,7 +69,7 @@ export async function buildSnapshot(args: BuildSnapshotArgs): Promise<SnapshotPa
     approvalMode: sessRow.approvalMode as ApprovalMode,
     effort: (sessRow.effort as EffortLevel | null) ?? null,
     ultracode: sessRow.ultracode,
-    commands: getCatalog(sessRow.workDir) ?? [],
+    commands,
     contextUsage: activeSession?.lastContextUsage ?? null,
     live: {
       turnInProgress,

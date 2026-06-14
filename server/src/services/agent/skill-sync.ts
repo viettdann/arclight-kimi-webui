@@ -6,7 +6,7 @@ import { applySkillsToCatalog } from './commands-catalog';
 import { disposeQuery } from './query-runner';
 
 // Propagate a user's skill change (upload / enable-toggle / delete) into their
-// live sessions. The per-turn restore only re-materializes skills when a fresh
+// live sessions. Skills are re-materialized and re-discovered only when a fresh
 // subprocess spawns, so a long-lived subprocess never sees a mid-session change.
 // This bridges that gap WITHOUT eagerly spawning a subprocess:
 //   1. Overlay the new skill set onto each session's catalog and broadcast it,

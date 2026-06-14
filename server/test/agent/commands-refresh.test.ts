@@ -13,9 +13,8 @@ mock.module('../../src/lib/ws-broadcast', () => ({
   },
 }));
 
-const { refreshCatalog, applySkillsToCatalog, getCatalog, setCatalog } = await import(
-  '../../src/services/agent/commands-catalog'
-);
+const { refreshCatalog, applySkillsToCatalog, setCatalogFromRich, getCatalog, setCatalog } =
+  await import('../../src/services/agent/commands-catalog');
 
 function fakeActive(workDir: string, supported: () => Promise<SlashCommand[]>): ActiveSession {
   return {
@@ -62,6 +61,33 @@ describe('refreshCatalog', () => {
       { name: 'pdf', description: '', argumentHint: '', kind: 'skill' as const },
     ];
     expect(getCatalog(workDir)).toEqual(expected);
+    const ev = broadcasts.find((b) => b.type === 'commands_available');
+    expect((ev?.payload as CommandsAvailablePayload).commands).toEqual(expected);
+  });
+});
+
+describe('setCatalogFromRich', () => {
+  it('replaces the catalog from a commands_changed push, tagging skills by name', () => {
+    broadcasts.length = 0;
+    const workDir = '/tmp/work-rich-1';
+    const active = catalogActive(workDir);
+
+    setCatalogFromRich(
+      active,
+      [
+        { name: 'deploy', description: 'Ship it', argumentHint: '[env]' },
+        { name: 'verifier', description: 'Review work', argumentHint: '' },
+      ],
+      ['verifier', 'not-present'],
+      fakeManager,
+    );
+
+    const expected = [
+      { name: 'deploy', description: 'Ship it', argumentHint: '[env]', kind: 'project' as const },
+      { name: 'verifier', description: 'Review work', argumentHint: '', kind: 'skill' as const },
+    ];
+    expect(getCatalog(workDir)).toEqual(expected);
+    expect(active.commands).toEqual(expected);
     const ev = broadcasts.find((b) => b.type === 'commands_available');
     expect((ev?.payload as CommandsAvailablePayload).commands).toEqual(expected);
   });

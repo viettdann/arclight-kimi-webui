@@ -68,13 +68,46 @@ export function buildCatalog(
   return out;
 }
 
+/** Store a catalog for the session + workDir and broadcast it to connected clients. */
+function publishCatalog(
+  active: ActiveSession,
+  commands: CommandInfo[],
+  manager: SessionManager,
+): void {
+  setCatalog(active.workDir, commands);
+  active.commands = commands;
+  broadcastEvent<CommandsAvailablePayload>(active, 'commands_available', { commands }, manager);
+}
+
+/**
+ * Map enabled skills to skill catalog entries (name + description, no argument
+ * hint), skipping any name already in `taken` and any built-in/blacklisted name.
+ * Pure — shared by the live skill overlay and the snapshot fallback.
+ */
+export function skillsToCommandInfo(
+  enabled: readonly { name: string; description: string }[],
+  taken: ReadonlySet<string> = new Set(),
+): CommandInfo[] {
+  const used = new Set(taken);
+  const out: CommandInfo[] = [];
+  for (const s of enabled) {
+    // Built-ins live in the static catalog; blacklisted names are never usable.
+    if (used.has(s.name) || BLACKLIST[s.name] !== undefined || STATIC_PASSTHROUGH.has(s.name)) {
+      continue;
+    }
+    used.add(s.name);
+    out.push({ name: s.name, description: s.description, argumentHint: '', kind: 'skill' });
+  }
+  return out;
+}
+
 /**
  * Overlay a user's enabled skills onto a session's cached catalog and broadcast
  * the result, WITHOUT spawning a subprocess. Used the moment skills change so the
  * picker accepts `/skill` immediately (the client hard-blocks unknown commands on
  * send). Project commands keep their rich metadata from the prior catalog; skill
  * entries are rebuilt from the DB (name + description, no argument hint). The next
- * real `system/init` overwrites this with the authoritative catalog.
+ * authoritative `system/init` or `system/commands_changed` overwrites this.
  */
 export function applySkillsToCatalog(
   active: ActiveSession,
@@ -84,19 +117,7 @@ export function applySkillsToCatalog(
   const existing = active.commands ?? getCatalog(active.workDir) ?? [];
   const nonSkill = existing.filter((c) => c.kind !== 'skill');
   const taken = new Set(nonSkill.map((c) => c.name));
-  const skillCmds: CommandInfo[] = [];
-  for (const s of enabled) {
-    // Built-ins live in the static catalog; blacklisted names are never usable.
-    if (taken.has(s.name) || BLACKLIST[s.name] !== undefined || STATIC_PASSTHROUGH.has(s.name)) {
-      continue;
-    }
-    taken.add(s.name);
-    skillCmds.push({ name: s.name, description: s.description, argumentHint: '', kind: 'skill' });
-  }
-  const commands = [...nonSkill, ...skillCmds];
-  setCatalog(active.workDir, commands);
-  active.commands = commands;
-  broadcastEvent<CommandsAvailablePayload>(active, 'commands_available', { commands }, manager);
+  publishCatalog(active, [...nonSkill, ...skillsToCommandInfo(enabled, taken)], manager);
 }
 
 /**
@@ -117,8 +138,23 @@ export async function refreshCatalog(
   } catch {
     // Names-only fallback: build the catalog without rich metadata.
   }
-  const commands = buildCatalog(slashCommands, skills, rich);
-  setCatalog(active.workDir, commands);
-  active.commands = commands;
-  broadcastEvent<CommandsAvailablePayload>(active, 'commands_available', { commands }, manager);
+  publishCatalog(active, buildCatalog(slashCommands, skills, rich), manager);
+}
+
+/**
+ * Replace a session's catalog from the SDK's `system/commands_changed` push,
+ * which carries the full authoritative command list as rich `SlashCommand`s
+ * (`supportedCommands()` is captured once at init and never reflects later
+ * changes). `skillNames` classifies which entries are skills — the SDK
+ * `SlashCommand` shape carries no skill-vs-project distinction.
+ */
+export function setCatalogFromRich(
+  active: ActiveSession,
+  rich: readonly SlashCommand[],
+  skillNames: readonly string[],
+  manager: SessionManager,
+): void {
+  const names = rich.map((c) => c.name);
+  const skills = skillNames.filter((n) => names.includes(n));
+  publishCatalog(active, buildCatalog(names, skills, [...rich]), manager);
 }

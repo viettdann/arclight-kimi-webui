@@ -127,9 +127,10 @@ export async function reconcileSkillsDir(
 }
 
 /**
- * Materialize a user's enabled skills into `${configDir}/skills`. The agent SDK
- * auto-loads skills from this dir each turn, but the dir is tmpfs and wiped on
- * restart, so this runs before every turn at the onboarding point.
+ * Materialize a user's enabled skills into `${configDir}/skills`. The SDK
+ * subprocess discovers skills from this dir once, at process init — not per turn
+ * — so this must run before each `query()` spawn (see `startQuery`). The dir is
+ * tmpfs and wiped on restart, so every spawn re-materializes from the DB.
  *
  * Best-effort: any failure is logged and swallowed so it never aborts the turn.
  */

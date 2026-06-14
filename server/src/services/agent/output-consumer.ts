@@ -39,8 +39,9 @@ import { broadcastEvent } from '../../lib/ws-broadcast';
 import { resolveProviderForUser } from '../providers/resolve';
 import type { ActiveSession } from '../session-manager';
 import { sessionManager } from '../session-manager';
+import { listEnabledSkillMeta } from '../skills/store';
 import { normalizeApiError } from './api-errors';
-import { refreshCatalog } from './commands-catalog';
+import { refreshCatalog, setCatalogFromRich } from './commands-catalog';
 import { toDisplayBlocks } from './display-blocks';
 import { mapTaskUsage } from './task-usage';
 import { generateTitle } from './title';
@@ -422,6 +423,27 @@ export async function consumeQueryOutput(active: ActiveSession): Promise<void> {
         void refreshCatalog(active, msg.slash_commands, msg.skills, sessionManager).catch((err) => {
           log.error({ err, sessionId: active.sessionId }, 'failed to refresh command catalog');
         });
+        break;
+      }
+      case 'commands_changed': {
+        // `supportedCommands()` is captured once at init and never reflects later
+        // changes, so the SDK pushes the authoritative list here (e.g. after a
+        // skill reload or skills discovered in a subdir). REPLACE the cached
+        // catalog. Skill-vs-project kind comes from the user's enabled-skill names
+        // (the SlashCommand shape carries no such distinction).
+        const { commands } = msg;
+        void listEnabledSkillMeta(db, active.userId)
+          .then((meta) =>
+            setCatalogFromRich(
+              active,
+              commands,
+              meta.map((m) => m.name),
+              sessionManager,
+            ),
+          )
+          .catch((err) => {
+            log.error({ err, sessionId: active.sessionId }, 'failed to apply commands_changed');
+          });
         break;
       }
       case 'compact_boundary': {
