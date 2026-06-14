@@ -11,14 +11,15 @@ import {
   MAX_ENCODED_LEN,
   projectTranscriptDir,
   readTranscriptTitleInputs,
+  restoreLocalSession,
   subagentDir,
   transcriptPath,
 } from '../../src/services/agent/transcript-store';
 
-// The module is now db-free: every export reads either pure strings
-// (encodeCwd / *FromJsonl) or the local JSONL on disk (clearLocalSession /
-// readTranscriptTitleInputs). No db mock needed — the SDK store owns DB
-// persistence.
+// Most exports are db-free: pure strings (encodeCwd / *FromJsonl) or local JSONL
+// on disk (clearLocalSession / readTranscriptTitleInputs). `restoreLocalSession`
+// reads the SDK store via an injected `exec` (a fake here), then writes the
+// local JSONL — so it is exercised with a stub executor, no real DB.
 
 // Paths are per-user: `<AGENT_STATE_ROOT>/<userSlug>/projects/<enc(cwd)>`.
 // `agentConfigDirFor(cwd)` derives the per-user config dir from the cwd's first
@@ -248,6 +249,69 @@ describe('clearLocalSession', () => {
   it('is a no-op on a missing session (never throws)', async () => {
     const cwd = join(WS, 'dan.le', `clear-missing-${seq + 100}`);
     await expect(clearLocalSession(cwd, 'no-such')).resolves.toBeUndefined();
+  });
+});
+
+describe('restoreLocalSession', () => {
+  let seq = 0;
+  const dirs: string[] = [];
+
+  // Stub SqlExecutor: `readSessionEntries` runs one `execute()` returning all
+  // rows (main + subagent subpaths). A plain array satisfies `rowsOf`.
+  const execReturning = (rows: Array<{ subpath: string | null; entry: unknown }>) => ({
+    execute: async () => rows,
+  });
+
+  afterEach(async () => {
+    await Promise.all(dirs.map((d) => rm(d, { recursive: true, force: true })));
+    dirs.length = 0;
+  });
+
+  it('writes the main jsonl and per-subpath subagent transcripts from the store', async () => {
+    seq += 1;
+    const cwd = join(WS, 'dan.le', `restore-test-${seq}`);
+    const id = `sdk-restore-${seq}`;
+    dirs.push(projectTranscriptDir(cwd));
+
+    const mainEntry = { type: 'user', message: { role: 'user', content: 'hi' } };
+    const subEntry = { type: 'assistant', uuid: 'a1' };
+    await restoreLocalSession(
+      cwd,
+      id,
+      execReturning([
+        { subpath: null, entry: mainEntry },
+        { subpath: 'subagents/agent-1', entry: subEntry },
+      ]),
+    );
+
+    const mainPath = transcriptPath(cwd, id);
+    expect(await Bun.file(mainPath).text()).toBe(`${JSON.stringify(mainEntry)}\n`);
+    const subFile = join(subagentDir(cwd, id), 'agent-1.jsonl');
+    expect(await Bun.file(subFile).text()).toBe(`${JSON.stringify(subEntry)}\n`);
+  });
+
+  it('clears a stale subtree before writing so it never shadows the DB', async () => {
+    seq += 1;
+    const cwd = join(WS, 'dan.le', `restore-stale-${seq}`);
+    const id = `sdk-stale-${seq}`;
+    dirs.push(projectTranscriptDir(cwd));
+
+    // A stale subagent file from a prior run that the store no longer carries.
+    const staleSub = join(subagentDir(cwd, id), 'agent-old.jsonl');
+    await mkdir(dirname(staleSub), { recursive: true });
+    await writeFile(staleSub, '{"type":"assistant"}');
+
+    await restoreLocalSession(cwd, id, execReturning([{ subpath: null, entry: { type: 'user' } }]));
+
+    expect(await Bun.file(staleSub).exists()).toBe(false);
+    expect(await Bun.file(transcriptPath(cwd, id)).exists()).toBe(true);
+  });
+
+  it('is a no-op when the store has no entries (fresh session)', async () => {
+    const cwd = join(WS, 'dan.le', `restore-empty-${seq + 100}`);
+    const id = 'sdk-empty';
+    await expect(restoreLocalSession(cwd, id, execReturning([]))).resolves.toBeUndefined();
+    expect(await Bun.file(transcriptPath(cwd, id)).exists()).toBe(false);
   });
 });
 

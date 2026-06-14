@@ -15,8 +15,8 @@ import { agentConfigDirFor, agentHomeFor } from './agent-paths';
 import { buildCanUseTool } from './approval';
 import { buildAgentEnv } from './env';
 import { ensureClaudeOnboarding } from './onboarding';
-import { sessionStore } from './session-store';
-import { clearLocalSession } from './transcript-store';
+import { saveOnlySessionStore } from './session-store';
+import { restoreLocalSession } from './transcript-store';
 
 // Build and launch the live SDK `query` for one in-flight turn. The session's
 // approval mode maps to the SDK permission mode + the `canUseTool` callback;
@@ -91,14 +91,16 @@ export async function startQuery(
   const includeCoAuthoredBy = await getGitIncludeCoAuthoredBy(db, active.userId);
   const attribution = includeCoAuthoredBy ? undefined : { commit: '', pr: '' };
 
-  // Delete-local-before-resume guard: discard any local scratch JSONL so the
-  // SDK `load()` rematerializes this session from the DB store (the single
-  // source of truth), regardless of whether `agent-state` is tmpfs or a
-  // persistent volume. The subprocess has not started yet, so no concurrent
-  // write races this delete. Only runs on resume (a new session has nothing to
-  // clear and must keep the file the binary is about to create).
+  // Resume-in-place: rematerialize the transcript from the DB store (the single
+  // source of truth) into THIS per-user config dir, beside the materialized
+  // skills, so the binary resumes from a dir that has both. The query runs with
+  // `saveOnlySessionStore` (load disabled), so the SDK never builds its own
+  // `/tmp/claude-resume-*` dir — which would carry the transcript but no skills,
+  // leaving the resumed turn with zero skills. The subprocess has not started
+  // yet, so no concurrent write races this. Only runs on resume (a new session
+  // has nothing to restore and keeps the file the binary creates).
   if (opts.resume) {
-    await clearLocalSession(active.workDir, opts.resume);
+    await restoreLocalSession(active.workDir, opts.resume);
   }
 
   const q = query({
@@ -127,8 +129,9 @@ export async function startQuery(
       env,
       // Dual-write transcript mirror: the subprocess writes local JSONL, the SDK
       // mirrors each frame to the DB store. `eager` flushes per frame (~100ms) so
-      // a mid-turn reload sees the transcript within ~1 frame of live.
-      sessionStore,
+      // a mid-turn reload sees the transcript within ~1 frame of live. Save-only
+      // (load disabled) so resume stays in place — see `restoreLocalSession`.
+      sessionStore: saveOnlySessionStore,
       sessionStoreFlush: 'eager',
       // Highest-priority "flag settings" layer. Workflows are always enabled so
       // ultracode (xhigh + standing workflow orchestration) can be turned on per

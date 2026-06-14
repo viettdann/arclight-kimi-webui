@@ -1,7 +1,9 @@
-import { rm } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import { db } from '../../db';
 import { logger } from '../../lib/logger';
 import { agentConfigDirFor } from './agent-paths';
+import { readSessionEntries, type SqlExecutor } from './session-store';
 
 const log = logger.child({ module: 'agent/transcript-store' });
 
@@ -71,6 +73,52 @@ export async function clearLocalSession(cwd: string, sdkSessionId: string): Prom
     await Promise.all([rm(jsonl, { force: true }), rm(subtree, { recursive: true, force: true })]);
   } catch (err) {
     log.warn({ err, sdkSessionId, jsonl }, 'failed to clear local session scratch');
+  }
+}
+
+/** Serialize store entries as the binary's newline-delimited JSONL (one object
+ *  per line, trailing newline). Empty input yields an empty file. */
+function toJsonl(entries: readonly unknown[]): string {
+  return entries.length ? `${entries.map((e) => JSON.stringify(e)).join('\n')}\n` : '';
+}
+
+/**
+ * Rematerialize a session's transcript from the DB store into THIS per-user
+ * config dir — the main `<sdkSessionId>.jsonl` plus the `<sdkSessionId>/`
+ * subagent subtree — so the binary resumes in place from a config dir that also
+ * holds the user's materialized skills. Paired with `saveOnlySessionStore`,
+ * which disables the SDK's own `load()` (it would copy the transcript into a
+ * throwaway `/tmp/claude-resume-*` dir that has no `skills/`). The subtree is
+ * cleared first so a stale local copy never shadows the DB truth.
+ *
+ * Best-effort: any failure is logged and swallowed; a fresh session with no
+ * stored entries is a no-op (the binary creates the file itself).
+ */
+export async function restoreLocalSession(
+  cwd: string,
+  sdkSessionId: string,
+  exec: SqlExecutor = db,
+): Promise<void> {
+  try {
+    const { main, subagents } = await readSessionEntries(exec, sdkSessionId);
+    if (main.length === 0 && subagents.size === 0) return;
+
+    const mainPath = transcriptPath(cwd, sdkSessionId);
+    const sessionDir = join(projectTranscriptDir(cwd), sdkSessionId);
+    await rm(sessionDir, { recursive: true, force: true });
+    await mkdir(dirname(mainPath), { recursive: true });
+
+    const writes: Promise<unknown>[] = [writeFile(mainPath, toJsonl(main))];
+    for (const [subpath, entries] of subagents) {
+      // Store subpaths are `subagents/<name>`; never let one escape the session dir.
+      if (subpath.includes('..') || subpath.startsWith('/')) continue;
+      const subFile = join(sessionDir, `${subpath}.jsonl`);
+      await mkdir(dirname(subFile), { recursive: true });
+      writes.push(writeFile(subFile, toJsonl(entries)));
+    }
+    await Promise.all(writes);
+  } catch (err) {
+    log.warn({ err, sdkSessionId }, 'failed to restore local session from store');
   }
 }
 

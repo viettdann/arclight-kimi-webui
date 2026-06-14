@@ -110,6 +110,17 @@ export function createSessionStore(exec: SqlExecutor): SessionStore {
 export const sessionStore = createSessionStore(db);
 
 /**
+ * The session store with `load()` forced to null, everything else passed
+ * through. The SDK calls `load()` only to rehydrate a resumed transcript, and it
+ * does so by copying it into a throwaway `${tmpdir}/claude-resume-*` config dir
+ * that carries the transcript + credentials but NOT the user's `skills/`. A
+ * null load makes the SDK resume IN PLACE from the real per-user config dir
+ * instead; `restoreLocalSession` materializes the transcript there first, beside
+ * the materialized skills. Live mirroring via `append()` is unaffected.
+ */
+export const saveOnlySessionStore: SessionStore = { ...sessionStore, load: async () => null };
+
+/**
  * App-side read keyed by `sdk_session_id` (globally unique, so no projectKey
  * filter is needed). Returns the main transcript entries plus a per-subpath map
  * of subagent entries, both in append order — the shape `renderEntries` and the
